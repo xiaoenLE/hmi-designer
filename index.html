@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="favicon.ico">
+<title>WebHMI_设计器</title>
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/widgets.css">
+<link rel="stylesheet" href="css/runtime.css">
+<link rel="stylesheet" href="css/script.css">
+</head>
+<body>
+
+<!-- ══════════ 顶部工具栏 ══════════ -->
+<header id="toolbar">
+  <div class="tb-logo">
+    <svg viewBox="0 0 24 24" width="22" height="22"><rect x="2" y="4" width="20" height="14" rx="2" fill="none" stroke="#2563eb" stroke-width="2"/><path d="M7 18v3M17 18v3M6 9h6M6 13h9" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/></svg>
+    <span>WebHMI_设计器</span>
+  </div>
+  <div class="tb-group">
+    <button id="btnRun" class="tb-btn primary" title="进入运行预览 (F5)">▶ 运行</button>
+    <button id="btnUndo" class="tb-btn" title="撤销 (Ctrl+Z)">↶ 撤销</button>
+    <button id="btnRedo" class="tb-btn" title="重做 (Ctrl+Y)">↷ 重做</button>
+  </div>
+  <div class="tb-group" id="alignGroup" style="display:none">
+    <span class="tb-label">对齐</span>
+    <button class="tb-btn sm" data-align="left" title="左对齐">⇤</button>
+    <button class="tb-btn sm" data-align="hcenter" title="水平居中">↔</button>
+    <button class="tb-btn sm" data-align="right" title="右对齐">⇥</button>
+    <button class="tb-btn sm" data-align="top" title="顶对齐">⇧</button>
+    <button class="tb-btn sm" data-align="vcenter" title="垂直居中">↕</button>
+    <button class="tb-btn sm" data-align="bottom" title="底对齐">⇩</button>
+    <button class="tb-btn sm" data-align="hdist" title="水平等间距分布">水平</button>
+    <button class="tb-btn sm" data-align="vdist" title="垂直等间距分布">垂直</button>
+    <span class="tb-label" style="margin-left:6px">尺寸</span>
+    <button class="tb-btn sm" data-size="width" title="等宽（以高亮控件为基准）">等宽</button>
+    <button class="tb-btn sm" data-size="height" title="等高（以高亮控件为基准）">等高</button>
+    <button class="tb-btn sm" data-size="both" title="等大小（以高亮控件为基准）">等大</button>
+    <span class="tb-label" style="margin-left:6px">组合</span>
+    <button id="btnGroup" class="tb-btn sm" title="组合选中控件（Ctrl+G）：之后点一个就选中整组，一起移动/缩放/删除">⧉ 组合</button>
+    <button id="btnUngroup" class="tb-btn sm" title="取消组合（Ctrl+Shift+G）">⧈ 取消组合</button>
+  </div>
+  <div class="tb-group">
+    <button id="btnZTop" class="tb-btn sm" title="置于顶层">⤒ 顶层</button>
+    <button id="btnZBottom" class="tb-btn sm" title="置于底层">⤓ 底层</button>
+    <button id="btnLock" class="tb-btn sm" title="锁定/解锁选中控件（锁定后无法移动缩放）">🔒 锁定</button>
+    <button id="btnGrid" class="tb-btn sm active" title="网格吸附开关"># 网格</button>
+  </div>
+  <div class="tb-spacer"></div>
+  <div class="tb-group">
+    <button id="btnPlc" class="tb-btn" title="连接设备：Modbus TCP（寄存器地址）或 OPC UA（NodeId 寻址）">🔌 PLC</button>
+    <span class="tb-label">工程</span>
+    <input id="projName" class="tb-name" spellcheck="false" title="工程名（保存/打开时的文件名，也是浏览器里那份自动保存的名字）">
+    <button id="btnSave" class="tb-btn" title="保存工程：写回同一个 .json 文件（第一次保存会问你存哪；Ctrl+S 同效）">保存</button>
+    <button id="btnProjMenu" class="tb-btn" title="工程的其它操作：新建 / 打开 / 另存为 / 存到服务器 / 从服务器读">▾</button>
+  </div>
+  <input type="file" id="fileImport" accept=".json" style="display:none">
+</header>
+
+<!-- ══════════ 主体：可停靠面板 + 画布 ══════════ -->
+<div id="workspace">
+
+  <div id="dockRow">
+
+  <!-- 左停靠区 -->
+  <aside id="leftPanel" class="dock">
+    <div class="dock-tabs"></div>
+    <div class="dock-panes">
+
+      <section class="panel" id="panel-alarms" data-panel="alarms">
+        <div class="panel-head"><span class="panel-title">报警</span>
+          <button class="panel-btn" data-redock="1" title="停靠回原来的位置">⇤</button></div>
+        <div class="panel-body">
+          <input id="alarmFilter" class="f-input" style="width:100%;margin-bottom:8px" placeholder="筛选（名称/内容/变量）">
+          <div id="alarmTable"></div>
+          <div class="pane-actions">
+            <button class="tb-btn" id="btnAddAlarm">＋ 添加报警</button>
+            <button class="tb-btn danger" id="btnDelAlarms" hidden
+              title="删除表格里勾选的报警：整批一次删掉，Ctrl+Z 可整体撤销">删除选中</button>
+            <button class="tb-btn" id="btnAlarmCsvIn" title="从 CSV 导入报警：名称,变量,比较,阈值,延时s,级别,内容,启用（Excel 里批量写好内容再导进来）">导入 CSV</button>
+            <button class="tb-btn" id="btnAlarmCsvOut" title="把全部报警导出为 CSV（含内容，Excel 直接打开编辑）">导出 CSV</button>
+          </div>
+          <div class="pane-msg" id="alarmMsg"></div>
+        </div>
+      </section>
+      <section class="panel" id="panel-scripts" data-panel="scripts">
+        <div class="panel-head"><span class="panel-title">脚本</span>
+          <button class="panel-btn" data-redock="1" title="停靠回原来的位置">⇤</button></div>
+        <div class="panel-body">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+            <button class="tb-btn sm" id="btnAddScript">＋ 新建脚本</button>
+            <input id="scriptFilter" class="f-input" style="flex:1;min-width:0" placeholder="筛选（名称/代码/变量）">
+          </div>
+          <div id="scriptTable"></div>
+          <div class="pane-actions">
+            <button class="tb-btn danger" id="btnDelScripts" hidden
+              title="删除表格里勾选的脚本：整批一次删掉，Ctrl+Z 可整体撤销">删除选中</button>
+            <button class="tb-btn" id="btnScriptCsvIn"
+              title="从 CSV 导入脚本：名称,触发,时间ms,变量,比较,阈值,启用,代码（代码那一格能整段进出，可以在 Excel 里批量写好）">导入 CSV</button>
+            <button class="tb-btn" id="btnScriptCsvOut"
+              title="把全部脚本导出为 CSV（含代码，Excel / 记事本都能改完再导回来）">导出 CSV</button>
+          </div>
+          <div class="pane-msg" id="scriptMsg" hidden></div>
+        </div>
+      </section>
+      <section class="panel" id="panel-toolbox" data-panel="toolbox">
+        <div class="panel-head"><span class="panel-title">控件</span>
+          <button class="panel-btn" data-redock="1" title="停靠回原来的位置">⇤</button></div>
+        <div class="panel-body"><div id="toolboxList"></div></div>
+      </section>
+
+      <section class="panel" id="panel-pages" data-panel="pages">
+        <div class="panel-head"><span class="panel-title">页面</span>
+          <button class="panel-btn" data-redock="1" title="停靠回原来的位置">⇤</button></div>
+        <div class="panel-body">
+          <!-- 分组开关放在**内容区**里、不放标题栏：分屏停靠时标题栏整条会被藏掉
+               （css/layout.css 的 .dock-panes.split 那条），放标题栏等于这个按钮在某些布局下点不着。 -->
+          <div class="pg-tools">
+            <button id="btnAddPage" class="tb-btn" title="新建：页面 / 弹窗 / 公共底，以及复制这一页（下拉菜单）。
+弹窗可以指定尺寸和标题栏；公共底是"每页都一样"的那一层（底部导航条 / 标题栏），页面套用它，改一次全变。
+（原来这里是并排四个按钮，面板窄的时候会挤出去 —— 收进下拉就不会超出面板宽度了）">＋ 新建 ▾</button>
+            <button id="btnPgGroup" class="tb-btn" title="按类型分组显示（页面 / 弹窗 / 公共底 各一组，点组表头展开收起）">▤ 分组</button>
+          </div>
+          <div id="pageList"></div>
+        </div>
+        <!-- 单页导入用的文件选择框（菜单项点它） -->
+        <input type="file" id="pageImportFile" accept=".json,application/json" style="display:none">
+        <!-- 控件包导入用的文件选择框（「导入控件包…」菜单项点它，见 editor/widgetIO.js） -->
+        <input type="file" id="widgetPackFile" accept=".json,application/json" style="display:none">
+      </section>
+
+      <section class="panel" id="panel-vars" data-panel="vars">
+        <div class="panel-head"><span class="panel-title">变量</span>
+          <button class="panel-btn" data-redock="1" title="停靠回原来的位置">⇤</button></div>
+        <div class="panel-body">
+          <div id="varFilterRow" class="var-filter-row">
+            <input id="varFilter" class="f-input" style="flex:1;min-width:0"
+              placeholder="搜索变量（名称 / 地址 / 类型）" title="按变量名、地址、类型过滤。搜到的东西会自己把折叠组摊开">
+            <span id="varCount" style="flex:none;color:var(--text-2);font-size:11px"></span>
+          </div>
+          <div id="varTable"></div>
+          <div class="pane-actions">
+            <button id="btnAddVar" class="tb-btn">＋ 添加变量</button>
+            <button id="btnFindVar" class="tb-btn" title="查找变量（Ctrl+F）：它在哪些地方被用到（控件绑定 / 波形通道 / 动作 / 报警条件与内容 / 脚本），一处一行、点「定位」直接跳过去；还能把引用整体替换成另一个变量。
+下次打开会把上次查的那个词填回去、结果自动重跑。">🔍 查找/替换…</button>
+            <button id="btnImportVars" class="tb-btn" title="从 CSV 导入：名称,类型,地址,长度,初始值；同名更新">导入 CSV</button>
+            <button id="btnExportVars" class="tb-btn" title="导出全部变量为 CSV（Excel 可直接打开）">导出 CSV</button>
+            <button id="btnExpandArr" class="tb-btn" hidden
+              title="把选中的数组变量拆成单个标量变量：arrw(int[] , 13) → arrw[1]…arrw[13]（int）。
+CODESYS 的 OPC UA 里数组元素本身就是独立节点（…GVL.arrw[1] 能单独读写），拆开后
+控件不用再管「数组元素」，写元素也不用整段读改写回；Modbus 侧元素就是连续寄存器，一套规则通吃。
+⚠ 展开后原数组变量会被删掉（避免与 arrw[1] 这种名字歧义）。">展开数组</button>
+            <button id="btnDelVars" class="tb-btn danger" hidden>删除选中</button>
+            <input type="file" id="varCsvFile" accept=".csv,text/csv" hidden>
+          </div>
+          <div id="varMsg" class="pane-msg"></div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-list" data-panel="list">
+        <div class="panel-head"><span class="panel-title">清单</span>
+          <button class="panel-btn" data-redock="1" title="停靠回原来的位置">⇤</button></div>
+        <div class="panel-body">
+          <!-- 页面下拉 + 「隐藏名称」：放在面板**内容区**里，不是标题栏 ——
+               分屏停靠时标题栏整条会被藏掉（css/layout.css 的 .dock-panes.split 那条），
+               放标题栏等于这个按钮在某些布局下点不着。 -->
+          <div class="list-tools">
+            <select id="listPageSel" class="f-select"></select>
+            <button class="tb-btn sm" id="listHideBase"
+              title="隐藏公共底那一层的控件：清单只列**这一页自己的**控件。
+底上的控件虽然画在这一页下面，但它们是公共底的东西（改要去底页改）—— 只想看本页自己的东西时把它收起来。">底</button>
+            <button class="tb-btn sm" id="listHideName"
+              title="隐藏控件名称（只留类型 + 配置，列表更紧凑；名字鼠标悬停还能看）">Aa</button>
+          </div>
+          <div id="widgetList"></div>
+        </div>
+      </section>
+
+    </div>
+  </aside>
+
+  <!-- 面板分隔条（拖拽调宽 / 点击折叠） -->
+  <div class="panel-resizer" id="leftResizer" title="拖拽调宽 · 双击恢复默认">
+    <button class="rz-toggle" title="收起/展开面板">‹</button>
+  </div>
+
+  <!-- 中栏：画布 -->
+  <main id="canvasArea">
+    <div id="canvasToolbar">
+      <span id="pageTitle">主画面</span>
+      <span class="ct-sep"></span>
+      <span id="pageTypeBadge" class="badge">页面</span>
+      <span class="ct-spacer"></span>
+      <button id="btnZoomOut" class="tb-btn sm" title="缩小（Ctrl+滚轮 / Ctrl+减号）">－</button>
+      <button id="zoomLabel" class="zoom-label" title="点击恢复 100%">100%</button>
+      <button id="btnZoomIn" class="tb-btn sm" title="放大（Ctrl+滚轮 / Ctrl+加号）">＋</button>
+      <button id="btnZoomFit" class="tb-btn sm" title="缩放到适应窗口（Ctrl+9）">适应</button>
+      <button id="btnCanvasSetting" class="tb-btn sm" title="画布尺寸/背景">画布设置</button>
+    </div>
+    <div id="canvasWrap">
+      <div id="canvas">
+        <!-- 控件由 canvas.js 渲染 -->
+        <div id="selOverlay"></div>
+      </div>
+    </div>
+  </main>
+
+  <div class="panel-resizer" id="rightResizer" title="拖拽调宽 · 双击恢复默认">
+    <button class="rz-toggle" title="收起/展开面板">›</button>
+  </div>
+
+  <!-- 右停靠区 -->
+  <aside id="rightPanel" class="dock">
+    <div class="dock-tabs"></div>
+    <div class="dock-panes">
+      <section class="panel" id="panel-properties" data-panel="properties">
+        <div class="panel-head"><span class="panel-title">属性</span>
+          <button class="panel-btn" data-redock="1" title="停靠回原来的位置">⇤</button></div>
+        <div class="panel-body"><div id="propBody"><div class="prop-empty">未选中控件</div></div></div>
+      </section>
+    </div>
+  </aside>
+
+  </div><!-- /dockRow -->
+
+  <!-- 底部停靠区（默认空 → 自动隐藏） -->
+  <div class="dock-resizer-h" id="bottomResizer" title="拖拽调高 · 双击恢复默认">
+    <button class="rz-toggle-h" title="收起/展开底部面板">▾</button>
+  </div>
+  <aside id="bottomPanel" class="dock dock-bottom">
+    <div class="dock-tabs"></div>
+    <div class="dock-panes"></div>
+  </aside>
+
+</div>
+
+<!-- ══════════ 状态栏 ══════════ -->
+<footer id="statusbar">
+  <span id="stBackend" class="st-dot offline" title="Python 后端连接状态">后端：离线(模拟)</span>
+  <span class="st-sep"></span>
+  <span id="stPlc" class="st-dot offline" title="PLC 数据源状态（点工具栏 🔌 PLC 配置）">PLC：未连接</span>
+  <span class="st-sep"></span>
+  <span id="stWrite" class="st-write hidden" title="最近一次下发到后端/PLC 的结果">下发正常</span>
+  <span class="st-sep"></span>
+  <span id="stPos">x: - , y: -</span>
+  <span class="st-sep"></span>
+  <span id="stSel">未选中</span>
+  <span class="st-spacer"></span>
+  <!-- 「有新版本」提示：常驻到点掉/更新为止（只提示，不自动更新 —— 自动更新会动现场数据）。
+       运行页不初始化这套（见 main.js），客户看不到 -->
+  <span id="stUpdate" class="st-update hidden" role="button" title="有新版本可用（点一下看更新说明）"></span>
+  <!-- 当前版本号：现场报问题第一句就是「你那是哪个版本」，鼠标停上去有版本/日期/更新说明。
+       文字由 editor/updateCheck.js 填（编辑器页面才初始化）→ 运行页这里是空的、不显示 -->
+  <span id="stVersion" class="st-ver hidden" role="button" title="当前版本（点一下检查更新）"></span>
+  <!-- 临时提示（比如"本机浏览器里没有工程，已自动从服务器读回…"）：说一句、过一会儿自己收掉 -->
+  <span id="stNote" class="st-note hidden"></span>
+  <span id="stSave" style="cursor:pointer" title="点一下看：自动保存存在哪（浏览器本地，不是文件）">尚未保存</span>
+</footer>
+
+<!-- ══════════ 运行模式视图（覆盖全屏） ══════════ -->
+<div id="runtimeRoot" class="hidden">
+  <div id="rtPage"></div>
+  <div id="rtPopupLayer"></div>
+  <!-- PLC 断开提醒：运行中 TCP 掉线时一直挂在上面，每 10 秒再闪一下提醒 -->
+  <div id="rtPlcAlarm" class="rt-alarm hidden">
+    <span class="rt-alarm-ico">⚠</span>
+    <span class="rt-alarm-text" id="rtPlcAlarmText">PLC 已断开</span>
+    <span class="rt-alarm-sub" id="rtPlcAlarmSub"></span>
+  </div>
+  <!-- 下发失败提醒：写 PLC 失败时挂一条（比掉线条低一行，两条能同时看见），成功一次就自动收起 -->
+  <div id="rtWriteAlarm" class="rt-alarm warn hidden">
+    <span class="rt-alarm-ico">⚠</span>
+    <span class="rt-alarm-text" id="rtWriteAlarmText">下发失败</span>
+    <span class="rt-alarm-sub" id="rtWriteAlarmSub"></span>
+  </div>
+  <!-- 脚本被自动停用提醒：脚本连续出错 5 次引擎会把它停掉（本次运行内）——
+       这事必须挂在画面上：不然现场只会看到"这个脚本怎么不干活了"，一点线索都没有。
+       详细原因在「脚本日志」面板里（Ctrl+Shift+J），那条日志也已经落盘（logs/script-*.log） -->
+  <div id="rtScriptAlarm" class="rt-alarm warn script hidden">
+    <span class="rt-alarm-ico">⚠</span>
+    <span class="rt-alarm-text" id="rtScriptAlarmText">脚本已停用</span>
+    <span class="rt-alarm-sub" id="rtScriptAlarmSub"></span>
+  </div>
+  <!-- 运行工具条：运行态主页面**一个按钮都不摆**（画面要干净、全屏给现场看）——
+       下面这些元素保留在 DOM 里供代码路径用（按钮显示缩放比例、PLC 对话框入口），
+       实际入口走快捷键（Ctrl+Shift+E/L/V/F）和右键菜单；进运行态会飘一条快捷键提示 -->
+  <div id="rtBar">
+    <button id="rtPlcBtn" title="PLC / OPC UA 连接设置（Ctrl+Shift+L；运行中也能改，改完点确定立即生效）">🔌 PLC 设置</button>
+  </div>
+  <!-- 运行态**左下角常显**的数据源提示：现在这些变量往哪儿走 ——
+       `PLC 变量传输中（IP:端口）` / `OPC UA 变量传输中（端点）` / `内部变量运行中（未接 PLC）· 内部变量 N 个`。
+       文字由 runtime.js 的 updateInternalTip() 按**配置模式**（后端推的 mode）画，
+       不看"有没有连上"：接了 PLC 的工程掉线期间也仍然是 PLC 模式，不许悄悄退化成内部变量模式。
+       ⚠ 它常显、但 pointer-events:none，绝不吃画面上的点击。 -->
+  <div id="rtInternalTip" class="hidden">内部变量运行中（未接 PLC）</div>
+  <!-- 「服务器上还没有工程」时照样进运行态，用这条说明现在显示的是什么（见 main.js） -->
+  <div id="rtNotice" class="hidden"></div>
+  <!-- 快捷键提示：进运行态飘几秒后自动收起（点一下立刻收起），不常驻、不挡画面 -->
+  <div id="rtHint" class="hidden"></div>
+  <button id="rtExit" title="退出运行 (Esc / Ctrl+Shift+E)">✕ 退出运行</button>
+  <button id="rtFit" title="运行画面视图：原始 / 适应 / 填满（Ctrl+Shift+F）">⤢ 适应窗口</button>
+  <div id="rtVarsPanel" class="rt-hidden">
+    <div class="rtv-head" id="rtvHead" title="点击折叠 / 展开变量监控">
+      <span class="rtv-title">变量监控<span id="rtvCount" class="rtv-count"></span></span>
+      <span id="rtvMode" class="badge">本地模拟</span>
+      <button id="rtvFold" class="rtv-fold" title="折叠 / 展开">▾</button>
+    </div>
+    <div class="rtv-filter">
+      <input id="rtvFilter" type="text" placeholder="筛选变量（名称/地址）">
+      <label class="rtv-only" title="只列当前页面在采的变量（变量表上千个时，全列出来会卡）">
+        <input type="checkbox" id="rtvOnly" checked><span>只看本页</span></label>
+      <label class="rtv-only" title="收起「后台一直在采」的变量：波形通道（示波器）、报警条件 —— 它们跟当前画面无关，列表常被它们占满。只有波形在用的才收；本页别的控件上也在用的（同一个量既有曲线又有数值）照旧列。它们在后台照常采，波形不会断、报警照常判">
+        <input type="checkbox" id="rtvNoBg"><span>不看后台</span></label>
+    </div>
+    <div id="rtvList"></div>
+  </div>
+  <!-- 脚本日志面板（Ctrl+Shift+J）：脚本里的 hmi.log/warn/运行错误都在这儿，
+       一份是**内存里的实时日志**（每条脚本最近 60 行），一份是**服务器上落盘的历史**
+       （logs/script-YYYY-MM-DD.log，按天、只留最近 3 天）。进运行态默认收起。 -->
+  <div id="rtLogPanel" class="rt-hidden">
+    <div class="rtv-head" id="rtlHead" title="点击折叠 / 展开脚本日志">
+      <span class="rtv-title">脚本日志<span id="rtlCount" class="rtv-count"></span></span>
+      <span id="rtlBadge" class="rtl-badge hidden">⚠ 有脚本已停用</span>
+      <button id="rtlFold" class="rtv-fold" title="折叠 / 展开">▾</button>
+    </div>
+    <div class="rtv-filter">
+      <button type="button" id="rtlHist" class="rtl-btn" title="读服务器上落盘的那份（logs/script-日期.log）—— 刷新/退出运行态也不会丢">服务器历史</button>
+      <button type="button" id="rtlLive" class="rtl-btn hidden" title="回到内存里这份实时日志">实时</button>
+      <span id="rtlDate" class="rtl-date hidden">
+        <button type="button" id="rtlPrev" class="rtl-nav" title="前一天">‹</button>
+        <b id="rtlDay"></b>
+        <button type="button" id="rtlNext" class="rtl-nav" title="后一天">›</button>
+      </span>
+      <label class="rtv-only" id="rtlDbgWrap" title="脚本里 hmi.logNo(...) 打的调试输出：只在内存里看（不落盘）。默认不显示，免得现场画面上全是调试噪音">
+        <input type="checkbox" id="rtlDbg"><span>调试</span></label>
+      <button type="button" id="rtlClear" class="rtl-btn" title="清掉内存里这份（服务器上落盘的那份不动）">清空</button>
+    </div>
+    <div id="rtlList"></div>
+  </div>
+  <!-- 软键盘（触摸屏输入：数值走数字键盘，string/wstring 走全键盘 + 拼音） -->
+  <div id="numPad" class="hidden">
+    <div class="np-head"><span id="npVar" class="np-var">变量</span><button id="npCancel" class="np-x" title="取消">✕</button></div>
+    <div id="npDisplay" class="np-display">0</div>
+    <div id="npCand" class="np-cand hidden"></div>
+    <div id="npKeys" class="np-keys"></div>
+    <div id="npText" class="np-text hidden"></div>
+  </div>
+</div>
+
+<!-- ══════════ 脚本编辑器（近乎全屏：写脚本要看得见上下文）══════════ -->
+<div id="seMask" class="hidden">
+  <div id="seBox">
+    <div class="se-head">
+      <input id="seName" class="f-input se-name" placeholder="脚本名">
+      <select id="seTrig" class="f-input se-trig"></select>
+      <span id="seParams" class="se-params"></span>
+      <span style="flex:1"></span>
+      <button id="seRun" class="tb-btn" title="用当前代码跑一次（写变量、日志都跟运行态一样）">▶ 试运行</button>
+      <button id="seSave" class="tb-btn primary" title="Ctrl+S / Ctrl+Enter">保存</button>
+      <button id="seClose" class="tb-btn" title="Esc">✕</button>
+    </div>
+    <div class="se-body">
+      <div class="se-code">
+        <div id="seGutter" class="se-gutter"></div>
+        <div class="se-editwrap">
+          <pre id="seHl" class="se-hl" aria-hidden="true"></pre>
+          <textarea id="seCode" class="se-area" spellcheck="false" autocomplete="off"></textarea>
+        </div>
+      </div>
+      <div class="se-side">
+        <div class="se-side-sec">
+          <div class="se-side-title">变量怎么写</div>
+          <div id="seVarsWrap" class="se-chips"></div>
+          <div class="se-tip">变量可以直接点出来（<code>hmi.v.名字</code>），也可以写成字符串（<code>hmi.set('名字', 值)</code>）—— 两种完全等价。点上面那条插到光标处。</div>
+        </div>
+        <div class="se-side-sec" style="flex:1;min-height:0">
+          <div class="se-side-title se-side-title-row">
+            <span>API 速查（点一下插入）</span>
+            <button id="seHelp" class="tb-btn sm" title="打开 API 帮助：每个函数干什么、返回值是什么，还有能直接抄进代码的例子（每个例子旁边有「插入」）">? 帮助</button>
+          </div>
+          <div id="seDoc" class="se-doc"></div>
+          <div class="se-tip">
+            算术/分支/循环/模板字符串都能写：<code>1*5</code>、<code>let s=0; for(…) s+=i;</code>、<code>`n=${n}`</code>。<br>
+            只是「光写一个表达式」不会有输出 —— 要看得见就 <code>hmi.log(1*5)</code>、<code>hmi.set('x', 1*5)</code>，
+            或者点「▶ 试运行」：它会像控制台一样把**最后一句话的值**打出来。
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="se-foot">
+      <div class="se-foot-head">
+        <span id="seStatus" class="se-status"></span>
+        <span style="flex:1"></span>
+        <button id="seServerLog" class="tb-btn sm" title="读服务器上落盘的那份（logs/script-日期.log）—— 内存里这份刷新/退出运行态就没了，落盘那份才是历史">服务器日志</button>
+        <button id="seClearLog" class="tb-btn sm">清日志</button>
+      </div>
+      <pre id="seLog" class="se-log"></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 右键菜单 ══════════ -->
+<div id="ctxMenu" class="hidden" role="menu"></div>
+
+<!-- ══════════ 通用对话框 ══════════ -->
+<div id="dlgMask" class="hidden">
+  <div id="dlgBox">
+    <!-- 右上角的 ✕：**每个对话框都有**（跟脚本编辑器那个 ✕ 一个习惯）。
+         以前只有底部的「取消」，弹窗一大（PLC 设置、API 帮助）就得先找到底下的按钮才关得掉。 -->
+    <button type="button" id="dlgX" class="dlg-x" title="关闭（Esc）">✕</button>
+    <div id="dlgTitle">对话框</div>
+    <div id="dlgBody"></div>
+    <div id="dlgFoot">
+      <button id="dlgOk" class="tb-btn primary">确定</button>
+      <button id="dlgCancel" class="tb-btn">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 启动自检（内联普通脚本：模块被浏览器拦下时它照样执行）══════════ -->
+<div id="bootHint" class="hidden"></div>
+<script>
+(function () {
+  var box = document.getElementById('bootHint');
+  function show(title, lines) {
+    box.innerHTML = '<b>' + title + '</b>'
+      + lines.map(function (l) { return '<div>' + l + '</div>'; }).join('');
+    box.classList.remove('hidden');
+  }
+  window.__bootError = null;
+  window.__bootErrors = [];
+  var MAX_RETRY = 2;
+  var retrying = false;
+  function retryBoot() {
+    if (retrying) return;
+    var tries = parseInt(sessionStorage.getItem('hmi-boot-retry') || '0', 10);
+    if (tries >= MAX_RETRY) return;
+    retrying = true;
+    sessionStorage.setItem('hmi-boot-retry', String(tries + 1));
+    location.reload();
+  }
+  window.addEventListener('error', function (e) {
+    if (window.app) return;
+    if (e && e.message) window.__bootError = e.message;
+    window.__bootErrors.push({
+      msg: e && e.message || '',
+      file: e && e.filename || '',
+      line: e && e.lineno || 0, col: e && e.colno || 0,
+      tag: e && e.target && e.target.tagName || '',
+      src: e && e.target && e.target.src || ''
+    });
+    // main.js（ES module）偶发加载失败（尤其 pywebview/WebView2）→ 立即重载一次
+    if (e && e.target && e.target.tagName === 'SCRIPT' && /\/js\/main\.js(\?|$)/.test(e.target.src || '')) {
+      retryBoot();
+    }
+  }, true);
+  window.addEventListener('unhandledrejection', function (e) {
+    window.__bootErrors.push({ msg: 'rejection: ' + (e && e.reason && (e.reason.message || String(e.reason)) || '') });
+  });
+
+  // 1) 双击 index.html 打开：浏览器禁止 file:// 页面加载 ES 模块（js/*.js 全部被拦）
+  if (location.protocol === 'file:') {
+    show('请通过服务打开，不要直接双击 index.html', [
+      '浏览器禁止 file:// 页面加载 ES 模块（js/*.js），所以界面不会启动。',
+      '解决：双击工程目录里的 <b>start_server.bat</b>，然后访问 <b>http://127.0.0.1:8866/</b>',
+      '（命令行也行：<code>python server/server.py</code>）'
+    ]);
+    return;
+  }
+
+  // 2) 其它原因没启动（常见：浏览器缓存了旧页面导致新老文件不匹配）
+  setTimeout(function () {
+    if (window.app) { sessionStorage.removeItem('hmi-boot-retry'); return; }
+    if (!box.classList.contains('hidden')) return;   // main.js 已显示提示（如"服务器上还没有工程"）
+    var tries = parseInt(sessionStorage.getItem('hmi-boot-retry') || '0', 10);
+    if (tries < MAX_RETRY) { retryBoot(); return; }
+    sessionStorage.removeItem('hmi-boot-retry');
+    show('界面没能启动', [
+      '请按 <b>Ctrl+F5</b> 强制刷新（多半是浏览器缓存了旧版本的页面）。',
+      '仍不行：确认服务是从本工程目录启动的（双击 start_server.bat）。',
+      window.__bootError ? '错误信息：' + window.__bootError : '按 F12 打开控制台可看到具体错误。'
+    ]);
+  }, 4000);
+})();
+</script>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

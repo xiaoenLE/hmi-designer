@@ -1,0 +1,20 @@
+{
+    "app":  "WebHMI_设计器",
+    "version":  "1.0.7",
+    "date":  "2026-10-04",
+    "notes":  "1. 软键盘：新增工程级设置（工程 ▾ → 软键盘设置…）——运行态触摸输入可选「替换当前输入」或「编辑」，标题显示变量名或控件名\n2. 脚本：新增日志输出 hmi.log / hmi.logNo 与日志设置，可配条数上限并自动清理\n3. 按页采集：编辑器里可预览「本页要采哪些变量」，采集范围一目了然\n4. 采样与走时更稳：空转时不再无谓占用（ticker / 轮询闸门）\n5. 更新提示只显示这次改了什么；安装器修好小屏与高 DPI 机器（「开始安装」不再被挤出屏幕）",
+    "url":  "http://124.221.183.24:3000/xiaoen/hmi-designer",
+    "min_launcher":  "1.0.0",
+    "app_zip":  {
+                    "url":  "http://124.221.183.24:3000/xiaoen/hmi-designer/releases/download/v1.0.7/WebHMI-Designer-1.0.7-app.zip",
+                    "file":  "WebHMI-Designer-1.0.7-app.zip",
+                    "sha256":  "97631b77cb2237ec233e172decf7fd204247c5f38f8025be9e6df7642c9fe6ff",
+                    "size":  3384211
+                },
+    "setup":  {
+                  "url":  "http://124.221.183.24:3000/xiaoen/hmi-designer/releases/download/v1.0.7/WebHMI-Designer-Setup-1.0.7.exe",
+                  "file":  "WebHMI-Designer-Setup-1.0.7.exe",
+                  "sha256":  "d67c7aa628f439f8deae18aed0ca26c5d8f80719a108a8efb531623814c347cf",
+                  "size":  38519953
+              }
+}

@@ -1,0 +1,20 @@
+{
+    "app":  "HMI 组态设计器",
+    "version":  "1.0.5",
+    "date":  "2026-10-04",
+    "notes":  "发布物与说明文档并入本仓库（安装包/代码包作为 tag 附件，更新清单在 release/version.json）；更新源指向本仓库",
+    "url":  "http://124.221.183.24:3000/xiaoen/hmi-designer",
+    "min_launcher":  "1.0.0",
+    "app_zip":  {
+                    "url":  "http://124.221.183.24:3000/xiaoen/hmi-designer/releases/download/v1.0.5/HMI-Designer-1.0.5-app.zip",
+                    "file":  "HMI-Designer-1.0.5-app.zip",
+                    "sha256":  "26d3c8dd7024bdc85a1ec7d1f69abae1dddd86d544b7c85de91e00ea8b14e4aa",
+                    "size":  3221100
+                },
+    "setup":  {
+                  "url":  "http://124.221.183.24:3000/xiaoen/hmi-designer/releases/download/v1.0.5/HMIDesigner-Setup-1.0.5.exe",
+                  "file":  "HMIDesigner-Setup-1.0.5.exe",
+                  "sha256":  "50256e0216ea707f6fad2d311e1e09107b1b57a57d0d44c7d11609a796ee3567",
+                  "size":  38350353
+              }
+}

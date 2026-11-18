@@ -1,0 +1,36 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Symbolconfiguration xmlns="http://www.3s-software.com/schemas/Symbolconfiguration.xsd">
+  <Header>
+    <Version>3.5.14.0</Version>
+    <SymbolConfigObject version="4.5.2.0" runtimeid="3.5.20.60" libversion="4.5.0.0" compiler="3.5.20.60" lmm="3.5.20.60" profile="Invtmatic Studio V3.0+" settings="SupportOPCUA, LayoutCalculator=OptimizedClientSideLayoutCalculator" />
+    <ProjectInfo name="OPCUA" devicename="Device" appname="Application" />
+  </Header>
+  <TypeList>
+    <TypeSimple name="T_BOOL" size="1" swapsize="0" typeclass="Bool" iecname="BOOL" />
+    <TypeSimple name="T_INT" size="2" swapsize="2" typeclass="Int" iecname="INT" />
+    <TypeSimple name="T_LREAL" size="8" swapsize="8" typeclass="LReal" iecname="LREAL" />
+    <TypeSimple name="T_REAL" size="4" swapsize="4" typeclass="Real" iecname="REAL" />
+    <TypeSimple name="T_STRING" size="81" swapsize="0" typeclass="String" iecname="STRING" />
+    <TypeSimple name="T_UINT" size="2" swapsize="2" typeclass="UInt" iecname="UINT" />
+    <TypeSimple name="T_WORD" size="2" swapsize="2" typeclass="Word" iecname="WORD" />
+    <TypeSimple name="T_WSTRING" size="162" swapsize="2" typeclass="WString" iecname="WSTRING" />
+    <TypeArray name="T_ARRAY__1__13__OF_INT" size="26" nativesize="26" typeclass="Array" iecname="ARRAY [1..13] OF INT" basetype="T_INT">
+      <ArrayDim minrange="1" maxrange="13" />
+    </TypeArray>
+  </TypeList>
+  <NodeList>
+    <Node name="Application">
+      <Node name="GVL">
+        <Node name="a" type="T_INT" access="ReadWrite" />
+        <Node name="arrw" type="T_ARRAY__1__13__OF_INT" access="ReadWrite" />
+        <Node name="b" type="T_UINT" access="ReadWrite" />
+        <Node name="c" type="T_REAL" access="ReadWrite" />
+        <Node name="d" type="T_LREAL" access="ReadWrite" />
+        <Node name="dd" type="T_BOOL" access="ReadWrite" />
+        <Node name="string0" type="T_STRING" access="ReadWrite" />
+        <Node name="w" type="T_WORD" access="ReadWrite" />
+        <Node name="wstring0" type="T_WSTRING" access="ReadWrite" />
+      </Node>
+    </Node>
+  </NodeList>
+</Symbolconfiguration>

@@ -1,0 +1,36 @@
+# 按天滚动的运行日志（server.py 自动生成）
+logs/
+
+# Python 字节码缓存
+__pycache__/
+*.pyc
+
+# WebView 浏览器运行时缓存（36MB，纯二进制垃圾，每次启动都在变）
+server/data/webview/
+
+# 运行时状态数据（登录口令哈希、会话、历史记录，每次运行都在变）
+# 注意：hmi_project.json（画面工程数据）、vars.json（PLC 变量配置）、plc.json 必须保留
+server/data/auth.json
+server/data/sessions.json
+server/data/alarm_history.json
+
+# 「立即更新」留下的东西：重启标记/结果、以及更新前的**代码备份**
+# （备份是现场机器自己的东西，一台一份，不该进版本库；且更新时本来就跳过 server/data）
+server/data/_update/
+server/data/_code_backup/
+
+# 打包产物（build-release.ps1 生成：壳 onedir 49MB / 安装包 36MB / app 包 3MB，不进版本库）
+build/
+dist/
+*.spec.bak
+
+
+
+# ���ʱ���ɵ� exe �汾��Դ��build-release.ps1 ÿ����д��
+packaging/version_info.txt
+
+# log settings (per-machine: log keep days / scriptlog daily cap)
+server/data/settings.json
+
+# 浸泡/探针脚本的输出（out/ 下是每次跑出来的文字结果，属运行产物）
+out/

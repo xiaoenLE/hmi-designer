@@ -1,0 +1,788 @@
+/* ═══════════════════════════════════════════
+   layout.css — 顶部工具栏 / 三栏布局 / 状态栏
+   ═══════════════════════════════════════════ */
+
+/* ── 顶部工具栏 ── */
+#toolbar {
+  height: 46px; flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 0 14px; background: var(--panel); border-bottom: 1px solid var(--border);
+}
+.tb-logo { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; margin-right: 8px; }
+.tb-group { display: flex; align-items: center; gap: 5px; }
+.tb-group .tb-btn { height: 30px; }
+.tb-label { color: var(--text-2); font-size: 12px; margin-right: 2px; }
+/* 工具栏里的工程名输入框：一眼看得见当前是哪个工程，点一下就能改名 */
+.tb-name {
+  width: 150px; height: 30px; padding: 0 8px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+  font-family: inherit; font-size: 12px; outline: none; cursor: text;
+}
+.tb-name:hover { border-color: var(--border-2); }
+.tb-name:focus { border-color: var(--primary); background: #fff; }
+.tb-spacer, .ct-spacer, .st-spacer { flex: 1; }
+
+/* ── 主体：可停靠面板 + 画布 ── */
+#workspace { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#dockRow { flex: 1; display: flex; min-height: 0; }
+
+/* 停靠区（左/右/下）：空的时候自动隐藏，画布就吃满 */
+.dock { display: flex; flex-direction: column; background: var(--panel); min-width: 0; min-height: 0; }
+/* 左停靠区：实际宽度由 panels.js 设成内联样式（默认 300px，可拖分隔条改），
+   这里只是 JS 跑之前的初始值，跟它保持一致 */
+#leftPanel { width: 300px; flex: none; border-right: 1px solid var(--border); }
+#rightPanel { width: 272px; flex: none; border-left: 1px solid var(--border); }
+#bottomPanel { height: 220px; flex: none; border-top: 1px solid var(--border); }
+#leftPanel.collapsed, #rightPanel.collapsed, #bottomPanel.collapsed, .dock.dock-empty { display: none; }
+
+/* 停靠区标签栏：既是标题也是拖拽把手 */
+.dock-tabs {
+  flex: none; display: flex; align-items: center; min-height: 34px;
+  border-bottom: 1px solid var(--border); overflow: hidden;
+}
+.dock-tabs:empty { display: none; }
+.dock-tabs .lp-tab { cursor: grab; }
+.dock-tabs .lp-tab:active { cursor: grabbing; }
+.dock-tabs .lp-tab.dragging { opacity: .45; }
+.dock-float {
+  flex: none; margin-left: auto; border: none; background: none; color: var(--text-2);
+  cursor: pointer; font-size: 12px; line-height: 1; padding: 4px 8px; border-radius: 4px;
+}
+.dock-float:hover { color: var(--primary); background: #eef4ff; }
+
+/* 面板：一个面板 = 标题（仅浮动时显示）+ 内容 */
+.dock-panes { flex: 1; min-height: 0; display: flex; }
+.panel { flex: 1; min-width: 0; display: none; flex-direction: column; overflow: hidden; }
+.panel.active { display: flex; }
+
+/* ── 分屏：同一个停靠区并排两个面板（一半看变量、一半看报警） ──
+   平时一个面板 + 一排标签页；分屏时两个面板一起显示，中间一条可拖的分隔条。 */
+.dock-panes.split { flex-direction: row; }
+.dock-panes.split-v { flex-direction: column; }   /* 侧边栏：上下两个面板 */
+/* ⚠ 只有**被放进分屏的那两个**面板显示（.in-pane）：
+   以前这里写的是 `.dock-panes.split > .panel { display:flex }`，结果同一区里第三个面板
+   也一起显示出来了 —— 三个区域并排、用户看着莫名其妙。没进分屏的仍然是隐藏标签。 */
+.dock-panes.split > .panel.in-pane { display: flex; flex: 1 1 0; min-width: 120px; }
+.dock-panes.split-v > .panel.in-pane { min-width: 0; min-height: 90px; }
+/* 左右分屏（底部区）：**顶上一排就是「栏标题行」**：每格宽度跟着下面那一栏走，
+   名字正好压在各自那栏上；栏自己的标题栏藏起来（省下高度全给内容）。
+   ⚠ 上下分屏（左/右区）**不能**用这一套 —— 三栏是竖着叠的，横着的一条标题行放不下，
+   还会把顶上一排的 ⇹/⧉ 挤出可视区（分屏收不回去）。那种情况回落成「每栏自己顶上一行标题」。 */
+.dock-panes.split:not(.split-v) > .panel > .panel-head { display: none; }
+.dock-panes.split-v > .panel > .panel-head { display: flex; cursor: default; padding-left: 4px; }
+.dock-panes.split-v > .panel > .panel-head .panel-title { display: none; }
+.dock-panes.split-v > .panel > .panel-head .panel-btn[data-redock] { display: none; }
+.pane-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1; }
+.pane-tabs .lp-tab { cursor: default; }
+.pane-tabs .lp-tab.active { background: var(--panel); }
+/* 上下分屏：顶上一排要是只剩按钮（标签都进了各栏标题行）就**整条藏掉**，
+   那条高度全给三栏（别空着浪费）；⇹/⧉ 这时挂在最后一栏的标题行里，照样点得到 */
+.dock:has(> .dock-panes.split-v) > .dock-tabs:not(:has(.lp-tab)) { display: none; }
+/* 顶上一排（栏标题行）：格子宽度由 dock.js 的 renderSplit 写成 flex-grow，跟下面各栏一一对齐 */
+.dock-tabs.split-head { display: flex; align-items: stretch; padding: 0; overflow: hidden; }
+.dock-tabs.split-head .pane-cell {
+  display: flex; align-items: center; gap: 2px; min-width: 0; flex: 0 0 auto;
+  padding: 0 4px 0 8px; overflow: hidden; border-right: 1px solid var(--border);
+}
+.dock-tabs.split-head .pane-cell:last-child { border-right: none; }
+.dock-tabs.split-head .pane-cell .lp-tab { cursor: default; flex: none; }
+.dock-tabs.split-head .pane-cell .lp-tab.active { background: var(--panel); color: var(--primary); font-weight: 600; }
+/* 占位：和下面的分隔条同宽，保证栏标题格跟各栏左右边界严丝合缝 */
+.dock-tabs.split-head .pane-gap { flex: 0 0 8px; }
+.dock-tabs.split-head .pane-cell .dock-splitbtn,
+.dock-tabs.split-head .pane-cell .dock-float { margin-left: auto; }
+.dock-tabs.split-head .pane-cell .dock-float { margin-left: 0; }
+/* 顶上一排只剩图标按钮（没有隐藏面板的标签）时，别让那条横杠占地方 */
+.dock-tabs:not(:has(.lp-tab)):not(.split-head) { border-bottom: none; }
+.dock-divider {
+  flex: 0 0 8px; cursor: col-resize; position: relative; align-self: stretch;
+  background: var(--border); opacity: .8; transition: background .1s;
+}
+.dock-divider:hover, .dock-divider:active { opacity: 1; background: var(--primary); }
+/* 分割栏要看得出来：中间那个抓手一直在，两边各一条细影 */
+.dock-divider::before, .dock-divider::after {
+  content: ''; position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(0, 0, 0, .10);
+}
+.dock-divider::before { left: 0; }
+.dock-divider::after { right: 0; }
+.dock-divider.v { cursor: row-resize; }        /* 侧边栏是上下分 */
+.dock-divider.v::before, .dock-divider.v::after { top: auto; bottom: auto; left: 0; right: 0; height: 1px; width: auto; }
+.dock-divider.v::before { top: 0; }
+.dock-divider.v::after { bottom: 0; }
+.dock-divider-grip {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  font-size: 10px; line-height: 12px; color: var(--text-2); background: var(--panel);
+  border: 1px solid var(--border); border-radius: 3px; padding: 0 1px;
+}
+.dock-divider:hover .dock-divider-grip { color: var(--primary); border-color: var(--primary); }
+.dock-splitbtn {
+  flex: none; border: none; background: none; color: var(--text-2); cursor: pointer;
+  font-size: 13px; line-height: 1; padding: 4px 8px; border-radius: 4px; margin-left: auto;
+}
+.dock-splitbtn:hover { color: var(--primary); background: #eef4ff; }
+.dock-splitbtn.on { color: var(--primary); background: #eef4ff; }
+.dock-splitbtn + .dock-float { margin-left: 0; }   /* 两个按钮挨着放 */
+.dock-preview.split { border-style: dashed; background: rgba(37, 99, 235, .06); }
+.panel-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px; }
+/* ⚠ 属性面板的内容必须自己撑成可滚动区：
+   .panel-body 若不是 flex 容器，里面的 #propBody{flex:1} 不生效，
+   面板一矮内容就被裁掉且没有滚动条 */
+#panel-properties .panel-body { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.panel-head {
+  display: none; flex: none; align-items: center; gap: 4px; height: 30px;
+  padding: 0 6px 0 10px; background: var(--panel-2); border-bottom: 1px solid var(--border);
+  cursor: move; user-select: none;
+}
+.panel-title { flex: 1; min-width: 0; font-size: 12px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-btn {
+  flex: none; border: none; background: none; color: var(--text-2); cursor: pointer;
+  font-size: 12px; line-height: 1; padding: 3px 6px; border-radius: 4px;
+}
+.panel-btn:hover { color: var(--primary); background: #eef4ff; }
+.panel-btn.active { color: var(--primary); background: #e3edff; }
+
+/* 浮动面板：拖出后的独立小窗，可拖动 / 可缩放 / 可停靠回去 */
+.panel.floating {
+  display: flex; position: fixed; z-index: 4000; width: 300px; height: 380px;
+  background: var(--panel); border: 1px solid var(--border-2); border-radius: 8px;
+  box-shadow: 0 12px 34px rgba(0,0,0,.24); overflow: hidden;
+}
+.panel.floating .panel-head { display: flex; }
+.panel-resize {
+  position: absolute; right: 0; bottom: 0; width: 16px; height: 16px;
+  cursor: nwse-resize; z-index: 2;
+}
+.panel-resize::after {
+  content: ''; position: absolute; right: 4px; bottom: 4px; width: 7px; height: 7px;
+  border-right: 2px solid var(--border-2); border-bottom: 2px solid var(--border-2);
+}
+
+/* 拖动时的落点提示 */
+.dock.drop-target { box-shadow: inset 0 0 0 2px var(--primary); background: #eef4ff; }
+/* 半透明落点预览：拖到哪儿会停到哪儿，一眼可见（不然容易误判成浮动窗口） */
+.dock-preview {
+  position: fixed; z-index: 8500; pointer-events: none; display: none;
+  align-items: center; justify-content: center;
+  background: rgba(37, 99, 235, .16); border: 2px solid var(--primary); border-radius: 6px;
+  color: var(--primary); font-size: 13px; font-weight: 600;
+}
+.dock-chip {
+  position: fixed; z-index: 9500; pointer-events: none; padding: 4px 10px;
+  background: var(--primary); color: #fff; border-radius: 5px; font-size: 12px;
+  box-shadow: var(--shadow); transform: translate(14px, 14px); white-space: nowrap;
+}
+
+/* 底部停靠区的横向分隔条 */
+.dock-resizer-h { height: 7px; flex: none; cursor: row-resize; position: relative; background: transparent; }
+.dock-resizer-h:hover, .dock-resizer-h.active { background: rgba(37, 99, 235, .35); }
+.dock-resizer-h.hidden { display: none; }
+.rz-toggle-h {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 38px; height: 13px; border: 1px solid var(--border); background: #fff;
+  cursor: pointer; font-size: 9px; color: var(--text-2); border-radius: 4px;
+  display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1; z-index: 31;
+}
+.rz-toggle-h:hover { color: var(--primary); border-color: var(--primary); background: #f0f6ff; }
+
+/* 工具箱条目 */
+.panel-resizer {
+  width: 7px; flex: none; cursor: col-resize; position: relative;
+  background: transparent; transition: background .15s; z-index: 30;
+}
+.panel-resizer:hover, .panel-resizer.active { background: rgba(37, 99, 235, .35); }
+.rz-toggle {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 14px; height: 38px; border: 1px solid var(--border); background: #fff;
+  cursor: pointer; font-size: 11px; color: var(--text-2); border-radius: 4px;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+  line-height: 1; z-index: 31;
+}
+.rz-toggle:hover { color: var(--primary); border-color: var(--primary); background: #f0f6ff; }
+.lp-tabs { display: flex; border-bottom: 1px solid var(--border); flex: none; }
+.lp-tab {
+  flex: none; height: 34px; padding: 0 12px; border: none; background: none; cursor: pointer;
+  font-size: 13px; color: var(--text-2); border-bottom: 2px solid transparent; white-space: nowrap;
+}
+.lp-tab:hover { color: var(--text); }
+.lp-tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+/* 面板底部按钮条：**按内容定宽 + 一行放不下就换行**。
+   踩过的坑：面板默认只有 300px 宽，变量面板那一排有 6 个按钮（添加/查找替换/导入/导出/
+   展开数组/删除选中），`flex: 1` 不换行时它们被压到面板外面**横向裁掉** ——
+   现场表现就是"「删除选中」根本点不到"（截图核对时才发现）。 */
+.pane-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.pane-actions .tb-btn { flex: 1 1 auto; }
+/* 面板底部的按钮条：**钉在可视区底部**（列表上万行时，按钮跟着滚到最底下就找不着了）
+   bottom 用负的内边距抵消 .panel-body 的 10px，视觉上贴住底边 */
+.pane-actions {
+  position: sticky; bottom: -10px; z-index: 2; padding: 8px 0 10px;
+  background: var(--panel); border-top: 1px solid var(--border);
+}
+
+/* 工具箱条目 */
+.tb-item {
+  display: flex; align-items: center; gap: 9px; padding: 7px 9px; margin-bottom: 6px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: #fff; cursor: grab; transition: .12s; font-size: 13px;
+}
+.tb-item:hover { border-color: var(--primary); background: #f0f6ff; box-shadow: var(--shadow); }
+.tb-item:active { cursor: grabbing; }
+.tb-item svg { flex: none; }
+.tb-item .sub { color: var(--text-2); font-size: 11px; margin-top: 1px; }
+/* 自定义控件（导入控件包带来的）角标：一眼分出"哪些不是内置的" */
+.tb-badge {
+  display: inline-block; vertical-align: 1px; margin-left: 5px; padding: 0 5px;
+  border-radius: 3px; background: #7c3aed; color: #fff; font-size: 10px; font-weight: 600;
+}
+
+/* 页面列表 */
+.pg-item {
+  display: flex; align-items: center; gap: 6px; padding: 7px 9px; margin-bottom: 6px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  cursor: pointer; background: #fff; transition: .12s;
+}
+.pg-item:hover { border-color: var(--primary); }
+.pg-item.current { border-color: var(--primary); background: #eef4ff; }
+.pg-item .pg-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ⚠ 行里**不摆按钮**了（现场要求）：复制 / 删除 / 导出 全走右键菜单（见 menus.js 的 pageRowMenu），
+   行只留「角标 + 名字 + 垫：xxx」，名字那一栏能多显示几个字。这里不再有 .pg-dup / .pg-del 样式。 */
+/* 页面列表按类型分组：组表头 + 组里的行缩进一格（和变量面板的折叠组一个观感） */
+/* 页面面板顶部工具行：「＋ 新建 ▾」和「▤ 分组」**一样大**（各占一半宽，等高同字号） */
+.pg-tools { display: flex; gap: 6px; margin-bottom: 6px; }
+.pg-tools #btnAddPage, .pg-tools #btnPgGroup {
+  flex: 1 1 0; min-width: 0;
+  height: 26px; padding: 0 8px; font-size: 12px;      /* 和 .tb-btn 的默认尺寸一致（别一大一小） */
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.pg-group {
+  display: flex; align-items: center; gap: 6px; padding: 4px 8px; margin: 2px 0 6px;
+  border-radius: var(--radius); background: #f2f5fa; cursor: pointer; user-select: none;
+  border-left: 3px solid #cbd5e1;
+}
+.pg-group:hover { background: #e8eefb; }
+.pg-group.open { background: #eef4ff; }
+.pg-group .pg-gtw { display: inline-block; width: 12px; color: var(--text-2); }
+.pg-group b { font-size: 12px; }
+.pg-group .pg-gcnt { font-size: 11px; color: var(--text-2); }
+.pg-group .pg-gcur {
+  margin-left: auto; font-size: 11px; color: var(--primary);
+  max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 三组的左边色条：页面(蓝) / 弹窗(橙) / 公共底(紫) —— 一眼分得清是哪一组 */
+.pg-group-page { border-left-color: #93b4f5; }
+.pg-group-popup { border-left-color: #f5b877; }
+.pg-group-base { border-left-color: #a78bfa; }
+/* 组里的页面行缩进一格 */
+.pg-item.pg-in { margin-left: 10px; }
+/* 把 .json 拖到页面列表上 = 导入这一页（现场多半从 U 盘/桌面直接拖过来） */
+#pageList.pg-drop { outline: 2px dashed var(--primary); outline-offset: 3px; border-radius: 6px; }
+/* 公共底：列表里一眼分得出来（左边一条紫边 + 名字后面挂"垫：底1"小标签） */
+.pg-item.pg-base { border-left: 3px solid #7c3aed; background: #faf7ff; }
+.pg-item.pg-base.current { background: #f3ecff; border-color: #7c3aed; }
+.pg-item .pg-basetag {
+  flex: none; max-width: 132px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10px; padding: 1px 6px; border-radius: 8px;
+  background: #f3ecff; color: #6d28d9; border: 1px solid #ddd0fb;
+}
+
+/* 变量表 */
+table.vt { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.vt th {
+  text-align: left; color: var(--text-2); font-weight: 500; padding: 3px 4px;
+  border-bottom: 1px solid var(--border); position: sticky; top: -10px; background: var(--panel);
+}
+table.vt td { padding: 2px 2px; border-bottom: 1px solid #eef0f3; }
+table.vt input, table.vt select {
+  width: 100%; height: 24px; border: 1px solid transparent; border-radius: 3px;
+  background: transparent; font-size: 12px; padding: 0 4px; color: var(--text); font-family: inherit;
+}
+table.vt input:hover, table.vt select:hover { border-color: var(--border); }
+table.vt input:focus, table.vt select:focus { outline: none; border-color: var(--primary); background: #fff; }
+table.vt .vt-del { border: none; background: none; color: var(--text-2); cursor: pointer; font-size: 13px; }
+table.vt .vt-del:hover { color: var(--danger); }
+table.vt .mono { font-family: var(--mono); }
+
+/* 变量表列宽分配（**只认 .vartbl**）：
+   勾选 / 名称 / 类型 / 地址（+字长） / 保持 —— **5 列**，要能塞进默认 300px 的左面板。
+   名称/类型/保持都短，「地址」吃掉剩下的宽度（不写 width = auto）：
+   OPC UA 的 NodeId 四五十个字符，窄面板时它会缩，但不会把别的列挤坏。
+   （行尾原来还有一列「删除 ✕」，按现场要求去掉了 —— 删除走勾选框 + 底部「删除选中」）
+   ⚠ 报警表/脚本表是 `vt alarm`（9 列）、OPC UA 导入对话框是 `vt` —— 套上这套宽度会把它们挤坏，
+   所以只认 .vartbl。 */
+table.vartbl th:nth-child(1), table.vartbl td:nth-child(1) { width: 22px; }
+table.vartbl th:nth-child(2), table.vartbl td:nth-child(2) { width: auto; min-width: 56px; }
+table.vartbl th:nth-child(3), table.vartbl td:nth-child(3) { width: 68px; }
+/* 第 4 列（地址）不设宽度：吃掉剩余空间 */
+table.vartbl th:nth-child(5), table.vartbl td:nth-child(5) { width: 30px; }   /* 保持（勾选框） */
+/* 地址格：地址 +（灰字占几个字 / 字符串长度框）并排；地址输入框允许缩到很小 */
+table.vartbl td.vt-addr { display: flex; align-items: center; gap: 3px; }
+table.vartbl td.vt-addr input[data-k="address"] { flex: 1 1 auto; min-width: 0; }
+table.vartbl td.vt-addr .vt-len { flex: none; width: 38px; min-width: 0; }
+table.vartbl td.vt-addr .vt-auto { flex: none; }
+/* 「保持」列：居中一个小勾选框（只有内部变量能勾，有地址的行是禁用的灰勾） */
+table.vartbl .vt-keep { text-align: center; padding: 0; }
+table.vartbl .vt-keep input { width: 13px; height: 13px; accent-color: #7c3aed; cursor: pointer; }
+table.vartbl .vt-keep input:disabled { accent-color: #cbd5e1; cursor: not-allowed; }
+/* 勾选列（多选删除用） */
+table.vt .vt-sel { width: 24px; padding: 0; text-align: center; }
+table.vt .vt-sel input { width: 13px; height: 13px; accent-color: var(--primary); cursor: pointer; }
+
+/* 数组元素折叠组（arrw[1]…arrw[13] 收成一行） */
+table.vt tr.vt-group { cursor: pointer; background: #f2f5fa; }
+table.vt tr.vt-group:hover { background: #e8eefb; }
+table.vt tr.vt-group.open { background: #eef4ff; }
+/* 两级折叠：depth=1 的组（前缀组里面的数组组）底色浅一点，一眼看出层级 */
+table.vt tr.vt-group.d1 { background: #f7f9fd; }
+/* 前缀组的表头（GVL / GVL_1 / PLC_PRG…）比数组组更「重」一点 */
+table.vt tr.vt-group.pg b { font-size: 12.5px; }
+table.vt tr.vt-group td { padding: 3px 2px; }
+table.vt tr.vt-group .vt-gtw { display: inline-block; width: 13px; color: var(--text-2); }
+table.vt tr.vt-group .vt-gcnt { color: var(--text-2); font-size: 11px; margin-left: 6px; }
+
+/* ── 树形缩进：层级由 JS 写在 --vt-in 上（见 varsPanel.js 的 INDENT_PX）──
+   组表头**连折叠箭头一起**往右挪、变量行挪它的名字格：箭头/名字必须挨着，
+   只缩进名字的话箭头会留在最左边，缩进看着就像"没跟着走"。
+   勾选框那一列不挪，列保持齐整。 */
+table.vt tr.vt-ind > td.vt-in { padding-left: var(--vt-in, 0px); }
+table.vt tr.sel td { background: #eef4ff; }
+.vt-tip { color: var(--text-2); font-size: 11px; margin-top: 7px; line-height: 1.6; }
+.vt-tip code, .pane-msg code { font-family: var(--mono); background: #f4f5f7; padding: 1px 4px; border-radius: 3px; }
+.pane-msg { color: var(--text-2); font-size: 11px; margin-top: 6px; min-height: 14px; }
+.tb-btn.danger { color: var(--danger); border-color: #f0c4c4; }
+.tb-btn.danger:hover { background: #fdeaea; border-color: var(--danger); }
+/* 控件清单里的「权限」小标记：哪些控件要密码才能操作，一眼看出来 */
+.wl-perm {
+  flex: none; font-size: 11px; padding: 0 5px; border-radius: 8px; line-height: 16px;
+  background: #fef3c7; color: #92400e; border: 1px solid #fcd99a;
+}
+table.vt select[data-k="type"] { padding: 0 1px; font-size: 11px; }
+table.vt input { text-overflow: ellipsis; }
+/* 「1 字 / 2 字」这种由类型推出来的长度：灰着当提示，别跟真数据一样显眼 */
+table.vt .vt-auto { color: var(--text-2); font-size: 11px; padding-left: 4px; }
+
+/* ── 报警表：列多，按内容定宽 + 横向滚动（面板窄也不会把「内容」挤没） ── */
+/* 报警表的变量格：变量表里找不到的名字标红 —— 那种报警永远不会触发，得让人一眼看见 */
+table.vt.alarm input.al-var.bad { color: var(--danger); background: #fdeaea; border-color: #f0c4c4; }
+
+/* 报警面板：**跟变量面板同一套** —— `.panel-body` 自己滚（横竖都它滚），
+   按钮条 `.pane-actions` 是 sticky 的（钉在可视区底部），于是
+   **横向滚动条落在按钮下面 = 面板最底下**。
+   以前横向滚动条长在 #alarmTable 上，夹在按钮上方那条缝里；现场要求"跟变量栏一样放最下面"
+   （截图反馈）。表格本身不再当滚动容器，只负责撑高，窗口化列表的滚动容器也跟着换成
+   `.panel-body`（见 alarmsPanel.js 的 createVList 的 scroller）。 */
+#panel-alarms .panel-body { display: block; overflow: auto; }
+/* 筛选框吸顶：报警几百条时滚下去还能改筛选（表头再吸在它下面，见下面 th 的 top）。
+   同样单独提一层（理由见上面 table.vt th 那段：滚动时别被下面的行穿过去） */
+#alarmFilter { position: sticky; top: -10px; z-index: 6; background: var(--panel); will-change: transform; }
+#alarmTable { min-height: 40px; }
+/* 表头吸顶时要**紧贴在筛选框下面**，不能留缝：
+   筛选框是 sticky 的（一直粘在最上面），表头吸顶的位置要正好等于"筛选框底边"，
+   差几像素就会在两者之间露出一条缝 —— 滚动时下面的行从缝里透出来，
+   看着就像"内容穿过表头"（现场截图反馈过）。
+   数值是**实测**出来的：吸顶 top 到表头顶边是 1:1（top:N → 表头顶边 = 内容顶 + N），
+   筛选框高 26px、底边在内容顶下面 16px，所以取 15（比 16 少 1px，让表头压住缝）。 */
+#alarmTable table.vt.alarm th { top: 15px; z-index: 4; }
+#panel-alarms .pane-actions { padding: 8px 0 10px; }
+/* 提示那行有内容才占地方（空着时不留一条空白带 —— 底部那点空间本来就紧张） */
+#panel-alarms .pane-msg { flex: none; min-height: 0; margin-top: 0; }
+/* ⚠ 这几条**只管报警表**（#alarmTable）：脚本表也挂着 .vt.alarm 类，
+   以前被这套列宽一起套上（第 1 列最小 84px、第 3 列 260px）—— 结果脚本面板里
+   ✎ 和 ✕ 被挤出面板外面、中间空一大截（现场截图反馈）。脚本表自己有下面那套列宽。 */
+#alarmTable table.vt.alarm { width: auto; min-width: 100%; table-layout: auto; }
+#alarmTable table.vt.alarm th, #alarmTable table.vt.alarm td { white-space: nowrap; }
+/* ⚠ 第 1 列是**勾选框**（多选删除）—— 下面的 nth-child 是**含勾选框**的序号：
+   1勾选 / 2名称 / 3变量 / 4✎（就地改内容） / 5内容 / 6比较 / 7阈值 / 8延时s / 9级别 / 10启用
+   （行尾原来还有一列 ✎/✕，按现场要求去掉了；编辑内容走第 4 列或点内容格） */
+#alarmTable table.vt.alarm td:nth-child(1) { min-width: 24px; }
+#alarmTable table.vt.alarm td:nth-child(2) { min-width: 84px; }
+#alarmTable table.vt.alarm td:nth-child(3) { min-width: 86px; }
+#alarmTable table.vt.alarm td:nth-child(4) { min-width: 22px; padding: 0 2px; text-align: center; }
+#alarmTable table.vt.alarm td:nth-child(5) { min-width: 260px; }
+#alarmTable table.vt.alarm td:nth-child(6) { min-width: 50px; }
+#alarmTable table.vt.alarm td:nth-child(7) { min-width: 58px; }
+#alarmTable table.vt.alarm td:nth-child(8) { min-width: 46px; }
+#alarmTable table.vt.alarm td:nth-child(9) { min-width: 64px; }
+#alarmTable table.vt.alarm td:nth-child(10) { min-width: 34px; text-align: center; }
+
+/* ── 列宽可拖（报警表 / 变量表共用，逻辑在 js/editor/colResize.js） ──
+   ⚠ 拖过之后表格切到 fixed 布局 —— auto 布局下写 width 只是"建议值"，内容会把列顶回去，
+     那就成了"拖不动"。fixed 才是"拖多少就是多少"（切之前布局一点不变，见 colResize.js）。
+   width: max-content：总宽就是各列之和，**不再撑满面板** —— 撑满的话把列拖窄了它又自己长回去。
+     面板比表格宽的时候右边会空一块，双击把手就恢复默认（重新铺满）。 */
+/* ⚠ 报警表那条 `#alarmTable table.vt.alarm { table-layout: auto }` 带 id，优先级比 `table.vt.cols-fixed` 高 ——
+   不带 id 的写法根本盖不住它（踩过：拖了列宽，表格却还是 auto，宽度被内容顶回去）。
+   所以这里两个选择器都得写。 */
+table.vt.cols-fixed,
+#alarmTable table.vt.alarm.cols-fixed { table-layout: fixed; width: max-content; min-width: 0; }
+/* 表头格右边缘上的拖拽把手（表头是 sticky 定位的，绝对定位就挂在它身上，跟着一起吸顶） */
+table.vt th .col-grip {
+  position: absolute; top: 0; right: -4px; width: 9px; height: 100%;
+  cursor: col-resize; z-index: 3; border-radius: 2px;
+}
+table.vt th .col-grip:hover,
+table.vt th .col-grip.on {
+  background: rgba(37, 99, 235, .22); box-shadow: inset -2px 0 0 var(--primary);
+}
+/* 拖列宽的时候别把表格里的文字/输入框选中 */
+body.col-resizing { user-select: none; cursor: col-resize; }
+
+/* ── 吸顶表头：单独提一层 + 压住行 ──
+   表头是 position:sticky，行是**窗口化列表在 rAF 里换的** —— 两者更新节奏不一样：
+   滚动时先滚容器、下一帧才换行，那一帧里旧行还在原地，就可能"从表头里透出来"（现场看到的是
+   表头那条里混着半截行文字）。给表头加 will-change:transform 让浏览器**把它单独合成一层**，
+   滚动时这一层自己跟手移动，不会被下面那一帧的行穿过去。
+   z-index 让它在行上面（sticky 本来就该在上面，这里是双保险）。
+   top 取 -11（比面板内边距 10 多 1px）：表头压住顶边 1px，滚动时不会漏出发丝缝。 */
+table.vt th { z-index: 4; will-change: transform; top: -11px; }
+
+/* ── 变量面板的搜索框**吸顶**（现场要求：跟报警面板一样一直在顶部）──
+   面板里滚动（变量几百上千条）时，搜索框得一直够得着 —— 不然滚下去想改个词还得先滚回顶部。
+   表头再吸在它下面：top 用 15px（= 搜索框高 26 − 面板内边距 10，再压住 1px 不留缝，
+   跟报警面板同一套算法，见上面 #alarmTable … th 那条注释）。 */
+.var-filter-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+#varFilterRow { position: sticky; top: -10px; z-index: 6; background: var(--panel); will-change: transform; }
+#varTable table.vartbl th { top: 15px; }
+
+/* 列边框线（现场要求：列与列之间要画线）──
+   原来只有横线（每行一条），列多的时候"这一格到哪儿结束"看不出来（尤其拖列宽时）。
+   竖线用**和横线同一个色**，画出来是一张干净的表格；最后一列右边不画（那是表的边）。
+   两张表（报警 / 变量）都套上这里，保持一致。 */
+table.vt th, table.vt td { border-right: 1px solid #eef0f3; }
+table.vt th:last-child, table.vt td:last-child { border-right: none; }
+/* 表头那条竖线重一点：一眼看得出每列的分界（把手正好压在这条线上） */
+table.vt th:not(:last-child) { border-right-color: var(--border); }
+/* 整张表外面再加一圈边框：列宽拖窄之后表格会比面板窄，有这圈线才知道表到哪儿结束
+   （用 border 而不是 box-shadow：border-collapse: collapse 下它算在布局里，
+    表格正好 100% 宽时右边那条线不会被滚动容器裁掉） */
+table.vt { border: 1px solid var(--border); }
+
+/* 变量表的组表头行（Hr轴状态0…6 收成一行的那个）：那一格是 colspan，里面的文字可能很长。
+   长文字要能省略号，否则 fixed 布局下会盖到右边几列上面。
+   ⚠ 省略号做在**格子里面那个 span** 上，别做在 <td> 上 —— 给表格单元格加 overflow:hidden
+     会让它变成独立格式化上下文，滚动时容易出现"行叠在一起"的重影（现场截图反馈过）。
+     见 varsPanel.js 的 buildGroupRow（.vt-ingrp 就是那一层）。 */
+#varTable table.vartbl .vt-ingrp { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 报警面板底部会有 4 个按钮（勾选了才有「删除选中」）：换行规则见上面 .pane-actions */
+table.vt .vt-edit, table.vt .vt-del { border: none; background: none; color: var(--text-2); cursor: pointer; font-size: 12px; padding: 0 2px; }
+table.vt .vt-edit:hover { color: var(--primary); }
+table.vt .al-acts { white-space: nowrap; }
+
+/* ── 脚本表（左侧「脚本」面板）列宽：**必须塞得进面板** ──
+   踩过的坑：名称格是 <input>，它的默认宽度（≈170px）把整张表顶到 480px，
+   面板只有 300px → ✎ 和 ✕ 被挤到看不见的地方（现场：后面的编辑点不着）。
+   现在：定宽表格 + ✎/✔/✕ 三列各给死宽度，名称列吃剩下的宽度（长了就省略，悬停有全名）。 */
+table.scripttbl { table-layout: fixed; width: 100%; }
+/* 列：勾选（多选删除）· ✎ 编辑 · ✔ 启用 · 名称（吃剩下的宽度） */
+table.scripttbl th:nth-child(1), table.scripttbl td:nth-child(1) { width: 24px; text-align: center; padding: 0 2px; }  /* 勾选 */
+table.scripttbl th:nth-child(2), table.scripttbl td:nth-child(2) { width: 26px; text-align: center; padding: 0 2px; }  /* ✎ 编辑（永远点得到） */
+table.scripttbl th:nth-child(3), table.scripttbl td:nth-child(3) { width: 26px; text-align: center; padding: 0 2px; }  /* ✔ 启用 */
+/* 第 4 列（名称）不设宽度：吃掉剩下的空间 */
+table.scripttbl td input[data-k="name"] { width: 100%; min-width: 0; }
+table.scripttbl td input[data-k="enabled"] { width: 13px; height: 13px; accent-color: var(--primary); cursor: pointer; }
+/* 停用的脚本整行淡一点，一眼看得出哪条不跑 */
+table.scripttbl tr.off td { opacity: .55; }
+/* 内容格：点一下开弹窗写（表格里只显示开头，写完整内容不在这一格较劲） */
+table.vt .al-text {
+  display: block; width: 100%; max-width: 520px; height: 24px; line-height: 22px;
+  padding: 0 6px; text-align: left; border: 1px solid transparent; border-radius: 3px;
+  background: transparent; color: var(--text); font-size: 12px; cursor: text;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+table.vt .al-text:hover { border-color: var(--border); background: #fff; }
+/* 悬停给个"这一格能改"的暗示（点它就是就地改；开弹窗在左边那个 ✎） */
+table.vt .al-text:hover::after { content: ' ✏'; color: var(--primary); }
+/* 在「内容」格里就地改：点一下这一格变文本框（**不开弹窗**，改一两个字不用来回弹），
+   行高只有 28px，所以文本框做成一行的样子（多行内容照样在，框内滚动，不会像 <input> 那样把换行吞掉） */
+table.vt textarea.al-inline {
+  display: block; width: 100%; max-width: 520px; height: 24px; line-height: 22px;
+  padding: 0 6px; border: 1px solid var(--primary); border-radius: 3px; background: #fff;
+  color: var(--text); font-size: 12px; font-family: var(--mono); resize: none; overflow: auto;
+  white-space: pre; box-sizing: border-box;
+}
+table.vt .al-editcell { padding: 0 2px; text-align: center; }
+table.vt .al-text.empty { color: var(--text-2); font-style: italic; }
+table.vt .al-text .al-ref { color: var(--primary); font-family: var(--mono); }
+table.vt .al-text .al-flag { color: var(--warn, #d97706); margin-right: 3px; }
+
+.rp-title {
+  height: 34px; line-height: 34px; padding: 0 14px; font-weight: 600;
+  border-bottom: 1px solid var(--border); flex: none;
+}
+#propBody { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 12px 30px; }
+.prop-empty { color: var(--text-2); text-align: center; margin-top: 30px; font-size: 12px; }
+.prop-group { margin-bottom: 14px; }
+.prop-group-title {
+  font-size: 12px; color: var(--text-2); font-weight: 600; margin-bottom: 8px;
+  padding-bottom: 4px; border-bottom: 1px dashed var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+  cursor: pointer; user-select: none;
+}
+.prop-group-title:hover { color: var(--text); }
+.prop-group-title::after {
+  content: '▾'; font-size: 10px; color: var(--text-2);
+  transition: transform .15s ease;
+}
+.prop-group.folded .prop-group-title::after { transform: rotate(-90deg); }
+.prop-group.folded > *:not(.prop-group-title) { display: none; }
+.prop-group.folded .prop-group-title { margin-bottom: 0; }
+.prop-grid { display: grid; grid-template-columns: 76px 1fr 1fr; gap: 7px 6px; align-items: center; }
+.prop-grid .f-label { width: auto; }
+.prop-grid .f-input { width: 100%; }
+
+/* 多通道绑定列表（波形控件）：固定 8 路，每路一个下拉 */
+.chan-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.chan-row {
+  display: flex; align-items: center; gap: 5px; padding: 3px 6px;
+  font-size: 12px; border-bottom: 1px solid #eef0f3;
+}
+.chan-row:last-child { border-bottom: none; }
+.chan-row.on { background: #eef4ff; }
+.chan-no {
+  flex: none; width: 15px; text-align: center; color: var(--text-2);
+  font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.chan-row .chan-color { flex: none; width: 22px; height: 20px; padding: 0 1px; border: 1px solid var(--border); border-radius: 3px; background: #fff; cursor: pointer; }
+.chan-row .chan-sel { flex: 1; min-width: 0; height: 22px; font-size: 11px; }
+.chan-row .chan-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+.chan-row .chan-type { flex: none; color: var(--text-2); font-size: 11px; }
+.search-hint { flex: none; color: var(--text-2); font-size: 11px; }
+/* 通道量程（倍率/偏置） */
+.scale-list { margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 6px; }
+.scale-head { color: var(--text-2); font-size: 11px; line-height: 1.5; margin-bottom: 6px; }
+.scale-row { display: flex; align-items: center; gap: 4px; margin-bottom: 5px; font-size: 12px; }
+.scale-row .chan-name { flex: 1; min-width: 0; }
+.scale-row .scale-lbl { flex: none; color: var(--text-2); }
+.scale-inp { flex: none; width: 58px; }
+
+/* 下拉框的「状态颜色」：每个状态一行，色块 + 状态名（未设色的行淡一点，一眼能看出还差哪几个） */
+.sc-list { display: flex; flex-direction: column; gap: 3px; }
+.sc-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.sc-row .sc-color {
+  flex: none; width: 26px; height: 20px; padding: 0 1px; border: 1px solid var(--border);
+  border-radius: 3px; background: #fff; cursor: pointer;
+}
+.sc-row .sc-name {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-2);                            /* 未设色：淡（颜色还没配上） */
+}
+.sc-row.has .sc-name { color: var(--text); }       /* 已设色：实色 */
+.sc-row .sc-clr { flex: none; padding: 0 6px; line-height: 18px; }
+
+/* 动作列表 */
+.act-item {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 8px 9px; margin-bottom: 7px; background: var(--panel-2);
+}
+.act-item .act-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.act-item .act-head select { flex: 1; }
+.act-item .act-del { border: none; background: none; color: var(--danger); cursor: pointer; font-size: 14px; }
+/* 动作里的参数行（变量 / 目标页 / 值）：标签**左对齐**。
+   原来跟着全局 .f-label 那套（右对齐 + 固定 76px），在窄面板里看着就是
+   「目标页」被推到右边、和上面的动作下拉左边缘对不齐（现场截图反馈）。 */
+.act-item .f-row .f-label { width: auto; min-width: 42px; text-align: left; flex: none; }
+.act-item .f-row { gap: 6px; }
+/* 未选择变量/目标页的动作：运行时会静默失效 → 编辑期标红提示 */
+.act-item.act-invalid { border-color: var(--danger); background: #fef6f6; }
+.act-item .act-warn { color: var(--danger); font-size: 11px; margin-bottom: 6px; }
+.act-add {
+  width: 100%; height: 28px; border: 1px dashed var(--border-2); border-radius: var(--radius);
+  background: none; color: var(--text-2); cursor: pointer; font-size: 12px;
+}
+.act-add:hover { border-color: var(--primary); color: var(--primary); }
+/* ── 组合：组内控件列表（点一个只选它）/ 「在组合里」提示 ── */
+.group-members { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+.gm-item {
+  display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
+  padding: 5px 7px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--panel-2); color: var(--text); font-size: 12px; cursor: pointer;
+}
+.gm-item:hover { border-color: var(--primary); background: #eef4ff; }
+.gm-badge {
+  flex: none; font-size: 11px; color: var(--primary); background: #e5edff;
+  border-radius: 3px; padding: 0 4px;
+}
+.gm-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group-hint {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 11px; color: var(--text-2); line-height: 1.6;
+  background: #f7f8fa; border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 6px 8px; margin-bottom: 10px;
+}
+.group-hint .tb-btn { flex: none; height: 24px; }
+
+/* 「变量与显示的变量一致」勾选（动作变量跟状态显示变量走，改一处即可） */.act-follow {
+  display: flex; align-items: center; gap: 6px; cursor: pointer;
+  margin: 0 0 7px; font-size: 12px; color: var(--text-2);
+}
+.act-follow input { flex: none; }
+.act-follow:hover { color: var(--text); }
+/* 勾了「和显示变量一致」但显示变量还没选：说清楚下一步，别让动作变量莫名变空 */
+.act-follow-tip { color: var(--warn, #d97706); font-size: 11px; line-height: 1.6; margin: 0 0 7px; }
+.act-item select[disabled] { background: #f4f5f7; color: var(--text-2); cursor: not-allowed; }
+
+/* ── 中栏画布区 ── */
+#canvasArea { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+#canvasToolbar {
+  height: 32px; flex: none; display: flex; align-items: center; gap: 8px;
+  padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+#pageTitle { font-weight: 600; }
+.ct-sep { width: 1px; height: 14px; background: var(--border); }
+/* 画布缩放控件 */
+.zoom-label {
+  min-width: 46px; height: 24px; padding: 0 4px; border: 1px solid var(--border);
+  border-radius: 5px; background: #fff; color: var(--text-2); font-size: 12px;
+  font-variant-numeric: tabular-nums; cursor: pointer;
+}
+.zoom-label:hover { color: var(--primary); border-color: var(--primary); }
+
+/* 用 margin:auto 居中而不是 place-items:center：
+   画布放大到超出视口时 auto 边距归零，左上角仍可滚动到达（place-items 会把它裁掉） */
+#canvasWrap { flex: 1; overflow: auto; display: grid; }
+#canvas {
+  position: relative; flex: none; margin: auto; background-color: #fff;
+  box-shadow: 0 3px 18px rgba(31,35,41,.14);
+  /* 创建独立 stacking context：内部 selOverlay(9998)/drop-ghost 等
+     高 z 层被锁在画布内，绝不越界遮挡运行模式界面 */
+  isolation: isolate;
+  /* 网格：10px 细线 + 50px 主线，开关有明显视觉差异 */
+  background-image:
+    linear-gradient(rgba(37, 99, 235, .16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(37, 99, 235, .16) 1px, transparent 1px),
+    linear-gradient(rgba(37, 99, 235, .07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(37, 99, 235, .07) 1px, transparent 1px);
+  background-size: 50px 50px, 50px 50px, 10px 10px, 10px 10px;
+}
+#canvas.nogrid { background-image: none; }
+
+/* ── 状态栏 ── */
+#statusbar {
+  height: 26px; flex: none; display: flex; align-items: center; gap: 8px;
+  padding: 0 12px; background: var(--panel); border-top: 1px solid var(--border);
+  font-size: 12px; color: var(--text-2);
+}
+.st-sep { width: 1px; height: 12px; background: var(--border); }
+.st-dot { display: flex; align-items: center; gap: 5px; }
+/* 这颗灯可以点：切换「编辑态也一直采设备」（见 main.js / backend.toggleAlwaysPoll）*/
+#stBackend { cursor: pointer; }
+.st-dot::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #9ca3af; }
+.st-dot.online::before { background: var(--ok); }
+.st-dot.offline::before { background: #9ca3af; }
+/* 没在运行态：设备那边根本没被通讯（不是"离线"，是"没在采"）—— 用琥珀色区分 */
+.st-dot.idle::before { background: #d9a03a; }
+/* 下发结果：写 PLC 失败必须看得见（否则界面变了、PLC 没变，用户会以为通讯正常）*/
+.st-write.hidden { display: none; }
+.st-write { display: flex; align-items: center; gap: 5px; }
+.st-write.bad { color: var(--danger); font-weight: 600; }
+.st-write.ok { color: var(--text-2); }
+/* 状态栏里临时说一句（如"本机没有工程，已自动从服务器读回…"）：过几秒自己收掉 */
+.st-note { color: var(--primary); }
+.st-note.hidden { display: none; }
+/* 当前版本号（常显）：现场报问题时"你是哪个版本"一眼可见 */
+.st-ver { color: var(--text-2); cursor: pointer; }
+.st-ver:hover { color: var(--primary); text-decoration: underline; }
+.st-ver.hidden { display: none; }
+/* 「有新版本」徽标：琥珀色、可点（点开看更新说明）；点了"知道了"或更新完就收掉 */
+.st-update { color: var(--warn); font-weight: 600; cursor: pointer; }
+.st-update:hover { text-decoration: underline; }
+.st-update.hidden { display: none; }
+/* 查不到新版本（现场没外网）时给个灰的，说明"这次没查到"，别让人以为已经是最新 */
+.st-update.stale { color: var(--text-2); font-weight: 400; }
+
+/* ── 画布选择框 / 缩放柄 / 框选 / 拖放预览 ── */
+.sel-box {
+  position: absolute; border: 1.5px solid var(--sel);
+  pointer-events: none; z-index: 9998; box-sizing: border-box;
+}
+.sel-h {
+  position: absolute; width: 9px; height: 9px; background: #fff;
+  border: 1.5px solid var(--sel); border-radius: 2px; box-sizing: border-box;
+  /* 父级 .sel-box 是 pointer-events:none，手柄必须显式恢复可点击，
+     否则缩放功能完全失效 */
+  pointer-events: auto;
+  /* 画布缩放时反向缩放：任何倍率下手柄都保持 9px 好抓（--cv-zinv 由 canvas.js 写） */
+  zoom: var(--cv-zinv, 1);
+}
+.sel-h-n  { left: 50%;  top: -5px;    margin-left: -4.5px; cursor: ns-resize; }
+.sel-h-s  { left: 50%;  bottom: -5px; margin-left: -4.5px; cursor: ns-resize; }
+.sel-h-e  { right: -5px; top: 50%;    margin-top: -4.5px;  cursor: ew-resize; }
+.sel-h-w  { left: -5px; top: 50%;     margin-top: -4.5px;  cursor: ew-resize; }
+.sel-h-ne { right: -5px; top: -5px;   cursor: nesw-resize; }
+.sel-h-nw { left: -5px;  top: -5px;   cursor: nwse-resize; }
+.sel-h-se { right: -5px; bottom: -5px; cursor: nwse-resize; }
+.sel-h-sw { left: -5px;  bottom: -5px; cursor: nesw-resize; }
+#selOverlay { position: absolute; inset: 0; pointer-events: none; z-index: 9998; }
+
+.box-select {
+  position: absolute; border: 1px solid var(--primary);
+  background: rgba(37, 99, 235, .07); z-index: 9997; pointer-events: none;
+}
+.drop-ghost {
+  position: absolute; border: 1.5px dashed var(--primary);
+  background: rgba(37, 99, 235, .09); z-index: 9999;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--primary); pointer-events: none;
+  border-radius: 4px;
+}
+
+/* 控件定位闪烁高亮（清单跳转） */
+#canvas .wd.flash {
+  animation: wd-flash 0.5s ease-in-out 3;
+  outline: 2px solid #f59e0b;
+  outline-offset: 2px;
+}
+@keyframes wd-flash {
+  0%, 100% { background-color: transparent; }
+  50% { background-color: rgba(245, 158, 11, .25); }
+}
+
+/* 控件清单（对象导航） */
+#listPageSel { width: 100%; }
+/* 页面下拉 + 「隐藏名称」按钮同一行（见 index.html 的说明：这按钮必须在内容区里才点得着） */
+.list-tools { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.list-tools #listPageSel { width: auto; flex: 1 1 auto; min-width: 0; }
+.list-tools .tb-btn { flex: none; }
+.wl-item {
+  display: flex; align-items: center; gap: 6px; padding: 5px 8px; margin-bottom: 4px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  cursor: pointer; background: #fff; font-size: 12px; transition: .12s;
+}
+.wl-item:hover { border-color: var(--primary); background: #f0f6ff; }
+.wl-item.active {
+  border-color: var(--primary); background: #e3edff;
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+.wl-item.active .wl-name { color: var(--primary); font-weight: 600; }
+.wl-item .badge { flex: none; }
+/* 类型徽章按"家族"配色：一列控件扫下来能立刻分出操作/数值/文本表格/报警/波形/图形（全灰白太费眼）。
+   字号/内边距和基础 .badge 一致，只换色 —— 清单行高不变。 */
+.wl-item .badge.t-op      { background: #e3edff; color: #1d4ed8; border-color: #bcd3fa; }
+.wl-item .badge.t-op2     { background: #e0f2f7; color: #0e7490; border-color: #b6e2ee; }
+.wl-item .badge.t-lamp    { background: #fff3e0; color: #b45309; border-color: #f5d9a8; }
+.wl-item .badge.t-num     { background: #e6f6ec; color: #15803d; border-color: #bfe6cd; }
+.wl-item .badge.t-txt     { background: #eef0f3; color: #475569; border-color: #d8dde5; }
+.wl-item .badge.t-time    { background: #f1e9ff; color: #6d28d9; border-color: #ddd0f7; }
+.wl-item .badge.t-trend   { background: #e8ecff; color: #4338ca; border-color: #ccd4fb; }
+.wl-item .badge.t-alarmBar { background: #ffe9e5; color: #c2410c; border-color: #f7cfc4; }
+.wl-item .badge.t-alarm   { background: #fdeaea; color: #b91c1c; border-color: #f3c9c9; }
+.wl-item .badge.t-alarmHis { background: #fdeaf3; color: #a21caf; border-color: #f2cbe1; }
+.wl-item .badge.t-shape   { background: #f0ede8; color: #7c6247; border-color: #ddd5c9; }
+.wl-item .badge.t-other   { background: #eef0f3; color: #64748b; border-color: #d8dde5; }
+/* 公共底那一层上的控件：行左边一条紫边 + 「底」小标签（点一下跳到底页去改） */
+.wl-item.wl-base { border-left: 3px solid #a78bfa; background: #faf8ff; }
+.wl-item.wl-base:hover { background: #f4efff; }
+.wl-basetag {
+  flex: none; font-size: 10px; padding: 0 5px; border-radius: 7px;
+  background: #f3ecff; color: #6d28d9; border: 1px solid #ddd0fb;
+}
+/* 「隐藏名称」：只留类型徽章 + 配置，行更短、配置那列能多显示几个字（名字鼠标悬停仍可看） */
+#widgetList.wl-noname .wl-name { display: none; }
+.wl-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+/* 配置那一列：可以压缩，但不至于只剩几个字（原来死卡 96px，长一点的变量名都看不全） */
+.wl-info {
+  flex: 0 1 auto; min-width: 0; max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-2); font-family: var(--mono); font-size: 11px;
+}
+#widgetList.wl-noname .wl-info { flex: 1 1 auto; max-width: 100%; text-align: left; }
+.list-empty { color: var(--text-2); text-align: center; margin-top: 20px; font-size: 12px; }

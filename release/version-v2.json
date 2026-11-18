@@ -1,0 +1,20 @@
+{
+    "app":  "WebHMI_设计器",
+    "version":  "2.1.15",
+    "date":  "2026-11-18",
+    "notes":  "整数变量也能设小数位（定点缩放：PLC 通讯值 123 + 小数位 2 → 屏上 1.23，读、写、软键盘、步进都按屏上的数换算），默认 0 仍是纯整数；浮点显示不变，老工程里只有 %d 的整数控件不受影响。",
+    "url":  "https://github.com/xiaoenLE/hmi-designer",
+    "min_launcher":  "1.0.0",
+    "app_zip":  {
+                    "url":  "https://github.com/xiaoenLE/hmi-designer/releases/download/v2.1.15/WebHMI-Designer-2.1.15-app.zip",
+                    "file":  "WebHMI-Designer-2.1.15-app.zip",
+                    "sha256":  "fd16e374cbbfe5afca251abb31f0b28fc291d5a49858a3313688a91fae55a986",
+                    "size":  4051592
+                },
+    "setup":  {
+                  "url":  "https://github.com/xiaoenLE/hmi-designer/releases/download/v2.1.15/WebHMI-Designer-Nuitka-Setup-2.1.15.exe",
+                  "file":  "WebHMI-Designer-Nuitka-Setup-2.1.15.exe",
+                  "sha256":  "9bba05febeee860b83a6a4d002480c92de178a0137f29afc1482322e60e15928",
+                  "size":  40498176
+              }
+}

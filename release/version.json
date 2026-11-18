@@ -1,0 +1,20 @@
+{
+    "app":  "WebHMI_设计器",
+    "version":  "1.0.10",
+    "date":  "2026-10-05",
+    "notes":  "1. 治「设备一断、内存暴涨一下」：断开后立刻停止下发，不再每笔写各等一个 1.5 秒超时、排几十秒的队，也不再把超时误当成「连接断了」而回退成 HTTP 写（回退一个写 = 后端多起一个线程：实测 300 变量 × 50ms 时断开 16 秒冒出 3374 个请求）。现在断开 2.5 秒后一笔都不再发，在途写在 64 笔以内，失败提示也不再一条条刷（交给顶部红条 + 左下角提示）\n2. 接了 PLC 就不许退化成「内部变量/仿真」：设备连不上时 hmi.sim() 仍为 false，带 if(hmi.sim()) 的仿真脚本一笔都不写，左下角明说「PLC 已断开（IP:端口）」；内存模拟时照旧 sim()=true、照写\n3. 地址留空的内部变量一个字节都不下发设备（Modbus / OPC UA 都不发），左下角提示里报出内部变量个数\n4. 业务失败不再被当成掉线：往只读输入位（%IX）写被拒时链路仍判在线，也不会把紧随其后的正经写白挡在冷却期里",
+    "url":  "http://124.221.183.24:3000/xiaoen/hmi-designer",
+    "min_launcher":  "1.0.0",
+    "app_zip":  {
+                    "url":  "http://124.221.183.24:3000/xiaoen/hmi-designer/releases/download/v1.0.10/WebHMI-Designer-1.0.10-app.zip",
+                    "file":  "WebHMI-Designer-1.0.10-app.zip",
+                    "sha256":  "e8786c12bbd3012a4dd4c95896aa22ffbcc5170f7c6b7edf396811c3e33abc92",
+                    "size":  3881298
+                },
+    "setup":  {
+                  "url":  "http://124.221.183.24:3000/xiaoen/hmi-designer/releases/download/v1.0.10/WebHMI-Designer-Setup-1.0.10.exe",
+                  "file":  "WebHMI-Designer-Setup-1.0.10.exe",
+                  "sha256":  "9b0f98791fa147844a806ccba0499ed07eec3635874794b6a8ba681940ffdf63",
+                  "size":  39008721
+              }
+}

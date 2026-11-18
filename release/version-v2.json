@@ -1,0 +1,20 @@
+{
+    "app":  "WebHMI_设计器",
+    "version":  "2.0.2",
+    "date":  "2026-10-06",
+    "notes":  "1. 修「exe 窗口里导出 / 另存为点了没反应」：桌面窗口里点导出（变量表 CSV、报警 CSV、工程 JSON、页面、控件…）以前**一个字节都不落盘** —— 打包窗口用的 WebView2 不接页面下载，也没有浏览器的「另存为」接口，点下去既不弹框也不报错。现在改成弹 **Windows 原生「另存为」** 让你自己选目录；选完再点「保存」就写回同一个文件。浏览器里照旧是下载\n2. 导出 / 另存为统一走同一条路：变量表、报警、脚本、页面、控件的导出在桌面窗口弹框、在浏览器里下载，行为一致；CSV 带 BOM，Excel 直接打开不乱码\n3. 本版包含 2.0.1 的全部内容：「输入范围限制」（超界的值写不进 PLC、越界输入框变红）、软键盘弹出时屏蔽其他控件（防误碰）、前后端只走一条 WebSocket 长连接、报警历史 / 报警存档 / 脚本引擎 / 变量表的「越跑越卡」修复\n4. 自动化套件扩到 70 套 / 1500+ 项断言（新增「导出文件」那套：桌面走原生弹框、浏览器走下载、点取消不打扰）",
+    "url":  "http://124.221.183.24:3000/xiaoen/hmi-designer",
+    "min_launcher":  "1.0.0",
+    "app_zip":  {
+                    "url":  "http://124.221.183.24:3000/xiaoen/hmi-designer/releases/download/v2.0.2/WebHMI-Designer-2.0.2-app.zip",
+                    "file":  "WebHMI-Designer-2.0.2-app.zip",
+                    "sha256":  "3c90a127d3cf9b416f8da8153a9a1ac40d404276020e967697d0a762b12ae702",
+                    "size":  3582251
+                },
+    "setup":  {
+                  "url":  "http://124.221.183.24:3000/xiaoen/hmi-designer/releases/download/v2.0.2/WebHMI-Designer-Setup-2.0.2.exe",
+                  "file":  "WebHMI-Designer-Setup-2.0.2.exe",
+                  "sha256":  "56d88fa83c9b63f3eba2ed35c07ac561be50ce3a578add677607f8800788a305",
+                  "size":  38712465
+              }
+}

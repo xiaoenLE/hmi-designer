@@ -1,0 +1,94 @@
+{
+  "_note": [
+    "改了哪些文件 → 该跑哪些套件（node tools/run-suites.mjs --changed）。",
+    "规则**从上往下全部匹配**，命中的套件取并集（不是首次命中就停）—— 宁可多跑一条，也别漏。",
+    "match 用仓库相对路径、正斜杠，支持 *（不跨目录）和 **（跨目录）。",
+    "加了新套件就顺手挂进来；没被任何规则提到的套件，--changed 会列成「孤儿套件」提醒你。",
+    "影响面大的改动（js/core、js/runtime、js/editor、index.html、server/**）直接 --all，别指望映射表能覆盖全。"
+  ],
+  "rules": [
+    { "match": "js/widgets/defs/**", "suites": ["verify-widget-split", "verify-widget-pack", "verify-widget-export", "verify-prop-live", "verify-doc-examples"] },
+    { "match": "js/widgets/registry.js", "suites": ["verify-widget-split", "verify-widget-pack", "verify-prop-live"] },
+    { "match": "js/widgets/pack.js", "suites": ["verify-widget-pack", "verify-widget-export"] },
+    { "match": "js/widgets/**", "suites": ["verify-widget-split", "verify-prop-live"] },
+
+    { "match": "js/widgets/defs/number.js", "suites": ["verify-number", "verify-dtype-lock", "verify-input-range", "verify-keyboard", "verify-keypad-mode", "verify-script-enter"] },
+    { "match": "js/widgets/defs/input.js", "suites": ["verify-number", "verify-input-range", "verify-dtype-lock"] },
+    { "match": "js/widgets/defs/value.js", "suites": ["verify-number", "verify-dtype-lock"] },
+    { "match": "js/widgets/defs/button.js", "suites": ["verify-btn-default", "verify-btn-hold", "verify-btn-transparent", "verify-button-state", "verify-varpicker", "verify-input-range", "verify-clickthrough"] },
+    { "match": "js/widgets/defs/lamp.js", "suites": ["verify-lamp-text", "verify-button-state"] },
+    { "match": "js/widgets/defs/select.js", "suites": ["verify-select", "verify-varpicker", "verify-keypad-mode"] },
+    { "match": "js/widgets/defs/trend.js", "suites": ["verify-trend", "verify-varpicker", "verify-scope"] },
+    { "match": "js/widgets/defs/table.js", "suites": ["verify-table", "verify-arrbind", "verify-array-expand"] },
+    { "match": "js/widgets/defs/clock.js", "suites": ["verify-clock"] },
+    { "match": "js/widgets/defs/alarm*.js", "suites": ["verify-alarm", "verify-alarm-csv", "verify-alarmhist-cap", "verify-plc-alarm"] },
+
+    { "match": "js/runtime/runtime.js", "suites": ["verify-runtime-ui", "verify-runtime-chrome", "verify-input-range", "verify-keyboard", "verify-keypad-mode", "verify-number", "verify-clickthrough", "verify-run-only", "verify-scope", "verify-link-gate", "verify-popup-size", "verify-btn-hold", "verify-fixes"] },
+    { "match": "js/runtime/varstore.js", "suites": ["verify-link-gate", "verify-link-drop", "verify-sse-batch", "verify-persist", "verify-retain", "verify-script-vars", "verify-fixes"] },
+    { "match": "js/runtime/scriptEngine.js", "suites": ["verify-script", "verify-script-enter", "verify-script-logs", "verify-script-vars"] },
+    { "match": "js/runtime/alarms.js", "suites": ["verify-alarm", "verify-alarm-csv", "verify-alarmhist-cap", "verify-plc-alarm"] },
+    { "match": "js/runtime/trend.js", "suites": ["verify-trend", "verify-scope"] },
+    { "match": "js/runtime/permissions.js", "suites": ["verify-perm"] },
+    { "match": "js/runtime/**", "suites": ["verify-runtime-ui", "verify-run-only"] },
+
+    { "match": "js/editor/properties.js", "suites": ["verify-prop-live", "verify-number", "verify-varpicker", "verify-input-range", "verify-dtype-lock", "verify-image-props", "verify-varsearch", "verify-btn-default", "verify-fixes"] },
+    { "match": "js/editor/varPick.js", "suites": ["verify-varpicker", "verify-varsearch"] },
+    { "match": "js/editor/varsPanel.js", "suites": ["verify-vars-csv", "verify-vargroup", "verify-array-expand", "verify-varsearch"] },
+    { "match": "js/editor/toolbar.js", "suites": ["verify-project", "verify-update", "verify-keypad-mode", "verify-perm"] },
+    { "match": "js/editor/canvas.js", "suites": ["verify-canvas-zoom", "verify-boxselect", "verify-group", "verify-context-menu", "verify-duplicate", "verify-fixes"] },
+    { "match": "js/editor/dock.js", "suites": ["verify-dock", "verify-split-pane", "verify-fold"] },
+    { "match": "js/editor/pagesPanel.js", "suites": ["verify-pagegroup", "verify-base", "verify-list", "verify-pageio"] },
+    { "match": "js/editor/listPanel.js", "suites": ["verify-list"] },
+    { "match": "js/editor/logSettings.js", "suites": ["verify-log-block", "verify-log-prune"] },
+    { "match": "js/editor/scriptsPanel.js", "suites": ["verify-export-file"] },
+    { "match": "js/editor/varsPanel.js", "suites": ["verify-export-file", "verify-vars-csv", "verify-vargroup"] },
+    { "match": "js/editor/alarmsPanel.js", "suites": ["verify-export-file", "verify-alarm-csv", "verify-alarm"] },
+    { "match": "js/editor/pageIO.js", "suites": ["verify-export-file", "verify-pageio"] },
+    { "match": "js/editor/widgetIO.js", "suites": ["verify-export-file", "verify-widget-export", "verify-widget-pack"] },
+    { "match": "js/editor/**", "suites": ["verify-prop-live", "verify-project"] },
+
+    { "match": "js/core/project.js", "suites": ["verify-project", "verify-duplicate", "verify-pageio", "verify-pagegroup", "verify-base", "verify-widget-pack", "verify-persist", "verify-fixes"] },
+    { "match": "js/core/storage.js", "suites": ["verify-project", "verify-persist", "verify-boot", "verify-run-only", "verify-export-file", "verify-desktop"] },
+    { "match": "js/core/utils.js", "suites": ["verify-number", "verify-input-range", "verify-prop-live", "verify-doc-examples"] },
+    { "match": "js/core/csv.js", "suites": ["verify-export-file", "verify-csv-encoding", "verify-vars-csv", "verify-alarm-csv", "verify-widget-export", "verify-pageio"] },
+    { "match": "js/core/**", "suites": ["verify-project", "verify-prop-live"] },
+    { "match": "js/api/**", "suites": ["verify-ws-browser", "verify-boot", "verify-update", "verify-link-drop", "verify-sse-batch"] },
+    { "match": "js/data/**", "suites": ["verify-boot", "verify-project", "verify-doc-examples"] },
+
+    { "match": "index.html", "suites": ["verify-runtime-chrome", "verify-runtime-ui", "verify-input-range", "verify-keyboard", "verify-context-menu", "verify-dock", "verify-boot", "verify-cursor"] },
+    { "match": "css/**", "suites": ["verify-runtime-chrome", "verify-runtime-ui", "verify-input-range", "verify-cursor"] },
+
+    { "match": "server/modbus.py", "suites": ["verify-plc"] },
+    { "match": "server/opcua.py", "suites": ["verify-opcua", "verify-opcua-refresh"] },
+    { "match": "server/plc_sim.py", "suites": ["verify-plc", "verify-link-gate", "verify-plc-alarm"] },
+    { "match": "server/hmi_desktop.py", "suites": ["verify-export-file", "verify-desktop"] },
+    { "match": "server/core/applog.py", "suites": ["verify-log-block", "verify-log-prune", "verify-script-logs"] },
+    { "match": "server/core/retain.py", "suites": ["verify-retain"] },
+    { "match": "server/**", "suites": ["verify-boot", "verify-link-drop", "verify-retain"] },
+    { "match": "packaging/**", "suites": ["verify-desktop"] },
+    { "match": "server/hmi_desktop.py", "suites": ["verify-desktop"] },
+    { "match": "tools/**", "suites": ["verify-doc-examples"] },
+    { "match": "README.md", "suites": ["verify-doc-examples"] },
+    { "match": "docs/**", "suites": ["verify-doc-examples"] }
+  ],
+  "fallback": {
+    "_note": "认不出的文件（映射表没覆盖到）→ 至少跑这几条，并明确提示「没认出来」；大改动请 --all",
+    "suites": ["verify-boot", "verify-prop-live"]
+  },
+  "knownFail": {
+    "_note": [
+      "**环境相关 / 旧账**，眼下跑不过、也不打算马上修的套件（不是拿来藏新问题的！）。",
+      "作用只有一个：跑挂过一次之后，别让它每次都跟着 --changed 白跑；",
+      "规则命中它（比如改了 server/plc_sim.py）时**照跑**，--all 也照跑 —— 只有「上次没过 → 自动带上」这条不带它。",
+      "修好了就把名字从这里删掉（删掉后它会照常参与自动带上）。",
+      "（verify-plc 曾经在这里：它的两条 %MD48 断言是**测试自己**踩了「编辑器按页采集」——",
+      " rSpeed 不在本页控件上就被移出采集范围，/api/vars 读到的是缓存值。已在测试里显式放回全采，现已全绿。）"
+    ],
+    "suites": []
+  },
+  "broad": {
+    "_note": "命中这些 = 影响面大，--changed 会额外喊一声「建议 --all」（不自动跑全量，决定权留给人）",
+    "match": ["js/core/**", "js/runtime/**", "js/editor/**", "js/api/**", "server/**", "index.html", "css/**"]
+  }
+}
+

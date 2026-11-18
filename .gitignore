@@ -1,0 +1,60 @@
+# 按天滚动的运行日志（server.py 自动生成）
+logs/
+
+# Python 字节码缓存
+__pycache__/
+*.pyc
+
+# WebView 浏览器运行时缓存（36MB，纯二进制垃圾，每次启动都在变）
+server/data/webview/
+
+# 运行时状态数据（登录口令哈希、会话、历史记录，每次运行都在变）
+# 注意：hmi_project.json（画面工程数据）、vars.json（PLC 变量配置）、plc.json 必须保留
+server/data/auth.json
+server/data/sessions.json
+server/data/alarm_history.json
+
+# 「立即更新」留下的东西：重启标记/结果、以及更新前的**代码备份**
+# （备份是现场机器自己的东西，一台一份，不该进版本库；且更新时本来就跳过 server/data）
+server/data/_update/
+server/data/_code_backup/
+
+# 打包产物（build-release.ps1 生成：壳 onedir 49MB / 安装包 36MB / app 包 3MB，不进版本库）
+build/
+dist/
+*.spec.bak
+
+
+
+# 打包时生成的 exe 版本资源（build-release.ps1 每次重写）
+packaging/version_info.txt
+
+# log settings (per-machine: log keep days / scriptlog daily cap)
+server/data/settings.json
+server/data/ai.json
+
+# 浸泡/探针脚本的输出（每次跑出来的文字结果，属运行产物）
+out/
+
+# generated frpc.toml (FRP, machine-local)
+server/data/frp/
+/server/data/hmi_project.json
+hmi_project.json
+
+# 配方（现场数据：配方名 + 变量值，一台一份，不进版本库）
+server/data/recipes.json
+
+# 多用户账号表（现场数据：账号/角色/密码哈希，一台一份，不进版本库）
+server/data/users.json
+
+# 历史数据（现场数据：采样配置 + 按天 jsonl，一台一份，不进版本库）
+server/data/history.json
+server/data/history/
+
+# 当前工程数据（.LE 与 hmi_project.json 同口径：现场一台一份，不进版本库）
+server/data/hmi_project.LE
+
+# 本地 FRP 内网穿透工具（frpc.exe 16MB，一台一份，不进版本库）
+FRP/
+# 现场使用说明文档（PPT/PDF 几十 MB，不进版本库）
+HMI设计器使用说明/

@@ -1,0 +1,362 @@
+/* ═══════════════════════════════════════════
+   widgets.css — 控件外观（编辑态与运行态共用，
+   实现所见即所得）
+   ═══════════════════════════════════════════ */
+
+/* 控件通用外壳：绝对定位由内联 style 指定 */
+.wd { position: absolute; box-sizing: border-box; touch-action: none; }
+.wd-body { width: 100%; height: 100%; overflow: hidden; }
+
+/* 控件类型**在本机没有定义**时的占位（见 registry.js 的 missingDefHtml）：
+   以前这种情况是 def.render 抛异常 → 整页渲染当场断掉，后面那些控件连看都看不见。
+   现在画一个看得见、选得中、删得掉的占位，并把类型名写在脸上。 */
+.wd-unknown { outline: 1px dashed #f59e0b; outline-offset: -1px; }
+.wd-missing {
+  width: 100%; height: 100%; box-sizing: border-box;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  background: repeating-linear-gradient(45deg, #fff7ed, #fff7ed 6px, #ffedd5 6px, #ffedd5 12px);
+  color: #b45309; font-size: 11px; line-height: 1.3; text-align: center; overflow: hidden;
+  border: 1px solid #fdba74; border-radius: 3px; padding: 2px;
+}
+.wd-missing span { font-weight: 600; font-family: ui-monospace, Consolas, monospace; word-break: break-all; }
+
+/* ── 编辑态：选中高亮 ── */
+#canvas .wd { cursor: move; }
+#canvas .wd.selected { outline: 1.5px solid var(--sel); outline-offset: 0; }
+#canvas .wd.selected.dashed { outline: 1.5px dashed var(--sel); }   /* 多选非主控件：虚线 */
+#canvas .wd.primary { outline: 2px solid #f59e0b; outline-offset: 1px; }  /* 主控件：橙色实线 */
+#canvas .wd:hover:not(.selected) { outline: 1px dashed #93b4f5; }
+/* 编组成员（未选中时）：细虚线提示"它们是一组的"，点一下会整组选中 */
+#canvas .wd.grouped { outline: 1px dashed #c4b5fd; outline-offset: 0; }
+/* 公共底那一层（在普通页上画出来的底）：**点不动**，光标也不给"能拖"的错觉；
+   鼠标移上去给一圈紫色虚线 + 淡紫底，一眼看出"这块属于公共底，不属于这一页" */
+#canvas .wd.wd-base { cursor: default; }
+#canvas .wd.wd-base:hover:not(.selected) { outline: 1px dashed #a78bfa; background: rgba(124, 58, 237, .07); }
+/* 整组选中的外框上角标 */
+.group-tag {
+  position: absolute; left: 0; top: -20px; height: 18px; padding: 0 8px;
+  display: flex; align-items: center; border-radius: 4px 4px 0 0;
+  background: #7c3aed; color: #fff; font-size: 11px; font-weight: 600;
+  pointer-events: none; white-space: nowrap;
+}
+
+/* 锁定角标 */
+.lock-badge {
+  position: absolute; left: -12px; top: -12px; width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  background: #fff; border: 1px solid var(--border-2); border-radius: 50%;
+  font-size: 11px; box-shadow: var(--shadow); pointer-events: none;
+}
+
+/* ══ 按钮 ══ */
+.w-btn {
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(180deg, #3b74f2, #2563eb);
+  color: #fff; border: 1px solid #1d4ed8; border-radius: 7px;
+  font-family: inherit; box-shadow: 0 2px 4px rgba(37,99,235,.3), inset 0 1px 0 rgba(255,255,255,.28);
+  cursor: pointer; user-select: none; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis;
+}
+.w-btn:active { transform: translateY(1px); box-shadow: 0 1px 2px rgba(37,99,235,.3); }
+
+/* 延迟触发（长按）进度条：贴着按钮底边从左往右长，长满 = 到点执行。
+   为什么是"底边一条"而不是整块蒙一层：蒙层会把按钮文字压得看不清（白底按钮上更是完全看不见），
+   琥珀色/完成时的绿色在浅色和深色按钮上都显眼。
+   挂在外壳 .wd 上（见 runtime.js bindHoldActions：画进 .wd-body 会被变量刷新重建掉）。 */
+.wd-hold {
+  position: absolute; left: 0; bottom: 0; width: 0; height: 6px;
+  display: none; pointer-events: none;
+  background: #fbbf24; box-shadow: 0 0 5px rgba(251, 191, 36, .95);
+}
+.wd-hold.on { display: block; }
+.wd-hold.done { background: #22c55e; box-shadow: 0 0 7px rgba(34, 197, 94, .95); }   /* 到点：变绿满格 */
+
+/* ══ 指示灯 ══ */
+.w-lamp {
+  width: 100%; height: 100%; border-radius: 50%;
+  border: 2px solid #52606d; box-shadow: inset 0 2px 5px rgba(0,0,0,.28);
+  position: relative;
+}
+.w-lamp::after {
+  content: ''; position: absolute; left: 18%; top: 12%; width: 34%; height: 24%;
+  border-radius: 50%; background: rgba(255,255,255,.35);
+}
+/* 灯 + 状态文字布局：文字是纯 span（运行态无输入光标） */
+.lamp-wrap {
+  width: 100%; height: 100%; display: flex; align-items: center; gap: 7px;
+  user-select: none;
+}
+/* ⚠️ width:auto 必须有——基础 .w-lamp 的 width:100% 若不覆盖，aspect-ratio 失效，
+   灯会吃满容器宽把文字挤成 0 宽（「文字不显示」bug 根因） */
+.lamp-wrap .w-lamp { flex: none; width: auto; height: 100%; aspect-ratio: 1; }   /* 灯恒正圆，直径=控件高 */
+/* 下方布局用 grid：1fr 行给灯（按行高取正圆），auto 行给文字，互不挤压 */
+.lamp-wrap.lamp-v { display: grid; grid-template-rows: 1fr auto; justify-items: center; align-items: center; gap: 3px; }
+.lamp-wrap.lamp-v .w-lamp { flex: none; width: auto; height: 100%; min-height: 0; max-width: 100%; }
+/* 左侧布局：行反转——DOM 中灯在前，反转后灯贴右、文字占左侧区域 */
+.lamp-wrap.lamp-l { flex-direction: row-reverse; }
+/* 里面布局：grid 叠层——灯占满整个控件区域，文字居中叠在灯体上 */
+.lamp-wrap.lamp-in { display: grid; justify-items: stretch; align-items: stretch; }
+.lamp-wrap.lamp-in .w-lamp { grid-area: 1 / 1; width: 100%; height: 100%; flex: none; }
+.lamp-wrap.lamp-in .lamp-text { grid-area: 1 / 1; z-index: 1; flex: none; justify-self: center; align-self: center;
+  max-width: 100%; text-align: center; }
+.lamp-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+.lamp-v .lamp-text { flex: none; max-width: 100%; text-align: center; }
+/* ⚠️ 点亮时的外发光画在圆外面，别让 .wd-body 的 overflow:hidden 把它裁成方块 ——
+   裁了以后圆灯四角会各透出一小块淡色，看着就是「圆灯后面有个微弱的正方形」。
+   文字的省略号不受影响：.lamp-text 自己带 overflow:hidden。*/
+.wd-lamp .wd-body { overflow: visible; }
+
+/* ══ 表格（参数表/点位表） ══ */
+.w-table { width: 100%; height: 100%; border-collapse: collapse; table-layout: fixed; overflow: hidden; }
+.w-table td {
+  padding: 0 8px; border: 1px solid var(--wt-line, #c3cbd6);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2;
+}
+.w-table td.th { background: var(--wt-head-bg, #eef2f7); color: var(--wt-head-fg, #1f2329); font-weight: 600; }
+.w-table td.zebra { background: rgba(148, 163, 184, .12); }
+
+/* ══ 下拉框 / 组合框（自绘弹层：行高可调，原生 <select> 改不了行高）══ */
+.wd-select .wd-body { overflow: visible; }        /* 弹层要能超出控件框 */
+.w-combo {
+  position: relative; width: 100%; height: 100%; box-sizing: border-box;
+  font-family: inherit; user-select: none;
+}
+.w-combo-box {
+  width: 100%; height: 100%; box-sizing: border-box; display: flex; align-items: center; gap: 6px;
+  padding: 0 10px; cursor: pointer; overflow: hidden;
+}
+.w-combo-cur { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 自绘小三角 */
+.w-combo-car {
+  flex: none; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent;
+  border-top: 6px solid currentColor; opacity: .65; transition: transform .12s;
+}
+.w-combo.open .w-combo-car { transform: rotate(180deg); }
+.w-combo-pop {
+  display: none; position: absolute; left: -1px; right: -1px; top: 100%; z-index: 500;
+  margin-top: 2px; box-sizing: border-box;
+  background: #fff; border: 1px solid var(--border-2, #c3cbd6); border-radius: 5px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .22); overflow-y: auto; overscroll-behavior: contain;
+}
+.w-combo.open .w-combo-pop { display: block; }
+/* 下面空间不够时往上翻（JS 加 .up），免得被运行画面的 overflow:hidden 裁掉 */
+.w-combo.open.up .w-combo-pop { top: auto; bottom: 100%; margin-top: 0; margin-bottom: 2px; }
+.w-combo-item {
+  height: var(--combo-item-h, 36px); line-height: var(--combo-item-h, 36px);
+  padding: 0 10px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: #1f2329;                     /* 弹层恒定浅底，文字用深色，免得深色主题下看不清 */
+}
+.w-combo-item:hover { background: #eef4ff; }
+.w-combo-item.on { background: #e0ecff; font-weight: 600; }
+/* 状态色块：弹层是恒定浅底，状态色不铺满整行（会看不清别的项），只用一个色块点一下 */
+.w-combo-dot {
+  display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px;
+  vertical-align: middle; box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .18);
+}
+/* 「可选也可输入」：列表末尾多一行手动输入入口（虚线隔开，跟真选项区分） */
+.w-combo-typerow {
+  height: var(--combo-item-h, 36px); line-height: var(--combo-item-h, 36px);
+  padding: 0 10px; cursor: pointer; white-space: nowrap; overflow: hidden;
+  color: #2563eb; border-top: 1px dashed #cbd5e1; font-weight: 600;
+}
+.w-combo-typerow:hover { background: #eef4ff; }
+.w-combo.ro .w-combo-box { cursor: default; }
+.w-combo.ro { }
+/* 编辑态：不响应点击（点击留给画布拖动），但外观照旧 */
+#canvas .wd-select .w-combo.edit .w-combo-box { cursor: move; }
+
+/* ══ 时钟（当前时间） ══ */
+.w-clock {
+  display: flex; align-items: center; gap: 2px; width: 100%; height: 100%;
+  padding: 0 6px; box-sizing: border-box; overflow: hidden;
+  font-family: var(--mono); white-space: nowrap;
+}
+/* 等宽数字：跳秒时字符宽度不抖（不然整块文字会左右晃） */
+.w-clock .wc-time { font-variant-numeric: tabular-nums; letter-spacing: .2px; }
+
+/* ══ 报警控件（报警条 / 当前报警 / 报警历史） ══ */
+/* 报警条：一条横条，最严重的报警在里面（超长可滚动） */
+.w-alarmbar {
+  width: 100%; height: 100%; box-sizing: border-box; display: flex; align-items: center; gap: 8px;
+  padding: 0 10px; overflow: hidden; background: var(--ab-bg, #ef4444); color: var(--ab-fg, #fff);
+  border-radius: inherit; user-select: none;
+}
+.w-alarmbar .ab-ico { flex: none; }
+/* 可视区 + 滚动带：带子里放「两份一模一样的内容」，滚到 -50% 时第二份正好接上第一份 */
+/* ── 报警条：一份内容（含尾部间隔）+ 尾部留白，两份首尾相接 ──
+   ⚠ .ab-reel 必须写 width:max-content：它是个块级 flex 容器，默认宽度会取父容器宽度（= 可视区），
+   那样 translateX(-50%) 走的是「半个可视区」而不是「一份内容」，
+   表现就是滚到后面突然跳回开头。max-content 之后 reel 宽 = 两份内容，-50% 正好是一份 → 无缝。 */
+.w-alarmbar .ab-view { flex: 1; min-width: 0; overflow: hidden; position: relative; align-self: stretch; }
+.w-alarmbar .ab-reel {
+  display: flex; align-items: center; height: 100%; white-space: nowrap;
+  width: max-content; will-change: transform;
+}
+.w-alarmbar .ab-copy { display: inline-block; padding-right: 70px; }   /* 首尾之间的间隔 */
+.w-alarmbar .ab-reel .ab-copy.dup { display: none; }                  /* 不滚的时候第二份不占位 */
+/* 超长才滚：宽度由 alarmBar.js 量出来折算 --ab-dur（内容短就静静显示，不晃） */
+.w-alarmbar.roll .ab-reel .ab-copy.dup { display: inline-block; }
+.w-alarmbar.roll .ab-reel { animation: ab-ticker var(--ab-dur, 12s) linear infinite; }
+@keyframes ab-ticker {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+/* 闪烁：整条一明一暗（提示级不闪，免得一直晃眼） */
+.w-alarmbar.blink { animation: ab-blink 1s steps(1, end) infinite; }
+@keyframes ab-blink { 0%, 60% { filter: none; } 61%, 100% { filter: brightness(1.35); } }
+.w-alarmbar.empty { background: var(--ab-bg, #eef2f7); }
+.w-alarmbar.empty .ab-ico { color: #16a34a; }
+
+/* 当前报警 / 报警历史：表格形式（复用 .w-table 的格子样式） */
+.w-alarmtbl {
+  width: 100%; height: 100%; box-sizing: border-box; display: flex; flex-direction: column;
+  overflow: hidden; border-radius: inherit; user-select: none;
+}
+.w-alarmtbl .at-scroll { flex: 1; min-height: 0; overflow: auto; }
+/* ⚠ overflow 必须覆盖成 visible：这张表还挂着 .w-table，而 `.w-table { overflow: hidden }`
+   —— 带 overflow 的祖先会被 sticky 当成"滚动容器"，表头就粘在表格自己身上（表格跟内容一样高）
+   ＝等于根本不粘（实测：滚动后表头位置 = 滚动量原样跟着走）。格子里各自的省略号不受影响。 */
+.w-alarmtbl .at-table { width: 100%; height: auto; table-layout: auto; border-collapse: collapse; overflow: visible; }
+.w-alarmtbl .at-table td {
+  padding: 0 8px; border: 1px solid var(--at-line, #c3cbd6); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; line-height: 1.25;
+}
+.w-alarmtbl .at-table td.th { background: var(--at-head, #eef2f7); color: var(--at-headfg, #1f2329); font-weight: 600; }
+/* 表头（说明栏）**吸顶**：报警/记录多了要滚动看，表头跟着滚走就不知道哪列是什么了（现场要求）。
+   ⚠ 表头格子自带底色（--at-head）✓ 不透明才盖得住下面滚过去的行；
+   ⚠ border-collapse: collapse 下，吸顶格的边框会跟着行一起滚走 —— 吸住之后底下那条线就没了，
+     所以用 inset 阴影补一条（看着跟原来的边框一样）。
+   will-change: 跟左区面板表头同一个理由 —— 滚动时表头单独成层，不会被下面那一帧的行穿过去。 */
+.w-alarmtbl .at-table thead td.th {
+  position: sticky; top: 0; z-index: 2; will-change: transform;
+  box-shadow: inset 0 -1px 0 var(--at-line, #c3cbd6);
+}
+.w-alarmtbl .at-table tr.zebra td { background: rgba(148, 163, 184, .12); }
+.w-alarmtbl .at-table td.alempty { text-align: center; color: #6b7280; }
+/* 同时报警太多：只画前 N 行，剩下的用这一行说明（不然上千行 DOM 会拖慢整个画面） */
+.w-alarmtbl .at-table td.almore { text-align: center; color: #6b7280; font-size: .92em; }
+.w-alarmtbl .at-table .al-ack {
+  height: 18px; padding: 0 7px; font-size: 11px; cursor: pointer; line-height: 1;
+  border: 1px solid currentColor; border-radius: 3px; background: #fff;
+}
+.w-alarmtbl .at-table .al-ack:hover { background: #fee2e2; }
+/* 日期切换条（报警历史） */
+.at-nav {
+  flex: none; display: flex; align-items: center; gap: 4px; padding: 3px 6px;
+  background: var(--at-head, #e2e8f0); border-bottom: 1px solid var(--at-line, #c3cbd6);
+}
+.at-nav .at-btn {
+  flex: none; height: 20px; min-width: 22px; padding: 0 6px; cursor: pointer; line-height: 1;
+  border: 1px solid var(--at-line, #c3cbd6); border-radius: 3px; background: #fff; color: #374151;
+  font-size: 12px;
+}
+.at-nav .at-btn:hover:not(:disabled) { background: #f3f4f6; }
+.at-nav .at-btn:disabled { opacity: .5; cursor: default; }
+.at-nav .at-today.on { background: #2563eb; border-color: #2563eb; color: #fff; }
+.at-nav .at-date {
+  flex: none; height: 20px; padding: 0 4px; font-size: 12px; color: #374151;
+  border: 1px solid var(--at-line, #c3cbd6); border-radius: 3px; background: #fff;
+}
+.at-nav .at-count { flex: 1; min-width: 0; text-align: right; color: #6b7280; font-size: 11px; }
+.at-nav .at-clear { margin-left: 4px; }
+
+/* ══ 文本标签 ══ */
+.w-label {
+  width: 100%; height: 100%; display: flex; align-items: center;
+  overflow: hidden; white-space: pre-wrap; word-break: break-word;
+  line-height: 1.25; user-select: none;
+}
+
+/* ══ 数值显示 ══ */
+.w-value {
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: flex-end;
+  gap: 4px; padding: 0 8px; background: #fff;
+  border: 1px solid var(--border-2); border-radius: 5px;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.07);
+}
+.w-value .v { font-family: var(--mono); font-weight: 600; }
+.w-value .u { color: var(--text-2); font-size: .85em; flex: none; }
+
+/* ══ 数值输入 ══ */
+.w-input {
+  width: 100%; height: 100%; padding: 0 8px; background: #fdfdff;
+  border: 1px solid var(--border-2); border-radius: 5px;
+  font-family: var(--mono); color: var(--text); outline: none;
+}
+.w-input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(37,99,235,.18); }
+.w-input:disabled { background: #f4f5f7; color: var(--text-2); }
+
+/* ══ 数值（显示/输入二合一） ══ */
+.w-number {
+  width: 100%; height: 100%; display: flex; align-items: center; gap: 4px;
+  padding: 0 6px 0 8px; background: #fff; border: 1px solid var(--border-2);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.07); overflow: hidden;
+}
+.w-number .wn-val { font-family: var(--mono); font-weight: 600; flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w-number .wn-unit { color: var(--text-2); font-size: .85em; flex: none; }
+.w-number .wn-edit {
+  flex: none; width: 22px; height: 22px; border: none; border-radius: 4px;
+  background: #eef2f7; color: var(--text-2); cursor: pointer; font-size: 12px;
+  line-height: 1; display: flex; align-items: center; justify-content: center;
+  padding: 0;
+}
+.w-number .wn-edit:hover { background: #e3edff; color: var(--primary); }
+.w-number .wn-edit:disabled { opacity: .4; cursor: default; }
+.w-number input {
+  flex: 1; min-width: 0; height: 100%; border: none; outline: none; background: transparent;
+  font-family: var(--mono); color: var(--text); font-size: inherit;
+}
+/* 输入越界（控件属性「范围限制」）：内联输入框 / 老「数据输入」控件的输入框当场变红。
+   运行时越界**不写进变量**（见 runtime.js 的 commitInput / enterNumberEdit），
+   红框就是"这个数没让写"的唯一提示 —— 触摸屏上没有悬停。 */
+.w-input.bad, .w-number input.bad {
+  color: #dc2626; background: #fdeaea; border-color: #ef4444;
+  box-shadow: inset 0 0 0 1px #ef4444;
+}
+
+/* ══ 矩形 ══ */
+.w-rect { width: 100%; height: 100%; }
+
+/* ══ 圆 ══ */
+.w-circle { width: 100%; height: 100%; border-radius: 50%; }
+
+/* ══ 图片占位 ══ */
+.w-image {
+  width: 100%; height: 100%; display: flex; flex-direction: column; gap: 4px;
+  align-items: center; justify-content: center;
+  border: 1px dashed var(--border-2); border-radius: 5px;
+  background: #f7f8fa; color: var(--text-2); font-size: 12px; overflow: hidden;
+}
+.w-image img { width: 100%; height: 100%; object-fit: contain; }
+
+/* ══ 波形 / 趋势图（内容由 trend.js 逐帧画在 canvas 上） ══ */
+.w-trend { width: 100%; height: 100%; overflow: hidden; }
+.trend-cv { display: block; width: 100%; height: 100%; }
+
+/* ══ 棒图 / 进度条（defs/bar.js）══
+   ⚠ 类名用 `.w-<type>`：控件包导出时**靠这个前缀从样式表里挑规则**（见 pack.js 的 cssOfType），
+      用别的名字样式就不会跟着包走。 */
+.w-bar { position: relative; width: 100%; height: 100%; overflow: hidden; box-sizing: border-box; }
+.w-bar-fill { position: absolute; display: block; }
+.w-bar-txt {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; line-height: 1; pointer-events: none; white-space: nowrap;
+  text-shadow: 0 0 2px rgba(255, 255, 255, .55);      /* 深色填充上也看得清数值 */
+}
+/* 竖着画时数值放底部（棒子从下往上长，字压在最上面那条会是空的） */
+.w-bar.vert .w-bar-txt { align-items: flex-end; padding-bottom: 2px; }
+
+/* ══ 指示灯闪烁（defs/lamp.js 的「闪烁」属性：慢闪 / 快闪；类名带 w-lamp 前缀） ══
+   只挂在「亮着」的灯上（灭的灯不闪）；改的是整灯的透明度，点亮时那圈外发光会一起呼吸。
+   动画是纯 CSS：编辑态预览 / 运行态都有效，不占 JS 定时器。 */
+.w-lamp.blink-slow { animation: w-lamp-blink-slow 1.2s ease-in-out infinite; }
+.w-lamp.blink-fast { animation: w-lamp-blink-fast 0.45s ease-in-out infinite; }
+@keyframes w-lamp-blink-slow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+@keyframes w-lamp-blink-fast {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.15; }
+}

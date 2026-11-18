@@ -1,0 +1,20 @@
+{
+    "app":  "WebHMI_设计器",
+    "version":  "1.0.8",
+    "date":  "2026-10-04",
+    "notes":  "1. 修复「更新后自己退回上一版」：首选端口被别的程序占用时，重启会换端口，而更新助手只在原端口上核对 → 误判成「新版没起来」→ 自动回滚。现在重启会钉住原端口，并按新实例自己的报到信息核对\n2. 新增维护文档：docs/gitea-ops.md（Gitea 操作 + 乱码排查）、docs/build-release.md（打包发版）",
+    "url":  "http://124.221.183.24:3000/xiaoen/hmi-designer",
+    "min_launcher":  "1.0.0",
+    "app_zip":  {
+                    "url":  "http://124.221.183.24:3000/xiaoen/hmi-designer/releases/download/v1.0.8/WebHMI-Designer-1.0.8-app.zip",
+                    "file":  "WebHMI-Designer-1.0.8-app.zip",
+                    "sha256":  "063f51d016e15de4969a96025c52f29fe891f357b17551e7dea42732c51a33cc",
+                    "size":  3397425
+                },
+    "setup":  {
+                  "url":  "http://124.221.183.24:3000/xiaoen/hmi-designer/releases/download/v1.0.8/WebHMI-Designer-Setup-1.0.8.exe",
+                  "file":  "WebHMI-Designer-Setup-1.0.8.exe",
+                  "sha256":  "277509b1983461033b395a5c40e3f0eeb8343e24b18411434478778679273022",
+                  "size":  38530663
+              }
+}

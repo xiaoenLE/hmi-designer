@@ -1,0 +1,2205 @@
+{
+  "order": [
+    "button",
+    "lamp",
+    "label",
+    "value",
+    "input",
+    "number",
+    "clock",
+    "rect",
+    "circle",
+    "image",
+    "table",
+    "select",
+    "bar",
+    "alarmBar",
+    "alarmList",
+    "alarmHistory",
+    "trend"
+  ],
+  "widgets": [
+    {
+      "type": "button",
+      "title": "按钮",
+      "sub": "点动/切换/状态显示",
+      "hidden": false,
+      "defaultBind": true,
+      "selfDrawn": false,
+      "defaultW": 110,
+      "defaultH": 46,
+      "defaults": {
+        "text": "按钮",
+        "fontSize": 15,
+        "textColor": "#ffffff",
+        "bgColor": "#2563eb",
+        "borderColor": "",
+        "radius": 7,
+        "borderWidth": 1,
+        "holdMs": 0,
+        "showState": true,
+        "onText": "开",
+        "offText": "关",
+        "op": ">=",
+        "threshold": "1",
+        "onColor": "#22c55e",
+        "offColor": "#9ca3af"
+      },
+      "props": [
+        {
+          "key": "text",
+          "label": "文本",
+          "type": "text"
+        },
+        {
+          "key": "fontSize",
+          "label": "字号",
+          "type": "number",
+          "min": 8,
+          "max": 72
+        },
+        {
+          "key": "textColor",
+          "label": "文字色",
+          "type": "color"
+        },
+        {
+          "key": "bgColor",
+          "label": "背景色",
+          "type": "color"
+        },
+        {
+          "key": "borderColor",
+          "label": "边框色",
+          "type": "color"
+        },
+        {
+          "key": "radius",
+          "label": "圆角",
+          "type": "number",
+          "min": 0,
+          "max": 40
+        },
+        {
+          "key": "borderWidth",
+          "label": "边框宽",
+          "type": "number",
+          "min": 0,
+          "max": 8
+        },
+        {
+          "key": "holdMs",
+          "label": "延迟触发(ms)",
+          "type": "number",
+          "min": 0,
+          "max": 60000,
+          "defVal": 0
+        },
+        {
+          "key": "showState",
+          "label": "状态显示",
+          "type": "check",
+          "defVal": true,
+          "group": "状态显示"
+        },
+        {
+          "key": "onText",
+          "label": "满足文字",
+          "type": "text",
+          "group": "状态显示"
+        },
+        {
+          "key": "offText",
+          "label": "未满文字",
+          "type": "text",
+          "group": "状态显示"
+        },
+        {
+          "key": "op",
+          "label": "比较",
+          "type": "select",
+          "showVarType": "notBool",
+          "group": "状态显示",
+          "options": [
+            {
+              "v": "==",
+              "t": "== 等于"
+            },
+            {
+              "v": "!=",
+              "t": "!= 不等"
+            },
+            {
+              "v": ">",
+              "t": "> 大于"
+            },
+            {
+              "v": "<",
+              "t": "< 小于"
+            },
+            {
+              "v": ">=",
+              "t": ">= 不小于"
+            },
+            {
+              "v": "<=",
+              "t": "<= 不大于"
+            }
+          ]
+        },
+        {
+          "key": "threshold",
+          "label": "比较值",
+          "type": "text",
+          "showVarType": "notBool",
+          "group": "状态显示"
+        },
+        {
+          "key": "onColor",
+          "label": "满足底色",
+          "type": "color",
+          "group": "状态显示"
+        },
+        {
+          "key": "offColor",
+          "label": "未满底色",
+          "type": "color",
+          "group": "状态显示"
+        }
+      ],
+      "binding": {
+        "variable": {
+          "types": [
+            "bool",
+            "int",
+            "uint",
+            "dint",
+            "udint",
+            "real",
+            "lreal",
+            "string"
+          ],
+          "label": "状态显示(可选)"
+        }
+      },
+      "actions": [
+        "tap",
+        "toggle",
+        "gotoPage",
+        "showPopup",
+        "hidePopup",
+        "back",
+        "setValue",
+        "clearAlarm",
+        "exitPerm"
+      ],
+      "iconLen": 196,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><button class=\"w-btn\" type=\"button\" tabindex=\"-1\" style=\"font-size:15px;color:#ffffff;background:linear-gradient(180deg,#22c55edd,#22c55e);border:1px solid #22c55e;border-radius:7px\">开</button></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><button class=\"w-btn\" type=\"button\" tabindex=\"-1\" style=\"font-size:15px;color:#ffffff;background:linear-gradient(180deg,#22c55edd,#22c55e);border:1px solid #22c55e;border-radius:7px\">开</button></div>"
+        }
+      }
+    },
+    {
+      "type": "lamp",
+      "title": "指示灯",
+      "sub": "绑定 BOOL 变量",
+      "hidden": false,
+      "defaultBind": false,
+      "selfDrawn": false,
+      "defaultW": 50,
+      "defaultH": 50,
+      "defaults": {
+        "onColor": "#22c55e",
+        "offColor": "#9ca3af",
+        "offText": "",
+        "onText": "",
+        "textPos": "inside",
+        "fontSize": 14,
+        "textColor": "#1f2329"
+      },
+      "props": [
+        {
+          "key": "offText",
+          "label": "灭时文字",
+          "type": "text",
+          "defFrom": "text"
+        },
+        {
+          "key": "onText",
+          "label": "亮时文字",
+          "type": "text",
+          "defFrom": "text"
+        },
+        {
+          "key": "textPos",
+          "label": "文字位置",
+          "type": "select",
+          "options": [
+            {
+              "v": "right",
+              "t": "右侧"
+            },
+            {
+              "v": "left",
+              "t": "左侧"
+            },
+            {
+              "v": "bottom",
+              "t": "下方"
+            },
+            {
+              "v": "inside",
+              "t": "里面"
+            }
+          ]
+        },
+        {
+          "key": "fontSize",
+          "label": "字号",
+          "type": "number",
+          "min": 8,
+          "max": 72
+        },
+        {
+          "key": "textColor",
+          "label": "文字色",
+          "type": "color"
+        },
+        {
+          "key": "onColor",
+          "label": "点亮色",
+          "type": "color"
+        },
+        {
+          "key": "offColor",
+          "label": "熄灭色",
+          "type": "color"
+        }
+      ],
+      "binding": {
+        "variable": {
+          "types": [
+            "bool"
+          ],
+          "label": "绑定变量"
+        }
+      },
+      "actions": [],
+      "iconLen": 205,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-lamp\" style=\"background:#9ca3af;\"></div></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-lamp\" style=\"background:#9ca3af;\"></div></div>"
+        }
+      }
+    },
+    {
+      "type": "label",
+      "title": "文本",
+      "sub": "静态文字/动态文本",
+      "hidden": false,
+      "defaultBind": false,
+      "selfDrawn": false,
+      "defaultW": 120,
+      "defaultH": 32,
+      "defaults": {
+        "text": "文本",
+        "fmt": "%s",
+        "fontSize": 14,
+        "textColor": "#1f2329",
+        "align": "left",
+        "bold": false,
+        "bgColor": ""
+      },
+      "props": [
+        {
+          "key": "text",
+          "label": "文本",
+          "type": "text"
+        },
+        {
+          "key": "fmt",
+          "label": "格式",
+          "type": "select",
+          "options": [
+            {
+              "v": "%s",
+              "t": "%s 原样"
+            },
+            {
+              "v": "%d",
+              "t": "%d 整数"
+            },
+            {
+              "v": "%.1f",
+              "t": "%.1f 一位小数"
+            },
+            {
+              "v": "%.2f",
+              "t": "%.2f 两位小数"
+            },
+            {
+              "v": "%.3f",
+              "t": "%.3f 三位小数"
+            }
+          ]
+        },
+        {
+          "key": "fontSize",
+          "label": "字号",
+          "type": "number",
+          "min": 8,
+          "max": 72
+        },
+        {
+          "key": "textColor",
+          "label": "文字色",
+          "type": "color"
+        },
+        {
+          "key": "align",
+          "label": "对齐",
+          "type": "select",
+          "options": [
+            {
+              "v": "left",
+              "t": "左"
+            },
+            {
+              "v": "center",
+              "t": "中"
+            },
+            {
+              "v": "right",
+              "t": "右"
+            }
+          ]
+        },
+        {
+          "key": "bold",
+          "label": "加粗",
+          "type": "check"
+        },
+        {
+          "key": "bgColor",
+          "label": "背景色",
+          "type": "color",
+          "allowEmpty": true
+        }
+      ],
+      "binding": {
+        "variable": {
+          "types": [
+            "int",
+            "uint",
+            "dint",
+            "udint",
+            "real",
+            "lreal",
+            "string",
+            "bool",
+            "bool[]",
+            "int[]",
+            "uint[]",
+            "dint[]",
+            "udint[]",
+            "real[]",
+            "lreal[]",
+            "string[]"
+          ],
+          "label": "动态绑定(可选)"
+        }
+      },
+      "actions": [],
+      "iconLen": 215,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-label\" style=\"font-size:14px;color:#1f2329;justify-content:flex-start;font-weight:400;\">12</div></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-label\" style=\"font-size:14px;color:#1f2329;justify-content:flex-start;font-weight:400;\">12</div></div>"
+        }
+      }
+    },
+    {
+      "type": "value",
+      "title": "数值显示",
+      "sub": "绑定变量输出",
+      "hidden": true,
+      "defaultBind": false,
+      "selfDrawn": false,
+      "defaultW": 120,
+      "defaultH": 38,
+      "defaults": {
+        "fmt": "%.1f",
+        "dispType": "float",
+        "decimals": 1,
+        "unit": "",
+        "fontSize": 16,
+        "textColor": "#1f2329",
+        "bgColor": "#ffffff",
+        "borderColor": "#c3cbd6"
+      },
+      "props": [
+        {
+          "key": "dispType",
+          "label": "数据类型",
+          "type": "dtype"
+        },
+        {
+          "key": "unit",
+          "label": "单位",
+          "type": "text"
+        },
+        {
+          "key": "fontSize",
+          "label": "字号",
+          "type": "number",
+          "min": 8,
+          "max": 72
+        },
+        {
+          "key": "textColor",
+          "label": "文字色",
+          "type": "color"
+        },
+        {
+          "key": "bgColor",
+          "label": "背景色",
+          "type": "color"
+        },
+        {
+          "key": "borderColor",
+          "label": "边框色",
+          "type": "color"
+        }
+      ],
+      "binding": {
+        "variable": {
+          "types": [
+            "int",
+            "uint",
+            "dint",
+            "udint",
+            "real",
+            "lreal",
+            "string"
+          ],
+          "label": "绑定变量"
+        }
+      },
+      "actions": [],
+      "iconLen": 235,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-value\" style=\"background:#ffffff;border-color:#c3cbd6\">\n      <span class=\"v\" style=\"font-size:16px;color:#1f2329\">12.0</span>\n      </div></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-value\" style=\"background:#ffffff;border-color:#c3cbd6\">\n      <span class=\"v\" style=\"font-size:16px;color:#1f2329\">12.0</span>\n      </div></div>"
+        }
+      }
+    },
+    {
+      "type": "input",
+      "title": "数据输入",
+      "sub": "运行时可编辑提交",
+      "hidden": true,
+      "defaultBind": false,
+      "selfDrawn": false,
+      "defaultW": 140,
+      "defaultH": 36,
+      "defaults": {
+        "placeholder": "输入数值…",
+        "fmt": "%.1f",
+        "fontSize": 15,
+        "textColor": "#1f2329"
+      },
+      "props": [
+        {
+          "key": "placeholder",
+          "label": "提示文字",
+          "type": "text"
+        },
+        {
+          "key": "dispType",
+          "label": "数据类型",
+          "type": "dtype"
+        },
+        {
+          "key": "fontSize",
+          "label": "字号",
+          "type": "number",
+          "min": 8,
+          "max": 72
+        },
+        {
+          "key": "textColor",
+          "label": "文字色",
+          "type": "color"
+        }
+      ],
+      "binding": {
+        "variable": {
+          "types": [
+            "int",
+            "uint",
+            "dint",
+            "udint",
+            "real",
+            "lreal",
+            "string"
+          ],
+          "label": "绑定变量"
+        }
+      },
+      "actions": [],
+      "iconLen": 218,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><input class=\"w-input\" type=\"text\" disabled=\"\" value=\"12.0\" data-shown=\"12.0\" placeholder=\"输入数值…\" style=\"font-size:15px;color:#1f2329\" inputmode=\"decimal\"></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><input class=\"w-input\" type=\"text\" value=\"12.0\" data-shown=\"12.0\" placeholder=\"输入数值…\" style=\"font-size:15px;color:#1f2329\" inputmode=\"decimal\"></div>"
+        }
+      }
+    },
+    {
+      "type": "number",
+      "title": "数值",
+      "sub": "显示/输入二合一",
+      "hidden": false,
+      "defaultBind": false,
+      "selfDrawn": false,
+      "defaultW": 150,
+      "defaultH": 38,
+      "defaults": {
+        "fmt": "%.1f",
+        "dispType": "float",
+        "decimals": 1,
+        "editable": true,
+        "useKeyboard": true,
+        "unit": "",
+        "fontSize": 16,
+        "textColor": "#1f2329",
+        "bgColor": "#ffffff",
+        "borderColor": "#c3cbd6",
+        "borderWidth": 1,
+        "radius": 5
+      },
+      "props": [
+        {
+          "key": "editable",
+          "label": "可输入",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "useKeyboard",
+          "label": "软键盘输入",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "dispType",
+          "label": "数据类型",
+          "type": "dtype"
+        },
+        {
+          "key": "unit",
+          "label": "单位",
+          "type": "text"
+        },
+        {
+          "key": "fontSize",
+          "label": "字号",
+          "type": "number",
+          "min": 8,
+          "max": 72
+        },
+        {
+          "key": "textColor",
+          "label": "文字色",
+          "type": "color"
+        },
+        {
+          "key": "bgColor",
+          "label": "背景色",
+          "type": "color",
+          "allowEmpty": true
+        },
+        {
+          "key": "borderColor",
+          "label": "边框色",
+          "type": "color"
+        },
+        {
+          "key": "borderWidth",
+          "label": "边框宽",
+          "type": "number",
+          "min": 0,
+          "max": 12
+        },
+        {
+          "key": "radius",
+          "label": "圆角",
+          "type": "number",
+          "min": 0,
+          "max": 60
+        }
+      ],
+      "binding": {
+        "variable": {
+          "types": [
+            "int",
+            "uint",
+            "dint",
+            "udint",
+            "real",
+            "lreal",
+            "string",
+            "bool[]",
+            "int[]",
+            "uint[]",
+            "dint[]",
+            "udint[]",
+            "real[]",
+            "lreal[]",
+            "string[]"
+          ],
+          "label": "绑定变量"
+        }
+      },
+      "actions": [],
+      "iconLen": 299,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-number editable\" style=\"background:#ffffff;border:1px solid #c3cbd6;border-radius:5px\">\n      <span class=\"wn-val\" style=\"font-size:16px;color:#1f2329\">12.0</span>\n      \n    </div></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-number editable\" style=\"background:#ffffff;border:1px solid #c3cbd6;border-radius:5px\">\n      <span class=\"wn-val\" style=\"font-size:16px;color:#1f2329\">12.0</span>\n      \n    </div></div>"
+        }
+      }
+    },
+    {
+      "type": "clock",
+      "title": "时钟",
+      "sub": "当前时间（年月日时分秒）",
+      "hidden": false,
+      "defaultBind": false,
+      "selfDrawn": false,
+      "defaultW": 190,
+      "defaultH": 34,
+      "defaults": {
+        "timeFmt": "YYYY-MM-DD hh:mm:ss",
+        "timeFmtCustom": "YYYY-MM-DD hh:mm:ss",
+        "prefix": "",
+        "suffix": "",
+        "fontSize": 16,
+        "textColor": "#1f2329",
+        "bold": false,
+        "align": "left",
+        "bgColor": "",
+        "borderColor": "#c3cbd6",
+        "borderWidth": 0,
+        "radius": 4
+      },
+      "props": [
+        {
+          "key": "timeFmt",
+          "label": "时间格式",
+          "type": "select",
+          "options": [
+            {
+              "v": "hh:mm:ss",
+              "t": "时:分:秒"
+            },
+            {
+              "v": "hh:mm:ss.SSS",
+              "t": "时:分:秒.毫秒"
+            },
+            {
+              "v": "MM-DD hh:mm:ss",
+              "t": "月-日 时:分:秒"
+            },
+            {
+              "v": "MM-DD hh:mm:ss.SSS",
+              "t": "月-日 时:分:秒.毫秒"
+            },
+            {
+              "v": "YYYY-MM-DD hh:mm:ss",
+              "t": "年月日 时:分:秒"
+            },
+            {
+              "v": "YYYY-MM-DD hh:mm:ss.SSS",
+              "t": "年月日 时:分:秒.毫秒"
+            },
+            {
+              "v": "custom",
+              "t": "自定义…"
+            }
+          ],
+          "hint": "预设不够用就选「自定义…」，在下面那行填"
+        },
+        {
+          "key": "timeFmtCustom",
+          "label": "自定义格式",
+          "type": "text",
+          "hint": "YYYY 年 MM 月 DD 日 hh 时 mm 分 ss 秒 SSS 毫秒（如 YYYY年MM月DD日 hh:mm:ss）"
+        },
+        {
+          "key": "prefix",
+          "label": "前缀",
+          "type": "text",
+          "hint": "显示在时间前面的文字，如「当前时间：」"
+        },
+        {
+          "key": "suffix",
+          "label": "后缀",
+          "type": "text"
+        },
+        {
+          "key": "fontSize",
+          "label": "字号",
+          "type": "number",
+          "min": 8,
+          "max": 96
+        },
+        {
+          "key": "textColor",
+          "label": "文字色",
+          "type": "color"
+        },
+        {
+          "key": "bold",
+          "label": "加粗",
+          "type": "check"
+        },
+        {
+          "key": "align",
+          "label": "对齐",
+          "type": "select",
+          "options": [
+            {
+              "v": "left",
+              "t": "左"
+            },
+            {
+              "v": "center",
+              "t": "中"
+            },
+            {
+              "v": "right",
+              "t": "右"
+            }
+          ]
+        },
+        {
+          "key": "bgColor",
+          "label": "背景色",
+          "type": "color"
+        },
+        {
+          "key": "borderColor",
+          "label": "边框色",
+          "type": "color"
+        },
+        {
+          "key": "borderWidth",
+          "label": "边框宽",
+          "type": "number",
+          "min": 0,
+          "max": 8
+        },
+        {
+          "key": "radius",
+          "label": "圆角",
+          "type": "number",
+          "min": 0,
+          "max": 30
+        }
+      ],
+      "binding": {},
+      "actions": [],
+      "iconLen": 231,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-clock\" style=\"font-size:16px;color:#1f2329;font-weight:400;justify-content:flex-start;border-radius:4px\"><span class=\"wc-pre\"></span><span class=\"wc-time\" data-clock-fmt=\"YYYY-MM-DD hh:mm:ss\">2025-10-03 22:00:00</span><span class=\"wc-suf\"></span></div></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-clock\" style=\"font-size:16px;color:#1f2329;font-weight:400;justify-content:flex-start;border-radius:4px\"><span class=\"wc-pre\"></span><span class=\"wc-time\" data-clock-fmt=\"YYYY-MM-DD hh:mm:ss\">2025-10-03 22:00:00</span><span class=\"wc-suf\"></span></div></div>"
+        }
+      }
+    },
+    {
+      "type": "rect",
+      "title": "矩形",
+      "sub": "面板/边框装饰",
+      "hidden": false,
+      "defaultBind": false,
+      "selfDrawn": false,
+      "defaultW": 160,
+      "defaultH": 100,
+      "defaults": {
+        "bgColor": "#eef2f7",
+        "borderColor": "#c3cbd6",
+        "borderWidth": 1,
+        "radius": 6
+      },
+      "props": [
+        {
+          "key": "bgColor",
+          "label": "填充色",
+          "type": "color",
+          "allowEmpty": true
+        },
+        {
+          "key": "borderColor",
+          "label": "边框色",
+          "type": "color"
+        },
+        {
+          "key": "borderWidth",
+          "label": "边框宽",
+          "type": "number",
+          "min": 0,
+          "max": 12
+        },
+        {
+          "key": "radius",
+          "label": "圆角",
+          "type": "number",
+          "min": 0,
+          "max": 60
+        }
+      ],
+      "binding": {},
+      "actions": [],
+      "iconLen": 135,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-rect\" style=\"background:#eef2f7;border:1px solid #c3cbd6;border-radius:6px\"></div></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-rect\" style=\"background:#eef2f7;border:1px solid #c3cbd6;border-radius:6px\"></div></div>"
+        }
+      }
+    },
+    {
+      "type": "circle",
+      "title": "圆形",
+      "sub": "装饰形状",
+      "hidden": false,
+      "defaultBind": false,
+      "selfDrawn": false,
+      "defaultW": 80,
+      "defaultH": 80,
+      "defaults": {
+        "bgColor": "#fde68a",
+        "borderColor": "#d97706",
+        "borderWidth": 2
+      },
+      "props": [
+        {
+          "key": "bgColor",
+          "label": "填充色",
+          "type": "color"
+        },
+        {
+          "key": "borderColor",
+          "label": "边框色",
+          "type": "color"
+        },
+        {
+          "key": "borderWidth",
+          "label": "边框宽",
+          "type": "number",
+          "min": 0,
+          "max": 12
+        }
+      ],
+      "binding": {},
+      "actions": [],
+      "iconLen": 135,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-circle\" style=\"background:#fde68a;border:2px solid #d97706\"></div></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-circle\" style=\"background:#fde68a;border:2px solid #d97706\"></div></div>"
+        }
+      }
+    },
+    {
+      "type": "image",
+      "title": "图片",
+      "sub": "设备图/图标占位",
+      "hidden": false,
+      "defaultBind": false,
+      "selfDrawn": false,
+      "defaultW": 140,
+      "defaultH": 100,
+      "defaults": {
+        "src": ""
+      },
+      "props": [
+        {
+          "key": "src",
+          "label": "图片",
+          "type": "image"
+        }
+      ],
+      "binding": {},
+      "actions": [],
+      "iconLen": 230,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-image\">\n      <svg viewBox=\"0 0 24 24\" width=\"26\" height=\"26\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"2\" fill=\"none\" stroke=\"#b6bec9\" stroke-width=\"1.6\"></rect><circle cx=\"9\" cy=\"10\" r=\"2\" fill=\"#d97706\"></circle><path d=\"M5 18l5-6 4 4 3-3 4 5z\" fill=\"#c3cbd6\"></path></svg>\n      <span>图片占位</span></div></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-image\">\n      <svg viewBox=\"0 0 24 24\" width=\"26\" height=\"26\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"2\" fill=\"none\" stroke=\"#b6bec9\" stroke-width=\"1.6\"></rect><circle cx=\"9\" cy=\"10\" r=\"2\" fill=\"#d97706\"></circle><path d=\"M5 18l5-6 4 4 3-3 4 5z\" fill=\"#c3cbd6\"></path></svg>\n      <span>图片占位</span></div></div>"
+        }
+      }
+    },
+    {
+      "type": "table",
+      "title": "表格",
+      "sub": "画表格 / 排文字",
+      "hidden": false,
+      "defaultBind": false,
+      "selfDrawn": false,
+      "defaultW": 300,
+      "defaultH": 120,
+      "defaults": {
+        "cols": 3,
+        "rows": 3,
+        "header": true,
+        "headers": "列1,列2,列3",
+        "cells": "",
+        "rowH": 24,
+        "fontSize": 13,
+        "align": "left",
+        "textColor": "#1f2329",
+        "headerBg": "#eef2f7",
+        "headerColor": "#1f2329",
+        "bgColor": "#ffffff",
+        "borderColor": "#c3cbd6",
+        "borderWidth": 1,
+        "radius": 4,
+        "zebra": true,
+        "arrFill": false,
+        "arrStart": 0,
+        "arrFmt": ""
+      },
+      "props": [
+        {
+          "key": "cols",
+          "label": "列数",
+          "type": "number",
+          "min": 1,
+          "max": 12
+        },
+        {
+          "key": "rows",
+          "label": "行数",
+          "type": "number",
+          "min": 1,
+          "max": 30
+        },
+        {
+          "key": "header",
+          "label": "画表头",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "headers",
+          "label": "表头文字",
+          "type": "text",
+          "hint": "逗号分列，例如 参数,数值,单位"
+        },
+        {
+          "key": "arrFill",
+          "label": "数组填充",
+          "type": "check",
+          "defVal": false,
+          "hint": "绑一个数组变量（int[]/real[]…），把元素按行列顺序填进格子；不够的格子用「单元格文字」补"
+        },
+        {
+          "key": "arrStart",
+          "label": "起始元素",
+          "type": "number",
+          "min": 0,
+          "max": 4095,
+          "defVal": 0,
+          "hint": "从数组第几个元素开始填（0 起）"
+        },
+        {
+          "key": "arrFmt",
+          "label": "元素格式",
+          "type": "text",
+          "hint": "空=原样；可用 %d / %.1f / %.2f"
+        },
+        {
+          "key": "cells",
+          "label": "单元格文字",
+          "type": "textarea",
+          "rows": 6,
+          "hint": "一行一行写，逗号分列，写不满留空"
+        },
+        {
+          "key": "rowH",
+          "label": "行高",
+          "type": "number",
+          "min": 16,
+          "max": 80
+        },
+        {
+          "key": "fontSize",
+          "label": "字号",
+          "type": "number",
+          "min": 8,
+          "max": 40
+        },
+        {
+          "key": "align",
+          "label": "对齐",
+          "type": "select",
+          "options": [
+            {
+              "v": "left",
+              "t": "左"
+            },
+            {
+              "v": "center",
+              "t": "居中"
+            },
+            {
+              "v": "right",
+              "t": "右"
+            }
+          ]
+        },
+        {
+          "key": "textColor",
+          "label": "文字色",
+          "type": "color"
+        },
+        {
+          "key": "headerBg",
+          "label": "表头底色",
+          "type": "color"
+        },
+        {
+          "key": "headerColor",
+          "label": "表头文字",
+          "type": "color"
+        },
+        {
+          "key": "bgColor",
+          "label": "背景色",
+          "type": "color"
+        },
+        {
+          "key": "borderColor",
+          "label": "线色",
+          "type": "color"
+        },
+        {
+          "key": "borderWidth",
+          "label": "边框宽",
+          "type": "number",
+          "min": 0,
+          "max": 8
+        },
+        {
+          "key": "zebra",
+          "label": "斑马纹",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "radius",
+          "label": "圆角",
+          "type": "number",
+          "min": 0,
+          "max": 30
+        }
+      ],
+      "binding": {
+        "variable": {
+          "types": [
+            "int",
+            "uint",
+            "dint",
+            "udint",
+            "real",
+            "lreal",
+            "string",
+            "bool",
+            "bool[]",
+            "int[]",
+            "uint[]",
+            "dint[]",
+            "udint[]",
+            "real[]",
+            "lreal[]",
+            "string[]"
+          ],
+          "label": "数组变量（勾「数组填充」时用）"
+        }
+      },
+      "actions": [],
+      "iconLen": 268,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><table class=\"w-table\" style=\"background:#ffffff;\n      border:1px solid #c3cbd6;border-radius:4px;\n      --wt-head-bg:#eef2f7;--wt-head-fg:#1f2329;--wt-line:#c3cbd6\">\n      <colgroup><col><col><col></colgroup>\n      <thead><tr><td class=\"th\" style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\">列1</td><td class=\"th\" style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\">列2</td><td class=\"th\" style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\">列3</td></tr></thead><tbody><tr><td style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\"></td><td style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\"></td><td style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\"></td></tr><tr class=\"zebra\"><td style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\"></td><td style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\"></td><td style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\"></td></tr><tr><td style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\"></td><td style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\"></td><td style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\"></td></tr></tbody></table></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><table class=\"w-table\" style=\"background:#ffffff;\n      border:1px solid #c3cbd6;border-radius:4px;\n      --wt-head-bg:#eef2f7;--wt-head-fg:#1f2329;--wt-line:#c3cbd6\">\n      <colgroup><col><col><col></colgroup>\n      <thead><tr><td class=\"th\" style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\">列1</td><td class=\"th\" style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\">列2</td><td class=\"th\" style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\">列3</td></tr></thead><tbody><tr><td style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\"></td><td style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\"></td><td style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\"></td></tr><tr class=\"zebra\"><td style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\"></td><td style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\"></td><td style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\"></td></tr><tr><td style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\"></td><td style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\"></td><td style=\"height:24px;font-size:13px;text-align:left;color:#1f2329\"></td></tr></tbody></table></div>"
+        }
+      }
+    },
+    {
+      "type": "select",
+      "title": "下拉框",
+      "sub": "选项选择（组合框）",
+      "hidden": false,
+      "defaultBind": false,
+      "selfDrawn": false,
+      "defaultW": 150,
+      "defaultH": 44,
+      "defaults": {
+        "items": "手动=0\n自动=1\n点动=2",
+        "valueMode": "value",
+        "placeholder": "--",
+        "operate": "pick",
+        "stateColorOn": "contrast",
+        "optionH": 36,
+        "maxRows": 6,
+        "fontSize": 15,
+        "textColor": "#1f2329",
+        "bgColor": "#ffffff",
+        "borderColor": "#c3cbd6",
+        "borderWidth": 1,
+        "radius": 5
+      },
+      "props": [
+        {
+          "key": "items",
+          "label": "选项",
+          "type": "textarea",
+          "rows": 5,
+          "hint": "一行一个；「文字=值」可指定写进变量的值（自动=1）；还能在末尾接一个状态色：手动=0=#3b82f6"
+        },
+        {
+          "key": "stateColors",
+          "label": "状态颜色",
+          "type": "stateColors",
+          "uiOnly": true,
+          "hint": "给每个状态各选一个颜色（写回「选项」各行末尾的 =#颜色）"
+        },
+        {
+          "key": "stateColorOn",
+          "label": "状态色用在",
+          "type": "select",
+          "options": [
+            {
+              "v": "contrast",
+              "t": "背景（文字自动黑/白）"
+            },
+            {
+              "v": "bg",
+              "t": "背景（用上面的文字色）"
+            },
+            {
+              "v": "text",
+              "t": "文字"
+            }
+          ],
+          "hint": "选了「背景（文字自动黑/白）」时，当前状态的文字色由底色自动决定（11 个状态一种文字色不可能都看得清）"
+        },
+        {
+          "key": "operate",
+          "label": "操作方式",
+          "type": "select",
+          "options": [
+            {
+              "v": "pick",
+              "t": "只能选（点开列表）"
+            },
+            {
+              "v": "type",
+              "t": "可选也可输入"
+            },
+            {
+              "v": "view",
+              "t": "只显示状态（不可操作）"
+            }
+          ]
+        },
+        {
+          "key": "valueMode",
+          "label": "写值方式",
+          "type": "select",
+          "options": [
+            {
+              "v": "value",
+              "t": "写选项的值"
+            },
+            {
+              "v": "index0",
+              "t": "写序号（从 0）"
+            },
+            {
+              "v": "index1",
+              "t": "写序号（从 1）"
+            }
+          ]
+        },
+        {
+          "key": "optionH",
+          "label": "选项行高",
+          "type": "number",
+          "min": 20,
+          "max": 80,
+          "hint": "展开后每个选项的高度（触摸屏建议 40 以上）"
+        },
+        {
+          "key": "maxRows",
+          "label": "最多显示几项",
+          "type": "number",
+          "min": 1,
+          "max": 20,
+          "hint": "超出这个数量就出现滚动条"
+        },
+        {
+          "key": "placeholder",
+          "label": "无匹配显示",
+          "type": "text"
+        },
+        {
+          "key": "fontSize",
+          "label": "字号",
+          "type": "number",
+          "min": 8,
+          "max": 40
+        },
+        {
+          "key": "textColor",
+          "label": "文字色",
+          "type": "color"
+        },
+        {
+          "key": "bgColor",
+          "label": "背景色",
+          "type": "color"
+        },
+        {
+          "key": "borderColor",
+          "label": "边框色",
+          "type": "color"
+        },
+        {
+          "key": "borderWidth",
+          "label": "边框宽",
+          "type": "number",
+          "min": 0,
+          "max": 8
+        },
+        {
+          "key": "radius",
+          "label": "圆角",
+          "type": "number",
+          "min": 0,
+          "max": 30
+        }
+      ],
+      "binding": {
+        "variable": {
+          "types": [
+            "int",
+            "uint",
+            "dint",
+            "udint",
+            "real",
+            "lreal",
+            "string"
+          ],
+          "label": "绑定变量"
+        }
+      },
+      "actions": [],
+      "iconLen": 309,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-combo edit\" style=\"--combo-item-h:36px;font-size:15px;color:#1f2329;\n        background:#ffffff;border:1px solid #c3cbd6;\n        border-radius:5px\">\n      <div class=\"w-combo-box\"><span class=\"w-combo-cur\" style=\"\">--（当前 12）</span><span class=\"w-combo-car\"></span></div>\n      <div class=\"w-combo-pop\" style=\"max-height:216px\">\n        <div class=\"w-combo-item\" data-idx=\"0\">手动</div><div class=\"w-combo-item\" data-idx=\"1\">自动</div><div class=\"w-combo-item\" data-idx=\"2\">点动</div>\n        \n      </div>\n    </div></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-combo\" style=\"--combo-item-h:36px;font-size:15px;color:#1f2329;\n        background:#ffffff;border:1px solid #c3cbd6;\n        border-radius:5px\">\n      <div class=\"w-combo-box\"><span class=\"w-combo-cur\" style=\"\">--（当前 12）</span><span class=\"w-combo-car\"></span></div>\n      <div class=\"w-combo-pop\" style=\"max-height:216px\">\n        <div class=\"w-combo-item\" data-idx=\"0\">手动</div><div class=\"w-combo-item\" data-idx=\"1\">自动</div><div class=\"w-combo-item\" data-idx=\"2\">点动</div>\n        \n      </div>\n    </div></div>"
+        }
+      }
+    },
+    {
+      "type": "bar",
+      "title": "棒图",
+      "sub": "按变量比例填充（可超限变色）",
+      "hidden": false,
+      "defaultBind": false,
+      "selfDrawn": false,
+      "defaultW": 200,
+      "defaultH": 28,
+      "defaults": {
+        "min": 0,
+        "max": 100,
+        "decimals": 0,
+        "unit": "",
+        "showText": true,
+        "vertical": false,
+        "warnAt": 0,
+        "barColor": "#22c55e",
+        "warnColor": "#ef4444",
+        "bgColor": "#e5e7eb",
+        "textColor": "#1f2329",
+        "radius": 6,
+        "borderColor": "",
+        "borderWidth": 0
+      },
+      "props": [
+        {
+          "key": "min",
+          "label": "最小",
+          "type": "number"
+        },
+        {
+          "key": "max",
+          "label": "最大",
+          "type": "number"
+        },
+        {
+          "key": "decimals",
+          "label": "小数位",
+          "type": "number",
+          "min": 0,
+          "max": 6,
+          "defVal": 0
+        },
+        {
+          "key": "unit",
+          "label": "单位",
+          "type": "text",
+          "hint": "显示在数值后面，如 m/min、℃、%"
+        },
+        {
+          "key": "showText",
+          "label": "显示数值",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "vertical",
+          "label": "竖着画",
+          "type": "check",
+          "defVal": false
+        },
+        {
+          "key": "warnAt",
+          "label": "超限阈值%",
+          "type": "number",
+          "min": 0,
+          "max": 100,
+          "defVal": 0,
+          "hint": "填 0 = 不启用；填 90 = 填充超过 90% 时整条变「超限色」"
+        },
+        {
+          "key": "barColor",
+          "label": "填充色",
+          "type": "color"
+        },
+        {
+          "key": "warnColor",
+          "label": "超限色",
+          "type": "color"
+        },
+        {
+          "key": "bgColor",
+          "label": "底色",
+          "type": "color"
+        },
+        {
+          "key": "textColor",
+          "label": "文字色",
+          "type": "color"
+        },
+        {
+          "key": "radius",
+          "label": "圆角",
+          "type": "number",
+          "min": 0,
+          "max": 24
+        },
+        {
+          "key": "borderColor",
+          "label": "边框色",
+          "type": "color"
+        },
+        {
+          "key": "borderWidth",
+          "label": "边框宽",
+          "type": "number",
+          "min": 0,
+          "max": 8
+        }
+      ],
+      "binding": {
+        "variable": {
+          "types": [
+            "int",
+            "uint",
+            "dint",
+            "udint",
+            "real",
+            "lreal"
+          ],
+          "label": "绑定变量"
+        }
+      },
+      "actions": [],
+      "iconLen": 184,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-bar\" style=\"background:#e5e7eb;border-radius:6px;\">\n      <i class=\"w-bar-fill\" style=\"left:0;top:0;height:100%;width:12.0%;background:#22c55e;border-radius:6px\"></i>\n      <span class=\"w-bar-txt\" style=\"color:#1f2329\">12</span>\n    </div></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-bar\" style=\"background:#e5e7eb;border-radius:6px;\">\n      <i class=\"w-bar-fill\" style=\"left:0;top:0;height:100%;width:12.0%;background:#22c55e;border-radius:6px\"></i>\n      <span class=\"w-bar-txt\" style=\"color:#1f2329\">12</span>\n    </div></div>"
+        }
+      }
+    },
+    {
+      "type": "alarmBar",
+      "title": "报警条",
+      "sub": "多条报警拼一串，持续滚动",
+      "hidden": false,
+      "defaultBind": false,
+      "selfDrawn": false,
+      "defaultW": 420,
+      "defaultH": 38,
+      "defaults": {
+        "levelFilter": "all",
+        "joinAll": true,
+        "sepText": "●",
+        "showTime": true,
+        "blink": true,
+        "scroll": true,
+        "speed": 40,
+        "hideWhenNone": true,
+        "noAlarmText": "无报警",
+        "fontSize": 15,
+        "bgColor": "#ef4444",
+        "textColor": "#ffffff",
+        "borderColor": "",
+        "borderWidth": 0,
+        "radius": 4
+      },
+      "props": [
+        {
+          "key": "joinAll",
+          "label": "拼接全部",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "sepText",
+          "label": "分隔符",
+          "type": "text"
+        },
+        {
+          "key": "hideWhenNone",
+          "label": "无报警时隐藏",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "noAlarmText",
+          "label": "无报警时",
+          "type": "text"
+        },
+        {
+          "key": "levelFilter",
+          "label": "最低级别",
+          "type": "select",
+          "options": [
+            {
+              "v": "all",
+              "t": "全部"
+            },
+            {
+              "v": "info",
+              "t": "提示及以上"
+            },
+            {
+              "v": "warn",
+              "t": "警告及以上"
+            },
+            {
+              "v": "alarm",
+              "t": "报警及以上"
+            },
+            {
+              "v": "urgent",
+              "t": "只显示紧急"
+            }
+          ]
+        },
+        {
+          "key": "showTime",
+          "label": "显示时间",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "blink",
+          "label": "闪烁",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "scroll",
+          "label": "超长滚动",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "speed",
+          "label": "滚动速度",
+          "type": "number",
+          "min": 10,
+          "max": 200
+        },
+        {
+          "key": "fontSize",
+          "label": "字号",
+          "type": "number",
+          "min": 10,
+          "max": 40
+        },
+        {
+          "key": "bgColor",
+          "label": "背景色",
+          "type": "color"
+        },
+        {
+          "key": "textColor",
+          "label": "文字色",
+          "type": "color"
+        },
+        {
+          "key": "borderColor",
+          "label": "边框色",
+          "type": "color"
+        },
+        {
+          "key": "borderWidth",
+          "label": "边框宽",
+          "type": "number",
+          "min": 0,
+          "max": 8
+        },
+        {
+          "key": "radius",
+          "label": "圆角",
+          "type": "number",
+          "min": 0,
+          "max": 30
+        }
+      ],
+      "binding": {},
+      "actions": [],
+      "iconLen": 246,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-alarmbar cyc blink\" data-ab-speed=\"40\" style=\"--ab-bg:#ef4444;--ab-fg:#ffffff;font-size:15px;\n        border:0px solid transparent;border-radius:4px\">\n      <span class=\"ab-ico\">⚠</span>\n      <span class=\"ab-view\"><span class=\"ab-reel\">\n        <span class=\"ab-copy\">[21:59:18] 主轴转速过高：3120 m/min（上限 3000）　●　[21:59:51] 液压油温偏高：62 ℃</span><span class=\"ab-copy dup\" aria-hidden=\"true\">[21:59:18] 主轴转速过高：3120 m/min（上限 3000）　●　[21:59:51] 液压油温偏高：62 ℃</span>\n      </span></span>\n    </div></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"></div>"
+        }
+      }
+    },
+    {
+      "type": "alarmList",
+      "title": "当前报警",
+      "sub": "正在发生的报警（表格）",
+      "hidden": false,
+      "defaultBind": false,
+      "selfDrawn": false,
+      "defaultW": 420,
+      "defaultH": 150,
+      "defaults": {
+        "maxRows": 5,
+        "showHeader": true,
+        "showTime": true,
+        "timeFmt": "hh:mm:ss",
+        "timeFmtCustom": "hh:mm:ss.SSS",
+        "showAck": true,
+        "ackText": "确认",
+        "emptyText": "当前无报警",
+        "rowH": 26,
+        "fontSize": 13,
+        "align": "left",
+        "zebra": true,
+        "textColor": "#1f2329",
+        "bgColor": "#ffffff",
+        "headerBg": "#fee2e2",
+        "headerColor": "#1f2329",
+        "borderColor": "#c3cbd6",
+        "borderWidth": 1,
+        "radius": 4
+      },
+      "props": [
+        {
+          "key": "maxRows",
+          "label": "显示条数",
+          "type": "number",
+          "min": 1,
+          "max": 50,
+          "hint": "超出的靠滚动查看"
+        },
+        {
+          "key": "showHeader",
+          "label": "显示表头",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "showTime",
+          "label": "显示时间列",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "timeFmt",
+          "label": "时间格式",
+          "type": "select",
+          "options": [
+            {
+              "v": "hh:mm:ss",
+              "t": "时:分:秒"
+            },
+            {
+              "v": "hh:mm:ss.SSS",
+              "t": "时:分:秒.毫秒"
+            },
+            {
+              "v": "MM-DD hh:mm:ss",
+              "t": "月-日 时:分:秒"
+            },
+            {
+              "v": "MM-DD hh:mm:ss.SSS",
+              "t": "月-日 时:分:秒.毫秒"
+            },
+            {
+              "v": "YYYY-MM-DD hh:mm:ss",
+              "t": "年月日 时:分:秒"
+            },
+            {
+              "v": "YYYY-MM-DD hh:mm:ss.SSS",
+              "t": "年月日 时:分:秒.毫秒"
+            },
+            {
+              "v": "custom",
+              "t": "自定义…"
+            }
+          ],
+          "hint": "要精确到毫秒就选带 .毫秒 的，或选「自定义」自己拼"
+        },
+        {
+          "key": "timeFmtCustom",
+          "label": "自定义格式",
+          "type": "text",
+          "hint": "YYYY 年 MM 月 DD 日 hh 时 mm 分 ss 秒 SSS 毫秒"
+        },
+        {
+          "key": "showAck",
+          "label": "可确认",
+          "type": "check",
+          "defVal": true,
+          "hint": "确认只做标记，报警恢复前仍留在列表里"
+        },
+        {
+          "key": "ackText",
+          "label": "确认按钮文字",
+          "type": "text"
+        },
+        {
+          "key": "emptyText",
+          "label": "无报警时",
+          "type": "text"
+        },
+        {
+          "key": "rowH",
+          "label": "行高",
+          "type": "number",
+          "min": 16,
+          "max": 80
+        },
+        {
+          "key": "fontSize",
+          "label": "字号",
+          "type": "number",
+          "min": 9,
+          "max": 30
+        },
+        {
+          "key": "zebra",
+          "label": "斑马纹",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "textColor",
+          "label": "文字色",
+          "type": "color"
+        },
+        {
+          "key": "bgColor",
+          "label": "背景色",
+          "type": "color"
+        },
+        {
+          "key": "headerBg",
+          "label": "表头底色",
+          "type": "color"
+        },
+        {
+          "key": "headerColor",
+          "label": "表头文字",
+          "type": "color"
+        },
+        {
+          "key": "borderColor",
+          "label": "线色",
+          "type": "color"
+        },
+        {
+          "key": "borderWidth",
+          "label": "边框宽",
+          "type": "number",
+          "min": 0,
+          "max": 8
+        },
+        {
+          "key": "radius",
+          "label": "圆角",
+          "type": "number",
+          "min": 0,
+          "max": 30
+        }
+      ],
+      "binding": {},
+      "actions": [],
+      "iconLen": 298,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-alarmtbl\" style=\"--at-line:#c3cbd6;--at-head:#fee2e2;--at-headfg:#1f2329;\n        font-size:13px;color:#1f2329;background:#ffffff;\n        border:1px solid #c3cbd6;border-radius:4px\">\n      <div class=\"at-scroll\" style=\"max-height:156px\">\n        <table class=\"w-table at-table\"><thead><tr><td class=\"th\" style=\"height:26px\">级别</td><td class=\"th\" style=\"height:26px\">时间</td><td class=\"th\" style=\"height:26px\">报警内容</td><td class=\"th\" style=\"height:26px\"></td></tr></thead><tbody><tr>\n        <td style=\"height:26px;\"><span style=\"color:#ef4444;font-weight:600\">报警</span></td>\n        <td style=\"height:26px;color:#6b7280;white-space:nowrap\">21:59:18</td>\n        <td style=\"height:26px;\"><span title=\"主轴转速过高：3120 m/min（上限 3000）\">主轴转速过高：3120 m/min（上限 3000）</span></td>\n        <td style=\"height:26px;\"></td>\n      </tr><tr class=\"zebra\">\n        <td style=\"height:26px;\"><span style=\"color:#f59e0b;font-weight:600\">警告</span></td>\n        <td style=\"height:26px;color:#6b7280;white-space:nowrap\">21:59:51</td>\n        <td style=\"height:26px;\"><span title=\"液压油温偏高：62 ℃\">液压油温偏高：62 ℃</span></td>\n        <td style=\"height:26px;\"></td>\n      </tr></tbody></table></div></div></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-alarmtbl\" style=\"--at-line:#c3cbd6;--at-head:#fee2e2;--at-headfg:#1f2329;\n        font-size:13px;color:#1f2329;background:#ffffff;\n        border:1px solid #c3cbd6;border-radius:4px\">\n      <div class=\"at-scroll\" style=\"max-height:156px\">\n        <table class=\"w-table at-table\"><thead><tr><td class=\"th\" style=\"height:26px\">级别</td><td class=\"th\" style=\"height:26px\">时间</td><td class=\"th\" style=\"height:26px\">报警内容</td><td class=\"th\" style=\"height:26px\"></td></tr></thead><tbody><tr><td class=\"alempty\" colspan=\"4\" style=\"height:26px\">当前无报警</td></tr></tbody></table></div></div></div>"
+        }
+      }
+    },
+    {
+      "type": "alarmHistory",
+      "title": "报警历史",
+      "sub": "按天查看报警记录（表格）",
+      "hidden": false,
+      "defaultBind": false,
+      "selfDrawn": false,
+      "defaultW": 460,
+      "defaultH": 190,
+      "defaults": {
+        "maxRows": 6,
+        "showHeader": true,
+        "dayNav": true,
+        "showTime": true,
+        "timeFmt": "MM-DD hh:mm:ss",
+        "timeFmtCustom": "hh:mm:ss.SSS",
+        "showEnd": true,
+        "clearable": true,
+        "clearText": "清空记录",
+        "todayText": "今天",
+        "emptyText": "这一天没有报警记录",
+        "rowH": 26,
+        "fontSize": 13,
+        "zebra": true,
+        "textColor": "#1f2329",
+        "bgColor": "#ffffff",
+        "headerBg": "#e2e8f0",
+        "headerColor": "#1f2329",
+        "borderColor": "#c3cbd6",
+        "borderWidth": 1,
+        "radius": 4
+      },
+      "props": [
+        {
+          "key": "dayNav",
+          "label": "按天翻看",
+          "type": "check",
+          "defVal": true,
+          "hint": "带前后一天按钮和日期框，运行时切到哪一天就看哪天"
+        },
+        {
+          "key": "maxRows",
+          "label": "显示条数",
+          "type": "number",
+          "min": 1,
+          "max": 50
+        },
+        {
+          "key": "showHeader",
+          "label": "显示表头",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "showTime",
+          "label": "显示时间列",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "timeFmt",
+          "label": "时间格式",
+          "type": "select",
+          "options": [
+            {
+              "v": "hh:mm:ss",
+              "t": "时:分:秒"
+            },
+            {
+              "v": "hh:mm:ss.SSS",
+              "t": "时:分:秒.毫秒"
+            },
+            {
+              "v": "MM-DD hh:mm:ss",
+              "t": "月-日 时:分:秒"
+            },
+            {
+              "v": "MM-DD hh:mm:ss.SSS",
+              "t": "月-日 时:分:秒.毫秒"
+            },
+            {
+              "v": "YYYY-MM-DD hh:mm:ss",
+              "t": "年月日 时:分:秒"
+            },
+            {
+              "v": "YYYY-MM-DD hh:mm:ss.SSS",
+              "t": "年月日 时:分:秒.毫秒"
+            },
+            {
+              "v": "custom",
+              "t": "自定义…"
+            }
+          ],
+          "hint": "要精确到毫秒就选带 .毫秒 的，或选「自定义」自己拼"
+        },
+        {
+          "key": "timeFmtCustom",
+          "label": "自定义格式",
+          "type": "text",
+          "hint": "YYYY 年 MM 月 DD 日 hh 时 mm 分 ss 秒 SSS 毫秒"
+        },
+        {
+          "key": "showEnd",
+          "label": "显示恢复时间",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "clearable",
+          "label": "可清空",
+          "type": "check",
+          "defVal": true,
+          "hint": "只清历史，不影响当前报警"
+        },
+        {
+          "key": "clearText",
+          "label": "清空按钮文字",
+          "type": "text"
+        },
+        {
+          "key": "todayText",
+          "label": "今天按钮文字",
+          "type": "text"
+        },
+        {
+          "key": "emptyText",
+          "label": "无记录时",
+          "type": "text"
+        },
+        {
+          "key": "rowH",
+          "label": "行高",
+          "type": "number",
+          "min": 16,
+          "max": 80
+        },
+        {
+          "key": "fontSize",
+          "label": "字号",
+          "type": "number",
+          "min": 9,
+          "max": 30
+        },
+        {
+          "key": "zebra",
+          "label": "斑马纹",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "textColor",
+          "label": "文字色",
+          "type": "color"
+        },
+        {
+          "key": "bgColor",
+          "label": "背景色",
+          "type": "color"
+        },
+        {
+          "key": "headerBg",
+          "label": "表头底色",
+          "type": "color"
+        },
+        {
+          "key": "headerColor",
+          "label": "表头文字",
+          "type": "color"
+        },
+        {
+          "key": "borderColor",
+          "label": "线色",
+          "type": "color"
+        },
+        {
+          "key": "borderWidth",
+          "label": "边框宽",
+          "type": "number",
+          "min": 0,
+          "max": 8
+        },
+        {
+          "key": "radius",
+          "label": "圆角",
+          "type": "number",
+          "min": 0,
+          "max": 30
+        }
+      ],
+      "binding": {},
+      "actions": [],
+      "iconLen": 376,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-alarmtbl hist\" style=\"--at-line:#c3cbd6;--at-head:#e2e8f0;--at-headfg:#1f2329;\n        font-size:13px;color:#1f2329;background:#ffffff;\n        border:1px solid #c3cbd6;border-radius:4px\">\n      \n      <div class=\"at-nav\">\n        <button class=\"at-btn\" type=\"button\" data-alarmday=\"prev\" disabled=\"\" title=\"前一天\">‹</button>\n        <input class=\"at-date\" type=\"date\" data-alarmdate=\"wDump\" value=\"2025-10-03\" disabled=\"\" title=\"选任意一天\">\n        <button class=\"at-btn\" type=\"button\" data-alarmday=\"next\" disabled=\"\" title=\"后一天\">›</button>\n        <button class=\"at-btn at-today on\" type=\"button\" data-alarmday=\"today\" disabled=\"\">今天</button>\n        <span class=\"at-count\">3 条</span>\n        \n      </div>\n      <div class=\"at-scroll\" style=\"max-height:182px\">\n        <table class=\"w-table at-table\"><thead><tr><td class=\"th\" style=\"height:26px\">级别</td><td class=\"th\" style=\"height:26px\">时间</td><td class=\"th\" style=\"height:26px\">报警内容</td><td class=\"th\" style=\"height:26px\">恢复</td></tr></thead><tbody><tr>\n        <td style=\"height:26px;\"><span style=\"color:#b91c1c;font-weight:600\">紧急</span></td>\n        <td style=\"height:26px;color:#6b7280;white-space:nowrap\">10-03 21:00:00</td>\n        <td style=\"height:26px;\"><span title=\"急停按钮被按下\">急停按钮被按下</span></td>\n        <td style=\"height:26px;color:#6b7280;white-space:nowrap\">10-03 21:01:40</td>\n      </tr><tr class=\"zebra\">\n        <td style=\"height:26px;\"><span style=\"color:#f59e0b;font-weight:600\">警告</span></td>\n        <td style=\"height:26px;color:#6b7280;white-space:nowrap\">10-03 21:59:51</td>\n        <td style=\"height:26px;\"><span title=\"液压油温偏高：62 ℃\">液压油温偏高：62 ℃</span></td>\n        <td style=\"height:26px;color:#6b7280;white-space:nowrap\">10-03 21:59:57</td>\n      </tr><tr>\n        <td style=\"height:26px;\"><span style=\"color:#ef4444;font-weight:600\">报警</span></td>\n        <td style=\"height:26px;color:#6b7280;white-space:nowrap\">10-03 21:59:18</td>\n        <td style=\"height:26px;\"><span title=\"主轴转速过高：3120 m/min（上限 3000）\">主轴转速过高：3120 m/min（上限 3000）</span></td>\n        <td style=\"height:26px;color:#6b7280;white-space:nowrap\">10-03 21:59:57</td>\n      </tr></tbody></table></div></div></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-alarmtbl hist\" style=\"--at-line:#c3cbd6;--at-head:#e2e8f0;--at-headfg:#1f2329;\n        font-size:13px;color:#1f2329;background:#ffffff;\n        border:1px solid #c3cbd6;border-radius:4px\">\n      \n      <div class=\"at-nav\">\n        <button class=\"at-btn\" type=\"button\" data-alarmday=\"prev\" title=\"前一天\">‹</button>\n        <input class=\"at-date\" type=\"date\" data-alarmdate=\"wDump\" value=\"2025-10-03\" title=\"选任意一天\">\n        <button class=\"at-btn\" type=\"button\" data-alarmday=\"next\" title=\"后一天\">›</button>\n        <button class=\"at-btn at-today on\" type=\"button\" data-alarmday=\"today\">今天</button>\n        <span class=\"at-count\">0 条</span>\n        <button class=\"at-btn at-clear\" type=\"button\" data-alarmclear=\"1\">清空记录</button>\n      </div>\n      <div class=\"at-scroll\" style=\"max-height:182px\">\n        <table class=\"w-table at-table\"><thead><tr><td class=\"th\" style=\"height:26px\">级别</td><td class=\"th\" style=\"height:26px\">时间</td><td class=\"th\" style=\"height:26px\">报警内容</td><td class=\"th\" style=\"height:26px\">恢复</td></tr></thead><tbody><tr><td class=\"alempty\" colspan=\"4\" style=\"height:26px\">这一天没有报警记录</td></tr></tbody></table></div></div></div>"
+        }
+      }
+    },
+    {
+      "type": "trend",
+      "title": "波形",
+      "sub": "多通道趋势抓取",
+      "hidden": false,
+      "defaultBind": false,
+      "selfDrawn": true,
+      "defaultW": 360,
+      "defaultH": 180,
+      "defaults": {
+        "bgColor": "#0f172a",
+        "gridColor": "#1e3a5f",
+        "textColor": "#cbd5e1",
+        "borderColor": "#334155",
+        "borderWidth": 1,
+        "radius": 6,
+        "windowSec": 20,
+        "sampleMs": 100,
+        "autoY": true,
+        "yMin": 0,
+        "yMax": 100,
+        "showGrid": true,
+        "showLegend": true,
+        "lineWidth": 2,
+        "decimals": 1,
+        "fontSize": 11,
+        "colors": {},
+        "scales": {}
+      },
+      "props": [
+        {
+          "key": "windowSec",
+          "label": "时间窗口",
+          "type": "number",
+          "min": 5,
+          "max": 600
+        },
+        {
+          "key": "sampleMs",
+          "label": "采样周期ms",
+          "type": "number",
+          "min": 20,
+          "max": 2000
+        },
+        {
+          "key": "autoY",
+          "label": "纵轴自动",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "yMin",
+          "label": "纵轴最小",
+          "type": "number"
+        },
+        {
+          "key": "yMax",
+          "label": "纵轴最大",
+          "type": "number"
+        },
+        {
+          "key": "showGrid",
+          "label": "显示网格",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "showLegend",
+          "label": "显示图例",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "lineWidth",
+          "label": "线宽",
+          "type": "number",
+          "min": 1,
+          "max": 6
+        },
+        {
+          "key": "decimals",
+          "label": "小数位",
+          "type": "number",
+          "min": 0,
+          "max": 3
+        },
+        {
+          "key": "fontSize",
+          "label": "图例字号",
+          "type": "number",
+          "min": 9,
+          "max": 16
+        },
+        {
+          "key": "bgColor",
+          "label": "背景色",
+          "type": "color"
+        },
+        {
+          "key": "gridColor",
+          "label": "网格色",
+          "type": "color"
+        },
+        {
+          "key": "textColor",
+          "label": "文字色",
+          "type": "color"
+        },
+        {
+          "key": "borderColor",
+          "label": "边框色",
+          "type": "color"
+        },
+        {
+          "key": "borderWidth",
+          "label": "边框宽",
+          "type": "number",
+          "min": 0,
+          "max": 8
+        },
+        {
+          "key": "radius",
+          "label": "圆角",
+          "type": "number",
+          "min": 0,
+          "max": 30
+        }
+      ],
+      "binding": {
+        "variables": {
+          "types": [
+            "bool",
+            "int",
+            "uint",
+            "dint",
+            "udint",
+            "real",
+            "lreal"
+          ],
+          "label": "数据通道（可多选）",
+          "max": 8
+        }
+      },
+      "actions": [],
+      "iconLen": 242,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><canvas class=\"trend-cv\"></canvas></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><canvas class=\"trend-cv\"></canvas></div>"
+        }
+      }
+    }
+  ]
+}

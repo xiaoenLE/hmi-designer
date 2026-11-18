@@ -1,0 +1,152 @@
+/* ══════════ 脚本编辑器（近乎全屏浮层）══════════
+   写脚本要看得见上下文：占 94vw × 92vh，左边代码（行号 + 等宽），右边变量/API，下面日志。
+   代码字号 13px、行高 1.6，一屏能看 40 行左右。 */
+#seMask {
+  position: fixed; inset: 0; z-index: 9200; background: rgba(23, 26, 31, .5);
+  display: flex; align-items: center; justify-content: center;
+}
+#seMask.hidden { display: none; }
+#seBox {
+  width: 94vw; height: 92vh; max-width: 1800px;
+  background: #fff; border-radius: 10px; box-shadow: 0 18px 60px rgba(0, 0, 0, .3);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.se-head {
+  flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 9px 12px; border-bottom: 1px solid var(--border); background: #f8fafc;
+}
+.se-name { width: 190px; }
+.se-trig { width: 165px; }
+.se-params { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
+.se-lab { color: var(--text-2); font-size: 12px; }
+.se-num { width: 90px; }
+.se-var { width: 130px; }
+.se-var.vf { flex: none; }
+.se-op { width: 62px; }
+.se-val { width: 80px; }
+
+.se-body { flex: 1; min-height: 0; display: flex; }
+.se-code { flex: 1; min-width: 0; display: flex; background: #fbfcfe; }
+.se-gutter {
+  flex: none; width: 48px; overflow: hidden; padding: 10px 6px 10px 0; text-align: right;
+  font: 12px/21px var(--mono); color: #9aa4b2; background: #f2f5f9; border-right: 1px solid var(--border);
+  user-select: none;
+}
+.se-gutter > div { height: 21px; }
+
+/* ── 代码区：textare(a) 文字透明 + 下面一层 <pre> 显示高亮 ──
+   两层的字体/行高/内边距/换行规则**必须逐字一致**，否则光标跟字对不上。
+   滚动条槽也用 scrollbar-gutter 两边都留出来，横向滚动时才不会错位。 */
+.se-editwrap { position: relative; flex: 1; min-width: 0; overflow: hidden; }
+.se-hl, .se-area {
+  margin: 0; border: 0; box-sizing: border-box;
+  padding: 10px 12px; width: 100%; height: 100%;
+  font: 13px/21px var(--mono); tab-size: 2;
+  white-space: pre; word-wrap: normal; overflow-wrap: normal;
+  scrollbar-gutter: stable;
+}
+.se-hl {
+  position: absolute; inset: 0; overflow: hidden; pointer-events: none;
+  color: #1f2329; background: transparent;
+}
+.se-area {
+  position: absolute; inset: 0; background: transparent; resize: none; outline: none;
+  color: transparent; caret-color: #1f2329; overflow: auto;
+}
+/* 选中：**必须半透明** —— 选区是画在 textarea 这一层（盖在高亮层上面）的，
+   用不透明的 #cfe3ff 会把下面那层的字整片挡掉，看着就是一条空蓝色条（选中了看不见字）。
+   rgba(...,.22) 让下面的高亮字透出来，边框感还在。 */
+.se-area::selection { background: rgba(37, 99, 235, .22); color: transparent; }
+.se-area::-moz-selection { background: rgba(37, 99, 235, .22); color: transparent; }
+/* 光标所在行淡蓝底（跟着滚动一起走，放在高亮层里） */
+.se-curline {
+  position: absolute; left: 0; right: 0; height: 21px; background: rgba(37, 99, 235, .07);
+  pointer-events: none;
+}
+/* 输入法组字期间临时把 textarea 的字显示出来（不然中文候选框里的字看不见） */
+.se-editwrap.composing .se-hl { visibility: hidden; }
+.se-editwrap.composing .se-area { color: #1f2329; }
+
+/* ── JS 语法高亮配色（浅色主题）── */
+.se-hl .cm { color: #8b95a5; font-style: italic; }        /* 注释 */
+.se-hl .str { color: #15803d; }                            /* '字符串' */
+.se-hl .tpl { color: #0f766e; }                            /* `模板字符串` */
+.se-hl .num { color: #b45309; }                            /* 数字 */
+.se-hl .kw { color: #7c3aed; }                             /* 关键字 */
+.se-hl .bool { color: #b45309; font-weight: 600; }         /* true/false/null */
+.se-hl .bi { color: #0369a1; }                             /* Math/JSON… */
+.se-hl .fn { color: #2563eb; }                             /* 函数调用 */
+.se-hl .apiobj { color: #0b7285; font-weight: 600; }       /* hmi */
+.se-hl .api { color: #2563eb; font-weight: 600; }          /* hmi.get 这种成员 */
+.se-hl .id { color: #1f2329; }                             /* 普通标识符 */
+.se-hl .op { color: #6b7280; }                             /* 运算符/标点 */
+
+.se-side {
+  flex: none; width: 300px; border-left: 1px solid var(--border); background: #f8fafc;
+  display: flex; flex-direction: column; min-height: 0;
+}
+.se-side-sec { padding: 8px 10px; display: flex; flex-direction: column; min-height: 0; }
+.se-side-title { font-size: 12px; color: var(--text-2); font-weight: 600; margin-bottom: 6px; }
+.se-chips { display: flex; flex-wrap: wrap; gap: 5px; max-height: 150px; overflow: auto; }
+.se-chip {
+  font: 11px/1.6 var(--mono); padding: 2px 7px; border: 1px solid var(--border); border-radius: 10px;
+  background: #fff; cursor: pointer;
+}
+.se-chip:hover { border-color: var(--primary); color: var(--primary); background: #eef4ff; }
+.se-doc { overflow: auto; }
+.se-doc-row {
+  display: flex; flex-direction: column; gap: 1px; padding: 4px 6px; border-radius: 5px; cursor: pointer;
+  margin-bottom: 2px;
+}
+.se-doc-row:hover { background: #eef4ff; }
+.se-doc-row code { font: 11.5px var(--mono); color: var(--primary); }
+.se-doc-row span { font-size: 11px; color: var(--text-2); }
+.se-tip {
+  margin-top: 8px; padding: 7px 9px; border: 1px dashed var(--border-2); border-radius: 6px;
+  background: #fff; font-size: 11px; line-height: 1.7; color: var(--text-2);
+}
+.se-tip code { font-family: var(--mono); background: #f4f5f7; padding: 1px 4px; border-radius: 3px; }
+
+.se-foot {
+  flex: none; height: 150px; border-top: 1px solid var(--border); display: flex; flex-direction: column;
+  background: #f8fafc;
+}
+.se-foot-head { display: flex; align-items: center; gap: 8px; padding: 5px 12px 0; }
+.se-status { font-size: 12px; color: var(--text-2); }
+.se-status.ok { color: #15803d; }
+.se-status.error { color: var(--danger); }
+.se-log {
+  flex: 1; min-height: 0; margin: 4px 0 0; padding: 6px 12px 10px; overflow: auto;
+  font: 12px/1.6 var(--mono); color: #334155; white-space: pre-wrap;
+}
+.se-line.log { color: #334155; }
+.se-line.run { color: #64748b; }
+.se-line.warn { color: #b45309; }
+.se-line.error { color: var(--danger); }
+
+/* 脚本面板：停用的那条灰掉 */
+table.vt.scripttbl tr.off { opacity: .55; }
+table.vt.scripttbl input[data-k="name"] { min-width: 76px; }
+
+/* ── 「API 速查」标题那一行：标题 + 「? 帮助」按钮并排 ── */
+.se-side-title-row { display: flex; align-items: center; gap: 6px; }
+.se-side-title-row > span { flex: 1; min-width: 0; }
+
+/* ── 脚本 API 帮助对话框（编辑器里点「? 帮助」开）：一条一句说明 + 一段能直接抄的例子 ── */
+.api-help { font-size: 12px; line-height: 1.7; }
+.api-help-top {
+  background: #f7f8fa; border: 1px solid var(--border); border-radius: 5px;
+  padding: 8px 10px; color: var(--text-2); margin-bottom: 10px;
+}
+.api-help-top code, .api-help-desc code {
+  font-family: var(--mono); background: #eef1f5; padding: 1px 4px; border-radius: 3px; color: var(--text);
+}
+.api-help-row { padding: 7px 0; border-top: 1px dashed var(--border); }
+.api-help-head { display: flex; align-items: center; gap: 8px; }
+.api-help-head code { font-family: var(--mono); font-weight: 600; font-size: 12.5px; color: var(--primary); }
+.api-help-head .api-help-ins { flex: none; margin-left: auto; }
+.api-help-desc { color: var(--text-2); margin: 2px 0 4px; }
+.api-help-eg {
+  margin: 0; padding: 7px 9px; background: #f6f8fa; border: 1px solid var(--border); border-radius: 4px;
+  font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre; overflow-x: auto; color: var(--text);
+}

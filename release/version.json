@@ -1,0 +1,20 @@
+{
+    "app":  "WebHMI_设计器",
+    "version":  "1.0.6",
+    "date":  "2026-10-04",
+    "notes":  "改名 WebHMI_设计器（作者 xiaoen）；安装目录与程序名换成新品牌，现场数据目录保持不变（老机器的工程不受影响）",
+    "url":  "http://124.221.183.24:3000/xiaoen/hmi-designer",
+    "min_launcher":  "1.0.0",
+    "app_zip":  {
+                    "url":  "http://124.221.183.24:3000/xiaoen/hmi-designer/releases/download/v1.0.6/WebHMI-Designer-1.0.6-app.zip",
+                    "file":  "WebHMI-Designer-1.0.6-app.zip",
+                    "sha256":  "23042db78f543a515ffe210bf42afd21578f56581b3918c9f0f11e65adf39345",
+                    "size":  3221306
+                },
+    "setup":  {
+                  "url":  "http://124.221.183.24:3000/xiaoen/hmi-designer/releases/download/v1.0.6/WebHMI-Designer-Setup-1.0.6.exe",
+                  "file":  "WebHMI-Designer-Setup-1.0.6.exe",
+                  "sha256":  "663989adf7879f1a477a3f45f9848f4c155c52109f9b133b117e377d4b0ea468",
+                  "size":  38353237
+              }
+}

@@ -35,11 +35,13 @@ import urllib.request
 import zipfile
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "server"))
 import updater                                                    # noqa: E402
 import _restart as rest                                           # noqa: E402  （测它两个纯函数）
+from core import updateapply                                      # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _wspy import api as ws_api                                   # noqa: E402
 from _wspy import hello as ws_hello_frame                         # noqa: E402
@@ -295,6 +297,60 @@ def marker(ver: str) -> str:
     return f"js/__from_update_{ver.replace('.', '_')}.js"
 
 
+def check_replace_failure(work: Path):
+    """第二个现有文件换不上时，前面已替换和新增的文件都应恢复。"""
+    app, data, package = work / "io-app", work / "io-data", work / "io-update.zip"
+    (app / "js").mkdir(parents=True)
+    first, added, locked = (app / "js" / name for name in ("first.js", "added.js", "locked.js"))
+    first.write_bytes(b"old first")
+    locked.write_bytes(b"old locked")
+    original = snapshot(app)
+    with zipfile.ZipFile(package, "w") as z:
+        z.writestr("version.json", '{"version": "2.1.16"}')
+        z.writestr("js/first.js", b"new first")
+        z.writestr("js/added.js", b"new file")
+        z.writestr("js/locked.js", b"new locked")
+
+    replace = updater.os.replace
+
+    def fail_on_locked(src, dst):
+        if dst == locked.resolve():
+            raise PermissionError("模拟程序文件被占用")
+        return replace(src, dst)
+
+    with patch.object(updater.os, "replace", side_effect=fail_on_locked):
+        result = updater.apply_archive(package, app, data, "2.1.15", expect_version="2.1.16")
+    rb = result.get("rollback") or {}
+    ok("覆盖中途遇到文件占用：拒绝更新且回滚成功", not result["ok"] and rb.get("ok"), str(rb))
+    ok("回滚恢复原文件、移除已新增文件及暂存文件",
+       first.read_bytes() == b"old first" and not added.exists() and snapshot(app) == original)
+
+
+def check_restart_setup_failure(work: Path):
+    app, data = work / "restart-app", work / "restart-data"
+    app.mkdir()
+    (app / "version.json").write_text('{"version": "2.1.15"}', encoding="utf-8")
+    original = snapshot(app)
+
+    def download(_url, target):
+        with zipfile.ZipFile(target, "w") as z:
+            z.writestr("version.json", '{"version": "2.1.16"}')
+            z.writestr("js/added.js", b"new file")
+        return {"ok": True}
+
+    def check(force):
+        return {"available": True, "local": {"version": "2.1.15"}, "remote": {"version": "2.1.16"}}
+    with patch.multiple(updateapply, ROOT=app, DATA_DIR=data, LOG_DIR=work,
+                        UPDATE_ARCHIVE_URL="mock://package", check_update=check), \
+         patch.object(updater, "download_archive", side_effect=download), \
+         patch.object(updateapply, "_spawn_restart_helper", side_effect=OSError("模拟助手无法启动")):
+        result = updateapply.apply_update()
+    ok("重启助手启动失败：返回失败且恢复旧版本",
+       not result["ok"] and (result.get("rollback") or {}).get("ok") and snapshot(app) == original)
+    ok("重启助手启动失败：清理待重启标记，允许重试",
+       not updateapply.is_applying() and not any(updater.state_dir(data).iterdir()))
+
+
 def main() -> int:
     keep = "--keep" in sys.argv
     work = Path(tempfile.mkdtemp(prefix="hmi-upd-test-"))
@@ -322,6 +378,8 @@ def main() -> int:
 
     port = free_port()
     try:
+        check_replace_failure(work)
+        check_restart_setup_failure(work)
         # 本机（沙箱）就是"现场那台旧版本"；测试要发的"新版"全部按它往上推
         local_ver = json.loads((app / "version.json").read_text(encoding="utf-8"))["version"]
         NEXT, NEXT2, BROKEN = bump(local_ver, 1), bump(local_ver, 2), bump(local_ver, 3)

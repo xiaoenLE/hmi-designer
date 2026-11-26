@@ -11,8 +11,7 @@ import { readFileSync } from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { installPageShim, installNodeFetchPatch } from './_wsfetch.mjs';
-import { wsHealth } from './_wsfetch.mjs';
+import { installPageShim, installNodeFetchPatch, wsConnect, wsHealth } from './_wsfetch.mjs';
 
 const req = createRequire('C:/Users/Administrator/.workbuddy/binaries/node/workspace/');
 const { chromium } = req('playwright-core');
@@ -288,6 +287,14 @@ const scoped = await wsHealth(PORT).then(j => j.plc);
 ok('按页采集生效：只采本页 3 个变量（active=3、blocks=1）',
   scoped.scoped === true && scoped.active === 3 && scoped.blocks === 1,
   JSON.stringify({ active: scoped.active, blocks: scoped.blocks, scoped: scoped.scoped }));
+await simApi('/api/set', { key: rTempNode, value: 91.25 });
+await sleep(650);
+const recipeBefore = (await api('/api/vars')).vars.rTemp;
+const recipeCurrent = await post('/api/recipes/current', { names: ['rTemp'] });
+const scopeAfterRecipe = await wsHealth(PORT).then(j => j.plc.active);
+ok('配方读取当前值：临时读取范围外的 OPC UA 节点，不改变画面的采集范围',
+  recipeBefore === 88.25 && recipeCurrent.values?.rTemp === 91.25 && scopeAfterRecipe === 3,
+  JSON.stringify({ recipeBefore, values: recipeCurrent.values, scopeAfterRecipe }));
 await post('/api/vars/declare', { variables: VARS, active: VARS.map(v => v.name) });
 await sleep(600);
 
@@ -302,13 +309,41 @@ for (let i = 0; i < 40 && !offline; i++) {          // 实测 ~6~8 秒内会掉�
 ok('服务器挂掉 → 状态变离线并给出原因（不是一直显示在线）',
   !!offline, offline ? String(offline.last_error).slice(0, 70) : '一直没变离线');
 
+const reconnectPoll = wsConnect(PORT);
+await reconnectPoll.ready;
+const prevPoll = await reconnectPoll.ask({ t: 'poll', on: false });
+const paused = await reconnectPoll.ask({ t: 'poll', on: false, always: false });
 const sim2 = spawn(PY, ['server/opcua_sim.py', '--port', String(SIM_UA),
   '--web-port', String(SIM_WEB), '--no-browser'], { cwd: ROOT, stdio: 'ignore' });
 let back = false;
-for (let i = 0; i < 40 && !back; i++) {
-  await sleep(500);
-  const j = await wsHealth(PORT).then(r => r.plc).catch(() => null);
-  if (j && j.online === true) back = true;
+try {
+  let connectedBeforeRead;
+  for (let i = 0; i < 40; i++) {
+    await sleep(300);
+    const status = await wsHealth(PORT).then(r => r.plc).catch(() => null);
+    if (status?.last_error === '') { connectedBeforeRead = status; break; }
+  }
+  await simApi('/api/set', { key: rSetNode, value: 432.5 });
+  const saved = await post('/api/recipes', { action: 'save', name: '重连保护自检', vars: { rSet: 123.5 } });
+  const applyRecipe = () => post('/api/recipes', { action: 'apply', name: '重连保护自检', revision: saved.revision });
+  const blocked = await applyRecipe();
+  ok('新 OPC UA 会话已建立，采集首轮数据前拒绝配方写入',
+    paused.paused && connectedBeforeRead?.online === false && blocked.failed?.length === 1,
+    JSON.stringify({ online: connectedBeforeRead?.online, error: blocked.error }));
+  await reconnectPoll.ask({ t: 'poll', on: true, always: prevPoll.always });
+  let liveValue;
+  for (let i = 0; i < 40 && !back; i++) {
+    await sleep(300);
+    const j = await wsHealth(PORT).then(r => r.plc).catch(() => null);
+    liveValue = (await api('/api/vars')).vars.rSet;
+    back = j?.online === true && liveValue === 432.5;
+  }
+  ok('OPC UA 重连后先采集实时值，未补发首读前被拒的请求', back, String(liveValue));
+  const reapplied = await applyRecipe();
+  ok('OPC UA 首读后重新应用成功', reapplied.applied?.includes('rSet'), JSON.stringify(reapplied));
+} finally {
+  await reconnectPoll.ask({ t: 'poll', on: false, always: prevPoll.always });
+  reconnectPoll.close();
 }
 ok('服务器回来后自动重连（不用手动点连接）', back === true);
 

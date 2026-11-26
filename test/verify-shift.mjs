@@ -345,15 +345,15 @@ ok('没有动作（actions=[] → 属性面板不出「动作」栏）', !!reg &
 const toolbox = await page.evaluate(() => {
   const items = [...document.querySelectorAll('#toolboxList .tb-item')];
   return {
-    names: items.map(e => e.querySelector('.sub')?.previousElementSibling?.textContent || ''),
+    names: items.map(e => e.querySelector('.tb-item-name')?.textContent || ''),
     svgs: items.map(e => !!e.querySelector('svg')),
-    subs: items.map(e => e.querySelector('.sub')?.textContent || ''),
+    tips: items.map(e => e.title),
   };
 });
 const ti = toolbox.names.findIndex(n => n === '班次产量');
-ok('工具箱里有「班次产量」条目（副标题+图标齐全）',
-  ti >= 0 && toolbox.svgs[ti] && (toolbox.subs[ti] || '').length > 0,
-  `index=${ti} sub=${toolbox.subs[ti] || ''}`);
+ok('工具箱里有「班次产量」条目（名称和图标齐全，说明在悬停提示里）',
+  ti >= 0 && toolbox.svgs[ti] && (toolbox.tips[ti] || '').length > 0,
+  `index=${ti} sub=${toolbox.tips[ti] || ''}`);
 
 /* ═══════════ 3. MCP 静态提取 == 运行中注册表 ═══════════ */
 ok('MCP 静态提取的 props / defaults / binding 与运行中一致',
@@ -433,6 +433,7 @@ const fn = await page.evaluate(async () => {
     w3: m.shiftWindowOf(at(2026, 1, 16, 3, 0), '22:00', 8),
     w4: m.shiftWindowOf(at(2026, 1, 15, 10, 0), '08:00', 24),
     w5: m.shiftWindowOf(at(2026, 1, 15, 10, 0), 'abc', 0),
+    shortShift: m.shiftWindowOf(at(2026, 1, 15, 7, 0), '08:00', 10),
     at8: at(2026, 1, 15, 8, 0),
     at10: at(2026, 1, 15, 10, 0),
     at16: at(2026, 1, 15, 16, 0),
@@ -461,6 +462,8 @@ ok('纯函数：24 小时一班 → 08:00 到次日 08:00',
 ok('纯函数：非法班次开始（abc）/ 每班小时 0 → 兜底 08:00 + 夹到 1 小时',
   fn.w5.start === fn.at10 && fn.w5.end === fn.at11 && fn.w5.hours === 1,
   JSON.stringify(fn.w5));
+ok('班长不能整除一天时，末班在次日第一班开始时结束',
+  fn.shortShift.startLabel === '04:00' && fn.shortShift.endLabel === '08:00', JSON.stringify(fn.shortShift));
 ok('纯函数：小时 key（10:34 → 10:00 / 23:59 → 23:00）',
   fn.k1.key === '2026-01-15 10:00' && fn.k1.hh === '10:00'
   && fn.k2.key === '2026-01-15 23:00' && fn.k2.hh === '23:00',
@@ -568,8 +571,9 @@ ok('每小时 OK/NG：老存档缺 ok/ng 字段 → 读回按 null（不报错�
 await setVar('rTotal', 125);
 await waitState('s.total === 125 && s.shiftTotal === 25', 8000);
 st = await rtState();
-ok('运行态：总产量 +25 → 界面总产量 125（本班产量不显示，内部 shiftTotal=25）',
+ok('运行态：总产量 +25 → 界面总产量 125，本班显示 25',
   (await rtText('.sh-total .sh-num')) === '125'
+  && (await rtText('.sh-total .sh-sub')) === '本班 25'
   && st && st.shiftTotal === 25 && st.total === 125
   && (await page.locator(`${rtSel()} .sh-shift`).count()) === 0,
   JSON.stringify({ total: await rtText('.sh-total .sh-num'), st: st && { total: st.total, shiftTotal: st.shiftTotal } }));
@@ -788,6 +792,22 @@ ok('历史：看历史时**不跟随实时刷新**（实时总产量变 400，�
   JSON.stringify({ view: pastHook.view, total: await rtText('.sh-total .sh-num') }));
 
 // ⑤ 当前班在历史列表里也算一行（切到今天：列表里有当前班、标「进行中」）
+const historyDate = page.locator(`#rtPage .wd[data-id="${ids.shift}"] .sh-hdate`);
+const historyWidths = await historyDate.evaluate(input => {
+  const bar = input.parentElement;
+  bar.style.width = '480px';
+  const standard = input.getBoundingClientRect().width;
+  bar.style.width = '740px';
+  const wide = input.getBoundingClientRect().width;
+  bar.style.removeProperty('width');
+  return { standard, wide };
+});
+ok('历史日期框按内容定宽，不随班次控件拉长', historyWidths.standard > 100
+  && historyWidths.standard < 220 && historyWidths.wide === historyWidths.standard, JSON.stringify(historyWidths));
+await historyDate.fill('2000-01-01');
+await page.locator(`#rtPage .wd[data-id="${ids.shift}"] .sh-pastempty`).waitFor();
+ok('没有历史记录的日期显示空值和空小时表',
+  (await rtText('.sh-total .sh-num')) === '—' && (await rtState()).hourly.length === 0);
 await page.evaluate(([id, date]) => {
   const el = document.querySelector(`#rtPage .wd[data-id="${id}"] .sh-hdate`);
   el.value = date;
@@ -955,6 +975,11 @@ ok('修复 d（续）：重进运行后正常增量照记（35 + 5 = 40）', rD2
   JSON.stringify({ rec: rD2 && rD2.total }));
 
 /* ═══════════ 13. 退出运行态：定时器停掉（采样时间不再前进） ═══════════ */
+const beforeCounterReset = (await rtState()).shiftTotal;
+await setVar('rTotal', 0);
+await waitState('s.total === 0', 5000);
+ok('PLC 累计计数清零后，本班产量保持已经累计的数量',
+  (await rtState()).shiftTotal === beforeCounterReset && beforeCounterReset > 0);
 const beforeExit = await rtState();
 await page.evaluate(() => window.app.exitRun());
 await sleep(1700);

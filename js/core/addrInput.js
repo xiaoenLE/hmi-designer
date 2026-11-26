@@ -76,6 +76,17 @@ function looksIncomplete(text, pid) {
   return false;
 }
 
+
+/** 用在地址输入标签和表头的简短协议说明。 */
+export function addressHelpFor(proto) {
+  const example = {
+    modbus: '位地址如 %MX0.0，字地址如 %MW100 或 %MD50，百分号可省。D100、M10 属于 TS600 写法。',
+    ts600: '位地址如 M10、X17、Y10，字地址如 D100、R100、C200。TS600 不支持 %MX 字内取位。',
+    opcua: '填写完整 NodeId，例如 ns=4;s=|var|设备.Application.POU.符号。',
+  };
+  return (example[proto] || example.modbus) + ' 地址留空为内部变量。';
+}
+
 /** 给调用方用的占位文案（按协议） */
 export function placeholderFor(pid) {
   const info = protocolInfo(pid);

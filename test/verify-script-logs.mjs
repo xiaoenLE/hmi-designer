@@ -20,7 +20,7 @@ const req = createRequire('C:/Users/Administrator/.workbuddy/binaries/node/works
 const { chromium } = req('playwright-core');
 const EXE = 'C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
 const PY = 'C:/Users/Administrator/AppData/Local/Programs/Python/Python310/python.exe';
-const ROOT = 'C:/Users/Administrator/Desktop/hmi/hmi-designer-v2';
+const ROOT = path.resolve(import.meta.dirname, '..');
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const results = [];
@@ -527,11 +527,12 @@ const dlgOpened = await page.evaluate(async () => {
     keep: document.getElementById('logKeep')?.value,
     mb: document.getElementById('logMb')?.value,
     hint: (document.querySelector('#dlgBody .dlg-hint')?.textContent || '').replace(/\s+/g, ' ').trim(),
-    hasDir: /logs/.test(document.getElementById('dlgBody')?.textContent || ''),
+    usage: document.getElementById('logUsage')?.textContent || '',
+    hasDir: /logs/.test(document.getElementById('logUsage')?.title || ''),
   };
 });
-ok('★ 对话框能打开，两个参数都在（当前值回显）+ 写明现状与目录',
-  dlgOpened.open && dlgOpened.keep && dlgOpened.mb && dlgOpened.hasDir,
+ok('★ 日志设置回显参数和用量，目录可悬停查看，清理影响保持可见',
+  dlgOpened.open && dlgOpened.keep && dlgOpened.mb && dlgOpened.usage && dlgOpened.hasDir && /立即删除/.test(dlgOpened.hint),
   JSON.stringify(dlgOpened));
 const dlgSaved = await page.evaluate(async () => {
   document.getElementById('logKeep').value = '7';

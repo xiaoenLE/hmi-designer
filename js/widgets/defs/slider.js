@@ -81,7 +81,7 @@ register({
     { key: 'knobColor', label: '手柄色', type: 'color' },
     { key: 'textColor', label: '文字色', type: 'color' },
     { key: 'trackH', label: '滑轨粗细', type: 'number', min: 2, max: 60 },
-    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 30 },
+    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 100 },
   ],
   binding: { variable: { types: ['int', 'uint', 'dint', 'udint', 'real', 'lreal'], label: '绑定变量' } },
   actions: [],
@@ -100,7 +100,7 @@ register({
     const unit = tr(p.unit || '');
     const txt = val === null ? '--' : val.toFixed(dec) + unit;
     const trackH = clamp(Math.round(numOr(p.trackH, 8)), 2, 60);
-    const radius = clamp(Math.round(numOr(p.radius, 4)), 0, 30);
+    const radius = clamp(Math.round(numOr(p.radius, 4)), 0, 100);
     const trackColor = p.trackColor || '#e5e7eb';
     const fillColor = p.fillColor || '#2563eb';
     const knobColor = p.knobColor || '#ffffff';

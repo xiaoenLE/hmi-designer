@@ -112,6 +112,7 @@ function widgetMenu() {
     }
   }
 
+  const step = project.zStepAvailability(ids);
   items.push(
     { label: '剪切', key: 'Ctrl+X', onClick: () => cutSelection() },
     { label: '复制', key: 'Ctrl+C', onClick: () => copySelection() },
@@ -126,6 +127,8 @@ function widgetMenu() {
     },
     { sep: true },
     { label: '置于顶层', onClick: () => project.setZ(ids, 'top') },
+    { label: '上移一层', disabled: !step.up, onClick: () => project.setZ(ids, 'up') },
+    { label: '下移一层', disabled: !step.down, onClick: () => project.setZ(ids, 'down') },
     { label: '置于底层', onClick: () => project.setZ(ids, 'bottom') },
     { label: allLocked ? '解锁' : '锁定', onClick: () => toggleLock() },
     { sep: true },
@@ -294,6 +297,7 @@ function runtimeMenu() {
     { label: '填满窗口（铺满整窗，控件全在窗内）', check: z === 'fill', onClick: () => rt.setZoomMode('fill') },
     { sep: true },
     { label: 'PLC 连接设置…', key: 'Ctrl+Shift+L', onClick: () => rt.openRuntimePlcDialog() },
+    { label: '配方管理…', key: 'Ctrl+Shift+M', onClick: () => rt.openRuntimeRecipeManager() },
     // 操作权限：解锁着的时候给一个"交回权限"的看得见的入口（运行页面板都不摆按钮）
     ...(rt.permLevelName && rt.permLevelName() ? [{
       label: `退出权限（当前：${rt.permLevelName()}）`, key: 'Ctrl+Shift+Q', onClick: () => rt.lockPerm(),
@@ -324,7 +328,7 @@ function runtimeMenu() {
       },
     }] : []),
     { sep: true },
-    { label: '退出运行', key: 'Esc / Ctrl+Shift+E', onClick: () => rt.exitRun() },
+    { label: '退出运行', key: 'Esc / F8', onClick: () => rt.exitRun() },
   ];
 }
 

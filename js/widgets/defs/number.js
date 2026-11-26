@@ -7,8 +7,8 @@
 /* 数值（显示/输入二合一，主力数据控件） */
 import { register, rutil } from '../registry.js';
 const { fmtValue, escapeHtml, varValue } = rutil;
-import { numberFmtOf, inputRangeOf, dispValueOf, fixedScaleOf } from '../../core/utils.js';
-import { ARR_TYPES, SCALAR_NUM } from '../shared.js';
+import { textAlignOf, numberFmtOf, inputRangeOf, dispValueOf, fixedScaleOf } from '../../core/utils.js';
+import { ARR_TYPES, SCALAR_NUM, TEXT_ALIGN } from '../shared.js';
 import { tr } from '../../core/i18n.js';
 
 /** 步进按钮的公共内联样式（不引 CSS：现场控件包导出时样式跟着走） */
@@ -28,7 +28,7 @@ register({
     // 键盘弹出时挡住画面上的其他控件：默认挡住。老工程没这个键 → 运行时按"挡住"走
     //（`!== false` 那套兜底），新控件把 true 显式存下来，面板上勾选态与运行时永远一致
     padBlockOthers: true,
-    unit: '', fontSize: 16, textColor: '#1f2329', bgColor: '#ffffff', borderColor: '#c3cbd6', borderWidth: 1, radius: 5,
+    unit: '', fontSize: 16, align: 'left', textColor: '#1f2329', bgColor: '#ffffff', borderColor: '#c3cbd6', borderWidth: 1, radius: 5,
     // 输入范围限制（见 js/core/utils.js 的 inputRangeOf）：默认关，老工程/新控件行为都不变
     rangeOn: false,
     rangeMinMode: 'fixed', rangeMinValue: '', rangeMinVar: '',
@@ -52,11 +52,12 @@ register({
     { key: 'dispType', label: '数据类型', type: 'dtype' },
     { key: 'unit', label: '单位', type: 'text', i18n: 'text' },
     { key: 'fontSize', label: '字号', type: 'number', min: 8, max: 72 },
+    { key: 'align', label: '对齐', type: 'select', options: TEXT_ALIGN, defVal: 'left' },
     { key: 'textColor', label: '文字色', type: 'color' },
     { key: 'bgColor', label: '背景色', type: 'color', allowEmpty: true },
     { key: 'borderColor', label: '边框色', type: 'color' },
     { key: 'borderWidth', label: '边框宽', type: 'number', min: 0, max: 12 },
-    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 60 },
+    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 100 },
     /* ── 输入范围限制（单独一栏，可折叠）──
        只对数值输入有意义：上限/下限**各自**可以写死一个数，也可以跟着一个变量走
        （现场最常见的配法：配方上下限由 PLC 下发，操作工只能在框内改）。
@@ -90,10 +91,18 @@ register({
     const plus = stepOn
       ? `<button type="button" class="wn-step" data-step="1" tabindex="-1" title="加" style="${stepBtnStyle()}${editable ? '' : ';opacity:.4;cursor:default'}"${dis}>+</button>`
       : '';
+    // 「透明 / 无边框」语义（全工程约定：颜色空串 = 透明，见属性面板的「透明」按钮）：
+    // 背景空、边框色空、边框宽为 0 —— 任意一条成立就加 is-flat。
+    // 为什么只加 class、不把 box-shadow 写进内联：内联能盖住 background / border，
+    // 盖不住 CSS 类里 `.w-number` 的 box-shadow: inset …（就是透明后仍看得到的那条淡边/3D 感），
+    // 那一条由 css/widgets.css 的 .w-number.is-flat 清掉。
+    // ⚠ is-flat 只压内阴影，不压 border-color：「透明底 + 自选边框色」是合法配法。
+    const off = (c) => !c || c === 'transparent';
+    const flat = off(p.bgColor) || off(p.borderColor) || !(Number(p.borderWidth) > 0);
     // 不再显示 ✎ 图标：点击整个控件即可输入（软键盘或内联）
-    return `<div class="w-number ${editable ? 'editable' : ''}" style="background:${p.bgColor || 'transparent'};border:${p.borderWidth}px solid ${p.borderColor || 'transparent'};border-radius:${p.radius}px">
+    return `<div class="w-number${editable ? ' editable' : ''}${flat ? ' is-flat' : ''}" style="background:${p.bgColor || 'transparent'};border:${p.borderWidth}px solid ${p.borderColor || 'transparent'};border-radius:${p.radius}px">
       ${minus}
-      <span class="wn-val" style="font-size:${p.fontSize}px;color:${p.textColor}">${escapeHtml(val)}</span>
+      <span class="wn-val" style="text-align:${textAlignOf(p.align)};font-size:${p.fontSize}px;color:${p.textColor}">${escapeHtml(val)}</span>
       ${p.unit ? `<span class="wn-unit">${escapeHtml(tr(p.unit))}</span>` : ''}
       ${plus}
     </div>`;

@@ -10,6 +10,7 @@
  *     单位/前后缀/无报警提示…）、报警名称与内容。变量名 / 地址 / NodeId / 控件 ID 一律不翻。
  *   · 控件定义里**自己声明**哪些属性是"给人看的文字"：在 props 项上加
  *     `i18n: 'text' | 'csv' | 'lines' | 'options'`（不写就按 type 猜：text→text）。
+ *     固定按钮、表头和提示通过 `i18nTexts` 声明，使用到该控件的工程导出这些原文。
  *     渲染时用下面的 tr / trCsv / trLines / trOptions 包一下就行。
  *   · 没配语言 / 就用默认语言时，tr() 原样返回（不增加任何行为差异）。
  */
@@ -268,6 +269,12 @@ export function tr(text) {
   return src;
 }
 
+/** 先翻译整句，再替换 {name} 等字段；业务数据本身原样带入。 */
+export function trFormat(source, values) {
+  return tr(source).replace(/\{([a-zA-Z]\w*)\}/g, (placeholder, key) =>
+    Object.hasOwn(values, key) ? String(values[key]) : placeholder);
+}
+
 /** 逗号分列的一串（表头 / 单元格一行 / 状态色文字）：逐段翻，逗号与空格原样保留 */
 export function trCsv(text) {
   return String(text ?? '').split(',').map(seg => {
@@ -296,6 +303,7 @@ export function trOptions(text) {
 /** 某个属性值应该怎么拆（对应控件定义里的 i18n 声明） */
 function splitOf(prop, key) {
   const hint = prop?.i18n;
+  if (hint === false) return '';
   if (hint === 'csv') return 'csv';
   if (hint === 'lines') return 'lines';
   if (hint === 'options') return 'options';
@@ -323,6 +331,7 @@ const SPLIT_TEXT = {
 export function collectEntries() {
   const rows = [];
   const seen = new Set();
+  const fixedByType = new Map();
   const add = (kind, where, field, value, split, size, widgetId, sizeKey) => {
     const raw = value === undefined || value === null ? '' : String(value);
     if (!raw.trim()) return;
@@ -348,6 +357,9 @@ export function collectEntries() {
       const def = registry.get(w.type);
       const title = def?.title || w.type;
       const where = `${p.name} / ${title}${w.name ? `「${w.name}」` : ''}`;
+      if (Array.isArray(def?.i18nTexts) && !fixedByType.has(w.type)) {
+        fixedByType.set(w.type, { texts: def.i18nTexts, where: title });
+      }
       // 控件字号：优先 fontSize，其次 textSize / numberSize（每个控件可能不一样，导出时带出去）
       const keys = (def?.props || []).map(x => x && x.key).filter(Boolean);
       const fontKey = keys.indexOf('fontSize') >= 0 ? 'fontSize'
@@ -373,6 +385,11 @@ export function collectEntries() {
     if (a.name) add('报警', a.name, '报警名称', a.name, 'text');
     if (a.text) add('报警', a.name, '报警内容', a.text, 'text');
   });
+  project.customAlarmLevels().forEach(level => add('报警', '报警级别', '级别名称', level.t, 'text'));
+  // 先收工程文字，和控件属性重名的固定文字沿用该属性所在的翻译行与字号信息。
+  for (const { texts, where } of fixedByType.values()) {
+    texts.forEach(text => add('控件', where, '内置文字', text, 'text'));
+  }
   return rows;
 }
 

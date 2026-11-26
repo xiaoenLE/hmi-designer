@@ -54,10 +54,11 @@
   background: linear-gradient(180deg, #3b74f2, #2563eb);
   color: #fff; border: 1px solid #1d4ed8; border-radius: 7px;
   font-family: inherit; box-shadow: 0 2px 4px rgba(37,99,235,.3), inset 0 1px 0 rgba(255,255,255,.28);
-  cursor: pointer; user-select: none; white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis;
+  cursor: pointer; user-select: none; overflow: hidden;
 }
+.w-btn-text { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .w-btn:active { transform: translateY(1px); box-shadow: 0 1px 2px rgba(37,99,235,.3); }
+.w-btn.is-flat, .w-btn.is-flat:active { box-shadow: none; transform: none; }
 
 /* 延迟触发（长按）进度条：贴着按钮底边从左往右长，长满 = 到点执行。
    为什么是"底边一条"而不是整块蒙一层：蒙层会把按钮文字压得看不清（白底按钮上更是完全看不见），
@@ -99,7 +100,7 @@
 .lamp-wrap.lamp-in .w-lamp { grid-area: 1 / 1; width: 100%; height: 100%; flex: none; }
 .lamp-wrap.lamp-in .lamp-text { grid-area: 1 / 1; z-index: 1; flex: none; justify-self: center; align-self: center;
   max-width: 100%; text-align: center; }
-.lamp-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+.lamp-text { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
 .lamp-v .lamp-text { flex: none; max-width: 100%; text-align: center; }
 /* ⚠️ 点亮时的外发光画在圆外面，别让 .wd-body 的 overflow:hidden 把它裁成方块 ——
    裁了以后圆灯四角会各透出一小块淡色，看着就是「圆灯后面有个微弱的正方形」。
@@ -175,31 +176,23 @@
 .w-clock .wc-time { font-variant-numeric: tabular-nums; letter-spacing: .2px; }
 
 /* ══ 报警控件（报警条 / 当前报警 / 报警历史） ══ */
-/* 报警条：一条横条，最严重的报警在里面（超长可滚动） */
+/* 报警条 */
 .w-alarmbar {
   width: 100%; height: 100%; box-sizing: border-box; display: flex; align-items: center; gap: 8px;
   padding: 0 10px; overflow: hidden; background: var(--ab-bg, #ef4444); color: var(--ab-fg, #fff);
   border-radius: inherit; user-select: none;
 }
 .w-alarmbar .ab-ico { flex: none; }
-/* 可视区 + 滚动带：带子里放「两份一模一样的内容」，滚到 -50% 时第二份正好接上第一份 */
-/* ── 报警条：一份内容（含尾部间隔）+ 尾部留白，两份首尾相接 ──
-   ⚠ .ab-reel 必须写 width:max-content：它是个块级 flex 容器，默认宽度会取父容器宽度（= 可视区），
-   那样 translateX(-50%) 走的是「半个可视区」而不是「一份内容」，
-   表现就是滚到后面突然跳回开头。max-content 之后 reel 宽 = 两份内容，-50% 正好是一份 → 无缝。 */
 .w-alarmbar .ab-view { flex: 1; min-width: 0; overflow: hidden; position: relative; align-self: stretch; }
 .w-alarmbar .ab-reel {
   display: flex; align-items: center; height: 100%; white-space: nowrap;
-  width: max-content; will-change: transform;
+  width: max-content;
 }
-.w-alarmbar .ab-copy { display: inline-block; padding-right: 70px; }   /* 首尾之间的间隔 */
-.w-alarmbar .ab-reel .ab-copy.dup { display: none; }                  /* 不滚的时候第二份不占位 */
-/* 超长才滚：宽度由 alarmBar.js 量出来折算 --ab-dur（内容短就静静显示，不晃） */
-.w-alarmbar.roll .ab-reel .ab-copy.dup { display: inline-block; }
-.w-alarmbar.roll .ab-reel { animation: ab-ticker var(--ab-dur, 12s) linear infinite; }
+/* 从右侧进入，整串文字离开左侧后再回到右侧。 */
+.w-alarmbar.roll .ab-reel { animation: ab-ticker var(--ab-dur) linear infinite; }
 @keyframes ab-ticker {
-  from { transform: translateX(0); }
-  to   { transform: translateX(-50%); }
+  from { transform: translateX(var(--ab-start)); }
+  to   { transform: translateX(-100%); }
 }
 /* 闪烁：整条一明一暗（提示级不闪，免得一直晃眼） */
 .w-alarmbar.blink { animation: ab-blink 1s steps(1, end) infinite; }
@@ -259,6 +252,9 @@
 }
 .at-nav .at-count { flex: 1; min-width: 0; text-align: right; color: #6b7280; font-size: 11px; }
 .at-nav .at-clear { margin-left: 4px; }
+/* 操作记录：日期框旁边那枚「今天 / 昨天 / 前天 / 11月21日」说明（报警历史不需要，它没有这行） */
+.at-nav .at-dayname { flex: none; color: #6b7280; font-size: 11px; }
+.at-nav .at-dayname[hidden], .w-operations .at-nav[hidden] { display: none; }
 
 /* ══ 文本标签 ══ */
 .w-label {
@@ -266,6 +262,8 @@
   overflow: hidden; white-space: pre-wrap; word-break: break-word;
   line-height: 1.25; user-select: none;
 }
+
+.w-label > span { width: 100%; min-width: 0; }
 
 /* ══ 数值显示 ══ */
 .w-value {
@@ -315,6 +313,26 @@
   box-shadow: inset 0 0 0 1px #ef4444;
 }
 
+/* ── 透明 / 无边框态（.is-flat）──
+   属性面板的「透明」按钮 = 把颜色清成空串（全工程约定：空串 = 透明）。
+   def 里内联的 background / border 能盖住本文件的同名属性，但**盖不住 box-shadow**：
+   `.w-value` / `.w-number` 的 `box-shadow: inset 0 1px 3px rgba(0,0,0,.07)` 在透明后
+   仍会画一条很淡的内阴影线 —— 就是用户看到的「还有点边框轮廓 / 有点 3D」。
+   所以 js/widgets/defs/{number,value,input}.js 在「背景空 / 边框色空 / 边框宽为 0」时
+   给根元素加 .is-flat（纯语义 class，不改默认外观），由下面把内阴影清掉。
+   ⚠ 只清 box-shadow，不清 background / border-color：
+      「透明底 + 自选边框色」是合法配法，那两个属性各自由内联样式决定；
+      真·全透明时内联已经写的是 transparent，这里补的就是最后那点阴影。
+   ⚠ 本段放在 .bad 之后：值越界的错误提示（inset 红环 + 红字）保留，只是不画红底。 */
+.w-number.is-flat, .w-value.is-flat { box-shadow: none; }
+/* 内部子元素自带的底 / 边框也一并清掉：行内编辑输入框、老「数据输入」输入框自身 */
+.w-number.is-flat input { background: transparent; border-color: transparent; }
+.w-input.is-flat { background: transparent; border-color: transparent; }
+
+/* ══ 直线（defs/line.js，SVG 画线，线宽是真实 px） ══ */
+.w-line { width: 100%; height: 100%; }
+.wl-svg { pointer-events: none; }
+
 /* ══ 矩形 ══ */
 .w-rect { width: 100%; height: 100%; }
 
@@ -329,10 +347,38 @@
   background: #f7f8fa; color: var(--text-2); font-size: 12px; overflow: hidden;
 }
 .w-image img { width: 100%; height: 100%; object-fit: contain; }
+/* 有图之后占位框必须消失：虚线框 + 浅灰底是「还没选图」的标志，
+   不然透明底的 PNG 会被那块浅灰衬出一个方框（背景色由控件的 bgColor 属性给，默认透明） */
+.w-image.has-img { border: none; background: transparent; gap: 0; }
 
-/* ══ 波形 / 趋势图（内容由 trend.js 逐帧画在 canvas 上） ══ */
-.w-trend { width: 100%; height: 100%; overflow: hidden; }
-.trend-cv { display: block; width: 100%; height: 100%; }
+/* ══ 波形 / XY 波形 ══ */
+.w-trend, .w-xyplot { width: 100%; height: 100%; overflow: hidden; display: flex; flex-direction: column; }
+.w-trend .trend-cv, .w-xyplot .wxy-cv { display: block; width: 100%; min-height: 0; flex: 1 1 0; }
+:is(.w-trend, .w-xyplot) .w-plot-header {
+  display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; flex: none;
+  gap: 3px 8px; padding: 3px 5px;
+}
+:is(.w-trend, .w-xyplot) .w-plot-legend {
+  display: flex; align-items: center; gap: 12px;
+  flex: 1 0 min(100%, 135px); min-width: 0; padding-left: 5px;
+  overflow-x: auto; scrollbar-width: none;
+  font-family: Consolas, monospace; line-height: 16px;
+}
+:is(.w-trend, .w-xyplot) .w-plot-legend::-webkit-scrollbar { display: none; }
+:is(.w-trend, .w-xyplot) .w-plot-entry { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+:is(.w-trend, .w-xyplot) .w-plot-swatch { flex: none; width: 6px; height: 6px; }
+:is(.w-trend, .w-xyplot) .w-plot-tools {
+  display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 3px; max-width: 100%;
+}
+:is(.w-trend, .w-xyplot) .w-plot-tools button {
+  min-height: 22px; padding: 2px 6px; border: 1px solid #475569; border-radius: 4px;
+  background: #1e293b; color: #e2e8f0; font-size: 11px; line-height: 16px;
+  white-space: nowrap; user-select: none; cursor: pointer;
+}
+:is(.w-trend, .w-xyplot) .w-plot-tools button:disabled { opacity: 1; pointer-events: none; }
+:is(.w-trend, .w-xyplot) .w-plot-tools button:hover { border-color: #94a3b8; }
+:is(.w-trend, .w-xyplot) .w-plot-tools button:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 1px; }
+:is(.w-trend, .w-xyplot) .w-plot-tools .w-plot-capture.capturing { color: #bae6fd; border-color: #38bdf8; }
 
 /* ══ 棒图 / 进度条（defs/bar.js）══
    ⚠ 类名用 `.w-<type>`：控件包导出时**靠这个前缀从样式表里挑规则**（见 pack.js 的 cssOfType），

@@ -144,10 +144,14 @@ await page.evaluate(() => { const w = document.getElementById('canvasWrap'); w.s
 await page.waitForTimeout(250);
 G = await geom();
 const scrolled = await page.evaluate(() => ({ l: document.getElementById('canvasWrap').scrollLeft, t: document.getElementById('canvasWrap').scrollTop }));
-// 放大后画布可能已经贴住容器边缘（没灰色了），那就从画布内部起框 —— 要验的是"换算准不准"
-const from = G.cv.left - 6 > G.wp.left + 2 ? { x: G.cv.left - 6, y: G.cv.top + 8 } : { x: G.cv.left + 4, y: G.cv.top + 4 };
+// 放大滚动后，画布左上角可能切出了容器。只在可见的空白区域按下。
+const from = {
+  x: Math.max(G.wp.left + 4, G.cv.left + 4),
+  y: Math.max(G.wp.top + 4, G.cv.top + 4),
+};
 await drag(from, G.coverAB);
-ok('★ 放大并滚动过画布容器之后，框选依然准（A+B）', await names() === 'AB', `${await names()} scroll=${JSON.stringify(scrolled)}`);
+ok('★ 放大并滚动过画布容器之后，框选依然准（A+B）',
+  (scrolled.l > 0 || scrolled.t > 0) && await names() === 'AB', `${await names()} scroll=${JSON.stringify(scrolled)}`);
 await page.evaluate(async () => (await import('/js/editor/canvas.js')).zoomFit());
 await page.waitForTimeout(250);
 
@@ -155,6 +159,95 @@ await page.waitForTimeout(250);
 G = await geom();
 await drag(G.empty, G.cornerA);
 ok('框只压住 A 的一角 → A 选中（相交即选中，行为不变）', await names() === 'A', await names());
+
+/* ── J. 从变量表／报警表回到画布，键盘复制与粘贴立即跟着焦点走 ── */
+const alarmId = await page.evaluate(() => {
+  const pr = window.app.project;
+  const v = pr.addVariable();
+  pr.updateVariable(v.name, { name: 'copyFocusVar', type: 'dint', address: '%MD1406' });
+  return pr.addAlarm({ variable: 'copyFocusVar' }).id;
+});
+/* 从文本框接回焦点时，画布滚动容器不应画出浏览器的外框。 */
+await page.locator('.lp-tab[data-tab="vars"]').click();
+G = await geom();
+await drag(G.empty, G.coverAB);
+const positions = () => page.evaluate(ids => ids.map(id => {
+  const w = window.app.project.getWidget(id);
+  return { x: w.x, y: w.y };
+}), [ids.a, ids.b]);
+const original = await positions();
+const bounds = await page.locator('#canvas .wd.selected').first().boundingBox();
+const startX = bounds.x + bounds.width / 2, startY = bounds.y + bounds.height / 2;
+await page.locator('#varTable tr[data-name="copyFocusVar"] input[data-k="address"]').click();
+await page.keyboard.press('End');
+await page.mouse.move(startX, startY);
+await page.mouse.down();
+await page.mouse.move(startX + 25, startY + 15, { steps: 4 });
+const during = await page.evaluate(() => {
+  const wrap = document.getElementById('canvasWrap');
+  const styles = getComputedStyle(wrap);
+  const selection = document.querySelector('#selOverlay .sel-box');
+  return { focused: document.activeElement === wrap, outline: styles.outlineStyle,
+    color: styles.outlineColor, selection: selection && getComputedStyle(selection).borderTopStyle,
+    handles: selection?.querySelectorAll('.sel-h').length };
+});
+await page.mouse.up();
+const afterDrag = await positions();
+ok('从地址框拖动多选：画布拿回焦点，容器没有浏览器外框，选框和手柄仍在',
+  during.focused && during.outline === 'none' && during.selection === 'solid' && during.handles === 8, JSON.stringify(during));
+ok('拖动仍然移动两个选中的控件',
+  await names() === 'AB' && afterDrag[0].x > original[0].x && afterDrag[1].x > original[1].x
+    && afterDrag[0].x - original[0].x === afterDrag[1].x - original[1].x);
+await page.keyboard.press('ArrowRight');
+const afterNudge = await positions();
+ok('拖动后按方向键，多选控件一起微移', afterNudge.every((w, i) => w.x === afterDrag[i].x + 1));
+await page.mouse.click(G.gray.x, G.gray.y);
+
+for (const [tab, panelName, field, widget] of [
+  ['vars', '变量表地址', '#varTable tr[data-name="copyFocusVar"] input[data-k="address"]', ids.b],
+  ['alarms', '报警表变量', `#alarmTable tr[data-alarm="${alarmId}"] input[data-k="variable"]`, ids.c],
+]) {
+  await page.locator(`.lp-tab[data-tab="${tab}"]`).click();
+  const input = page.locator(field);
+  // 拦截测试复制，让真实键盘事件走输入框，同时不改系统剪贴板。
+  await input.evaluate(el => el.addEventListener('copy', e => {
+    el.dataset.testCopied = el.value.slice(el.selectionStart, el.selectionEnd);
+    e.preventDefault();
+  }, { once: true }));
+  await input.click();
+  await page.keyboard.press('Control+a');
+  await page.keyboard.press('Control+c');
+  const value = await input.inputValue();
+  ok(`${panelName}聚焦时仍可复制文本`, await input.getAttribute('data-test-copied') === value);
+
+  const before = await page.evaluate(() => window.app.project.currentWidgets().length);
+  const currentPage = await page.evaluate(() => window.app.project.currentPage().id);
+  await page.locator(`#canvas .wd[data-id="${widget}"]`).click();
+  const focused = await page.evaluate(() => document.activeElement?.id || document.activeElement?.dataset.k);
+  ok(`从${panelName}点回画布，输入框立即失焦`, focused === 'canvasWrap', focused);
+
+  await page.keyboard.press('Control+c');
+  await page.keyboard.press('Control+v');
+  const after = await page.evaluate((id) => {
+    const pr = window.app.project;
+    const copy = pr.currentWidgets().at(-1);
+    const source = pr.getWidget(id);
+    return { count: pr.currentWidgets().length, page: pr.currentPage().id,
+      copied: copy.id !== id && copy.type === source.type && copy.props.text === source.props.text };
+  }, widget);
+  ok(`从${panelName}点回画布后，同一页 Ctrl+C/Ctrl+V 复制选中的控件`,
+    after.page === currentPage && after.count === before + 1 && after.copied, JSON.stringify(after));
+  ok(`${panelName}内容保持原值`, await input.inputValue() === value);
+}
+
+/* 画布外的空白也能接回焦点，方便直接粘贴已经复制的控件。 */
+await page.locator(`#alarmTable tr[data-alarm="${alarmId}"] input[data-k="variable"]`).click();
+G = await geom();
+const beforePaste = await page.evaluate(() => window.app.project.currentWidgets().length);
+await page.mouse.click(G.gray.x, G.gray.y);
+await page.keyboard.press('Control+v');
+ok('从报警表点到画布外空白，也能直接粘贴控件',
+  await page.evaluate(() => window.app.project.currentWidgets().length) === beforePaste + 1);
 
 ok('全程无未捕获 JS 异常', pageErrors.length === 0, pageErrors.slice(0, 2).join(' | '));
 

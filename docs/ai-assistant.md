@@ -1,8 +1,6 @@
 ﻿# AI 助手（对话式组态）设计与接口契约
 
-> 状态：v2.2 **已实现**（后端 `server/core/ai.py` + 前端 `ai.js`/`aiTools.js`/`aiTranslate.js`/`aiPanel.js`；四套回归：backend 66 / e2e 26 / modules 135 / panel 115）。目标：编辑器窗口**最右边**一条固定侧栏，用自然语言完成
-> **新建页面 / 画控件 / 加变量 / 写脚本 / 全工程翻译**，改动可 Ctrl+Z 撤销。
-> 模型：小米 MiMo（OpenAI 兼容），`mimo-v2.6-flash`，`https://api.xiaomimimo.com/v1`。
+> 网页设计器的 AI 助手支持组态问答、工程操作和批量翻译。模型接口兼容 OpenAI Chat Completions。
 
 ## 0. 硬约束
 
@@ -21,7 +19,7 @@ aiPanel.js (UI, 窗口最右侧固定侧栏 #aiSide)
    └─ ai.js          WS 传输（ai 帧路由 / 流式回调 / 取消）
         └─ backend.js → wsChannel.js → /api/ws
              └─ server/core/ai.py（线程池 + SSE 解析 + 配置读写 + /api/ai/*）
-                  └─ MiMo /v1/chat/completions (stream=true, tools)
+                  └─ /v1/chat/completions (stream=true，工程请求带 tools)
 ```
 
 - **agent loop 在前端**（`aiTools.runAssistant`），后端只是"带流式的模型代理"，因此后端代码量小、可用假模型服务端到端测。
@@ -125,7 +123,7 @@ def handle(conn, msg) -> bool          # 处理 {t:'ai'}；True=已处理
   每块 `choices[0].delta`：`content` 非空 → `on_event(('text', s))`；`reasoning_content` → `('reason', s)`；
   `tool_calls` 按 `index` 累积 `{id,name,arguments}`（id/name 只在首块出现，arguments 分片拼接）。
   `finish_reason` 取最后一次非空值；`usage` 块（`choices:[]`）拿 token 数。
-- **缓存命中数**：`usage.prompt_tokens_details.cached_tokens`（OpenAI/小米格式）或 `usage.prompt_cache_hit_tokens`（DeepSeek 格式）→ 汇总成 `usage.cached_tokens` 一起下发。系统提示 + 工具定义是每轮完全相同的前缀，服务商会按 prompt cache 命中价计费；面板据此把用量显示成 `↑8.4k(缓存 7.1k) ↓39 tok`，用户能直接看到"这轮有多少是缓存价"。`cached_tokens` 缺失时面板退回旧样式（`↑ ↓ tok`），不影响任何逻辑。
+- **缓存命中数**：`usage.prompt_tokens_details.cached_tokens`（OpenAI/小米格式）或 `usage.prompt_cache_hit_tokens`（DeepSeek 格式）→ 汇总成 `usage.cached_tokens` 一起下发。同次工程任务保持提示词和工具定义稳定，缓存和计费由服务商决定。面板据此把用量显示成 `↑8.4k(缓存 7.1k) ↓39 tok`，用户能直接看到"这轮有多少是缓存价"。`cached_tokens` 缺失时面板退回旧样式（`↑ ↓ tok`），不影响任何逻辑。
 - 结束后：有工具调用 → 发 `ai_tool`（一次）；再发 `ai_done`（含拼接好的 content）。
 - 错误映射：未配 key → `no_key`「未配置 API Key，请在 AI 设置里填写」；HTTP 401/403 → `http`「API Key 无效或无权限」；429 → 「模型服务限流，请稍后再试」；`socket.timeout`/`TimeoutError` → `timeout`「模型服务超时（{timeout}s）」；其他网络错误 → `network` + 原因。
 - 取消：`op:'cancel'` 找到同 id 的会话 → `threading.Event.set()`；读循环每次检查，必要时 `resp.close()` 让阻塞读立刻返回；发 `ai_error code:'cancel'`（前端静默）。
@@ -159,32 +157,16 @@ export const aiClient = {
 - 发送：`ch.send({t:'ai', op:'chat', id, body})`；取消：`ch.send({t:'ai', op:'cancel', id})`。
 - 自设看门狗（`timeout*1000+15000`）→ 超时 `onError('模型长时间无响应')` 并清会话；连接断开（`backend.onEvent` 收不到）靠 wsChannel 重连后会话自然废弃，`chat` 也要在 `bus.on('backend:reconnect')` 时给出 `onError('连接已断开')`。
 
-### 5.4 `js/editor/aiTools.js`（新）
+### 5.4 `js/editor/aiTools.js`
 
-- `export const TOOL_DEFS` — OpenAI `tools` 数组（`[{type:'function', function:{name, description, parameters}}]`）。
-- `export function buildSystemPrompt()` — 静态提示词（§6）。
-- `export function projectBrief()` — 每轮动态拼：工程名、画布尺寸、页面清单（名称/类型/控件数）、当前页+控件数、选中控件（id/type/名称/位置）、变量数与前 40 个名字、报警数、脚本数、语言表+各语言待翻译条数。
-- `export async function runTool(name, args) -> {ok, summary, data?, error?}`。
-- `export function runAssistant({text, handlers}) -> {cancel}`：`handlers = {onUser?, onRound, onRoundEnd, onDelta, onToolStart, onToolEnd, onDone, onError}`（`onRoundEnd({round,elapsed_ms,finish_reason,usage})` 每轮结束时回调一次，用于面板显示「第 N 轮 · 用时」）。
-  循环：把 `messages[0].content = buildSystemPrompt() + '\n\n' + projectBrief()` 后调 `aiClient.chat({messages, tools:TOOL_DEFS, tool_choice:'auto'})`；
-  收到工具调用 → 依次 `runTool` → push `{role:'assistant', tool_calls}` + 每条 `{role:'tool', tool_call_id, content: compactToolMessage(name,result)}` → 下一轮；**对话轮次与工具往返都不受轮次限制**（`cfg.max_rounds <= 0` 就一直循环到模型不再调工具，默认 0）；填正数时只限制"工具批次"，到上限会 `onDone({truncated:true, batch_limit})` 并提示可以再发「继续」。**失败保护**：第一批有工具 `ok:false` 就向 `_conv` 注入 system 纠偏提示（别重复同样参数、**别再猜 id**、先查真实名字、读 error/warnings、换做法），**同类错误连续 3 批**（`FAIL_HINT_AT=1`、`FAIL_STOP_AT=3`）则 `onError(code:"tool")` 停手并给修改建议；错误签名会先归一化（`[0-9a-f]{6,}`、`*_8`/`*_9` 这类 id、`「…」`、数字 → `#`/`「X」`/`N`）再比较，避免"报错里 id 不同 → 每次都当新错误 → 永远不停"的死循环。任意一批全部成功就清零。另：**失败结果不被瘦身砍掉关键信息** —— `compactToolMessage()` 对 `ok:false` 上限放宽到 2200 字且保留 `FAIL_KEEP = [hint,widgets,ids,pages,variables,types,recipes,props,actions,…]`，`get_project` 查页面压成紧凑行 `名称|id|类型|x,y|w×h|p:属性键名`（上限 2400，超了先丢属性键名再限量 16 个）；纠偏 system 提示和停手提示里都会带 `failedFixText()` 抠出来的真实清单。**控件引用 id 与名称都接受**（`findWidgetOn()` 先按 id、再按名称/类型做「去空格+大小写不敏感」匹配；`resolveWidgetRefs()` 供 `update_widget`/`delete_widgets`/`select_widgets` 共用）——模型常把「文本5」这种名称当 id 传，以前会白跑一轮并反复报错；真查不到时错误载荷带这一页**「名称」= id（类型）**的完整清单（`widgets` + `hint`），不用逐个猜。
-
-**省 token（2.2，成本控制）**：接口是无状态的，每轮都要把历史重发一遍，所以历史越胖每轮越贵。三条措施：
-
-1. `compactToolMessage(name, result)`：工具结果进历史前瘦身 —— `get_widget_catalog` 只留 `{type,title,w,h,props:[键名],actions}`（去掉 label/options/defaults/defVal），其它工具超 `TOOL_MSG_MAX=1200` 字只留 `{ok,summary,error,warnings,note:'结果太长已截断'}`；面板显示仍用 `onToolEnd` 的完整结果。
-   工具返回值本身也过一道 `slimData()`：字符串 > `SLIM_STR=200` 字截断（图片 dataURL 这类必然超长的直接掐掉）、数组 > `SLIM_ARR=150` 项截断；`t_get_project` 查页面时不再回整页 `props/bindings/actions`，只回控件几何 + `props` 键名数组 + 非空 `bindings`（要看单个控件的属性值传 `widgetId` 单独查），大查询连工程简报也换成轻量版（只留页名/计数，不回 48 个变量明细）。
-2. `trimHistory()` 两级压缩：第一级滑动窗口 —— 最近 `KEEP_FULL=8` 条保持原文，更早的 `tool` 内容换成 `OLD_TOOL_STUB` 占位、`assistant` 正文截到 `OLD_TEXT_MAX=500` 字、`system` 截到 400 字；`MAX_HISTORY=400` 仍是硬上限。第二级会话压缩 —— 估算历史字符数 `convChars() > CONV_CHAR_BUDGET=9000` 或消息数 `> CONV_MSG_MAX=40` 时，把更早的整段对话用 `summarizeOlder()` 压成一段「【前情提要】…」文本（用户先后要求 / 已经做过 / 工具调用次数），存进模块变量 `_convSummary`（上限 `SUMMARY_MAX=2600` 字），随下一轮以 `{role:'system', content:_convSummary}` 插在工程简报之后一起发；原文只保留最近 `AGGR_KEEP=6` 条，且裁剪边界会跳过 `role:'tool'` 保证 `assistant(tool_calls)` 与工具结果不被切开。`conversationStats()` 返回 `{messages,chars,summarized}` 便于诊断（面板测试 13 节用它断言压缩确实触发）。
-- 重复读取保护（2.2，针对 thinking=disabled 原地打转）：`READ_TOOLS = Set(get_project,get_widget_catalog,list_pages,list_vars,list_scripts,list_alarms,check_script)`；`callSig(name,args) = name + '|' + stableJson(args)`（键排序的稳定序列化）；`runAssistant` 里 `seenReads` 记录本回合已执行过的只读签名，**同参数第二次直接不执行**，回 `{ok:true,duplicate:true,summary:'这个查询本回合已经执行过…'}`（省一次执行 + 省一份大结果进历史）；一整轮全是重复查询则 `dupStreak++` 并注入 system 纠偏（"别再读同样的内容，直接动手改"），`dupStreak >= DUP_STOP_AT(3)` 就 `onError('连续 N 轮都在重复查同一批内容…建议把「思考过程」改成「交给模型(auto）」…', 'tool')` 停手。系统提示【工作方式】第 10 条与【一轮干完】末条都写了"同样参数的查询一次就够"。
-3. 输入预算：`cfg.budget_tokens`（默认 60000，0 = 不限）—— 每轮累加 `usage.prompt_tokens`（就是真实输入花费），到量就不再发下一轮，`onDone({truncated:true, budget_limit})`，面板提示"再发一句「继续」会重新给一份预算"。
-7. **一轮干完（2.2 追加，省轮数 > 省字符）**：每多一轮 = 整套上下文再付一次钱，所以关键不是"压字符"而是"少轮"。三个机制配合：
-   - `t_get_project({page})` 一次返回整页（每个控件的 `{id,type,name,x,y,w,h,z,props:{值},bindings,actions}`），整包上限 12000 字符，超了才把尾部控件降级成属性键名并提示；`detail:"brief"` 强制只给键名。`compactToolMessage` 对页面结果保留属性值，上限 6000 字符（超了先丢属性值再限 30 行）—— 以前是 `名称|id|类型|坐标|尺寸|p:键名`，模型看不到属性值只能逐个控件再查。
-   - `t_add_widget({page, items:[{type,x,y,w,h,props,variable,channels,actions,name}]})`：一个调用画完整页（任意类型混合、任意数量、1 步撤销，内部走 `batchCommit`）；`variable`/`channels` 接受字符串（必须已存在）或 `{name,type}` / `[name,type]`（不存在自动 `addVariable()` + `updateVariable()` 并给 warning）。
-   - system prompt 的【一轮干完】段给两条模板：新建整页 = `[add_page, add_widget(items:[…]), tidy_layout, inspect_layout]` 同一轮；改造现有页 = `[get_project(page), update_widget×N]` 同一轮；只有"必须先看到真实数据"才分两轮。
-   - 回归：`test/verify-ai-modules.mjs` 有"整页一次返回所有控件""整页结果带属性值""整页结果进历史仍保留属性值""detail=brief 只给键名""items 批量画""variable 自动建"等断言（modules 135）。5. **工具按需下发（2.2 追加）**：`pickTools(text, mode)` 按用户这句话的关键词挑工具组（`TOOL_GROUP` = page/widget/vars/scripts/alarms/layout，`BASE_TOOLS` 12 个常驻）；整轮对话内工具集保持不变（放请求最前面，厂商前缀缓存才可能命中）；`cfg.tool_mode === "full"` 时才发全部 27 个。实测：基础集 schema 3.9k 字符、带报警 5.1k、带脚本 5.4k（全量 8.5k）；`buildSystemPrompt()` 2.6k（控件速查只留 `type=中文名`）、`projectBrief()` 0.9k（变量不带地址、只列前 24 个）→ 每轮固定 ≈7.9k 字符 ≈5.9k token（此前 ≈13.4k 字符 ≈10k token，省约 41%）。
-6. **注意**：`projectBrief()` / `buildSystemPrompt()` / `TOOL_DEFS` 的体积要回归看（`test/verify-ai-modules.mjs` 第 1 节有 `pick.autoChars < pick.fullChars * 0.75` 断言）；以后加工具或加提示词段落，先想"这是每轮都要付的钱"。4. 工具 schema 瘦身（2.2 追加）：`TOOL_DEFS` 里 27 个工具的参数说明只保留"猜不到的"（枚举值/格式），`x/y/w/h/page/ids` 这类用裸 schema 常量 `S={type:'string'}`、`N={type:'number'}`、`B={type:'boolean'}`、`O={type:'object',additionalProperties:true}`、`STR`、`ANY`，不再每个参数写中文说明。实测（`out/_measure_prompt.mjs` 量 `buildSystemPrompt().length` / `projectBrief().length` / `JSON.stringify(TOOL_DEFS).length`）：工具定义从 **11728 → 8371 字符**；每轮固定开销（系统提示 3361 + 工程简报 339 + 工具定义）从约 15400 → 约 12100 字符（≈ 8.4k → ≈ 6.6k token，省两成多）。注意：改 schema 后 `test/verify-ai-modules.mjs` 会校验每个工具 `description.length > 8`，描述别写太短。
-
-另：`resetConversation()`（面板「清空」）会把历史清零，下一轮输入立刻回到 2k 量级，是最直接的省钱手段。会话历史保存在模块内。
-- 工具结果必须**短**：`{ok, summary, data?}`，`data` 里不要塞整页控件（除非 `get_project{page}` 明确要求）。
+- `assistantMode(text, mode)` 在「自动」下识别组态指令和问答。手动选择「聊天」或「工程」覆盖自动判断。
+- 聊天请求发送简短提示词、本轮问题和最近的聊天记录。请求省略 `tools` 和 `tool_choice`，工程快照和工程模式的历史留在本地。手动添加的附件可以随本条消息发送。
+- 工程请求使用 `pickTools(text)` 按页面、控件、变量、脚本、报警和布局选择工具。未能定位任务对象时，工程模式可使用全部工具。`buildSystemPrompt(tools)` 按需附控件索引和脚本 API。`projectBrief()` 在发送时读取工程名、画布、当前页、选中控件和删除开关。
+- `runAssistant({text, mode, handlers})` 返回 `{cancel}`。仅执行本轮公布的工具。按模型给出的顺序执行，工具修改通过工程 API 进入撤销栈。删除仍由用户开关控制。
+- 两种模式的上下文各自取最近会话，从最近六次提问中按 3600 字符预算选取。工程历史沿用最近的任务和简短执行摘要。工具调用与返回值仅用于当前任务，保留最近六个完整批次并按约 9000 字符裁剪，始终保留最新批次和本次用户指令。
+- 当前任务的工具结果通过 `compactToolMessage()` 精简后发送，面板使用原始执行结果。删除整批旧消息时保留简短摘要和 `assistant.tool_calls` 与 `tool` 消息的一一对应。重复读取使用仍在上下文里的结果，工程修改后可重新查询。
+- 模型在输出前明确返回上下文超限时，助手会尝试进一步压缩旧对话和本次已执行的工具记录。若请求变小，保留当前指令和附件，自动重试一次。重试仍超限时停止并提示缩短指令或附件。
+- 同类失败或全批重复读取连续三轮时停止。`budget_tokens` 按模型返回的 `prompt_tokens` 累加，`max_rounds` 限制每次提问的工具批次。停止、新会话、替换工程和撤销会取消进行中的任务。打开新工程时转到新会话，撤销和重做保留当前会话。
 
 ### 5.5 `js/editor/aiTranslate.js`（新）
 
@@ -202,48 +184,21 @@ export function applyPairs(lang, pairs) -> {filled, skipped, unknown}
 - 实测量级（真模型）：21 条 = 1 批 ≈12s；100 条约 3 批 ≈35~40s（看模型排队/速度）。
 - 只接受真实存在的 source（防模型幻觉），报告 `unknown` 条数。
 
-### 5.6 `js/editor/aiPanel.js`（新，窗口最右侧固定侧栏 UI）
+### 5.6 `js/editor/aiPanel.js`
 
-`export function initAiPanel()`，DOM id 前缀 `ai*`。DOM：`#dockRow` 末尾 `<aside id="aiSide" class="ai-side hidden"><section class="panel" id="panel-ai">…</section></aside>`（**不是 dock 面板**：不进 `PANELS`/`layout.dock`、不进 `.dock-panes`，所以不能被拖拽/停靠/分屏）；侧栏 380px（`min-width:300px; max-width:46vw`），`.ai-side.hidden{display:none}`，`@media(max-width:1024px)` 变右侧抽屉浮层。开关 API：`openAiSide(focus=true)` / `closeAiSide()` / `toggleAiSide()` / `aiSideOpen()`；状态存 `localStorage['hmi-ai-open']`；入口＝工具栏 `#btnAi`（🤖 AI）与「工程 ▾ → AI 助手…」，标题栏 `#aiCloseBtn`（✕）关闭。组成：
-
-1. 头部：**只有一个状态点**（灰=未配置/绿=就绪，悬停看原因）+ `🌐 翻译`、`⚙ 设置`、`🗑 清空`。**不显示模型名、不显示 API Key 状态**（Key 只存后端，前端拿不到明文）。
-2. 会话区 `#aiLog`：用户气泡、助手气泡（markdown-lite：`**粗**`、`` `代码` ``、``` 围栏```、`- ` 列表、换行；**先 escapeHtml 再替换**）、工具调用卡片、错误条。
-   - **工具调用默认折叠**：一轮 ≥2 个工具（或模型一轮一个、散卡片攒到第 3 个）收成一个 `<details class="ai-tool-group">` 一行摘要「🔧 调用 N 个工具 · 工具名 × 次数 · ✔ 全部成功 / ✖ n 个失败」，点开才看明细；失败自动展开。收起态必须 `.ai-tool-group:not([open]) > .ai-tool-group-body{display:none}`（自带 `display:flex` 会盖掉 `<details>` 的默认隐藏）。
-   - **每轮用时（实时）+ token 用量**：`onRound` 时先挂一行「第 N 轮 · 用时 0.0s」并 `setInterval` 200ms 实时刷新（每 tick 把它 `appendChild` 到气泡末尾，跟着流式正文往下走）；`onRoundEnd({round,elapsed_ms,finish_reason,usage})` 时清定时器、定格成「第 N 轮 · 用时 x.xs · ↑输入 ↓输出 tok」（`usage` 来自后端 `ai_done.usage`，`fmtTok` 压缩成 `856 / 2.4k / 1.25M`）；`onDone` 时多轮（rounds>1）追加「⏱ 共 N 轮 · 总用时 x.xs · ↑累计 ↓累计 tok」（面板自己按轮累加，后端 `onDone.usage` 也有累计值可兜底）。每轮另起一个文本容器，保证「上一轮工具卡片 → 下一轮正文」按时间顺序排。
-3. 快捷指令条：`翻译整个工程`、`新建一个页面`、`给当前页加一个按钮`、`检查我的脚本`（点击填入输入框）。
-4. 输入区：textarea（Enter 发送 / Shift+Enter 换行）+ 发送/停止按钮 + 勾选「允许删除类操作」（默认关）。
-5. 设置对话框：`showDialog`（from `js/editor/toolbar.js`）—— 顶部 **服务商下拉 `#aiCfgProvider`**（选项 = `cfg.profiles` 里每条 `名字（模型）` + 「＋ 新增 / 换服务商」）；选中已保存的服务商 → 用它的字段回填表单（**Key 只显示「已保存（掩码），留空不改」，不用重填**），保存时带 `profile_id` 只更新这一条。选「＋ 新增」时出现 `#aiCfgPresets` 预设按钮行（`PROVIDER_PRESETS`：小米 MiMo / LM Studio（本机/局域网）/ OpenAI / DeepSeek / 自定义），点一下把地址和默认模型填好（LM Studio 预设默认 `thinking:'auto'`，因为 Qwen3 这类本机模型常要 `/no_think` 才好使，且地址要自己改成 `http://IP:端口/v1`）。其余字段：base_url、model、api_key（password，占位显示掩码）、temperature、max_tokens(k)、thinking 下拉、timeout、工具批次上限、输入预算(k)、`测试连接`（显示延迟/错误）、保存。保存后 `aiClient.saveConfig` 并 `bus.emit` 刷新状态。
-6. 翻译对话框：目标语言（已有语言下拉 + 「新建语言」输入 code/label）、范围（全工程/当前页）、**「自动缩放字号适配」勾选框（`#aiTrAutofit`，默认开）**、`开始翻译`、进度条（`已翻译 n/m`）、`取消`、完成后汇总（写入条数 / 丢弃幻觉 / **自动缩小 N 个控件** / 缩到 8px 仍放不下 M 个）+ `撤销这次翻译` 提示（Ctrl+Z 即可）。
-
-行为约定：发送时若未配置 key → 直接弹设置对话框；执行中禁用发送；工具执行后依赖已有 bus 事件自动刷新（`project.commit` → `project:changed`）；结束 `statusNote('AI 已完成')`；错误 `statusNote(err, 12000)` + 气泡。
+- 从「工程」菜单打开 AI 助手。宽窗口固定在最右侧，窄窗口显示右侧抽屉。开关状态保存在 `localStorage['hmi-ai-open']`。
+- 顶栏显示连接状态和设置入口。模式选择与范围条提示当前草稿会走聊天还是工程。首屏示例填入草稿后可编辑。翻译有独立对话框。「新会话」另开空白聊天。「历史」可查看、继续或删除已发送的会话。
+- 输入框支持 Enter 发送、Shift+Enter 换行和输入法选字。发送期间可编辑下一条草稿，可停止当前任务。结束时输入区保留完成或停止状态，设计器状态栏也短暂显示。达到输入预算、工具批次或回复长度上限时显示具体原因。工程修改按工具批次记录用时和模型用量，点击折叠组查看执行明细。
+- 输入区可选文件或粘贴截图。每条消息最多三件附件。CSV、TXT、JSON、XML、日志和代码等文本使用现有编码检测，每件最多发送前 12000 字符。PNG、JPG、WebP 在浏览器压缩后以图文请求发送，需要服务商模型支持识图。下一次提问不会自动携带原附件。
+- 历史写入当前浏览器的 IndexedDB，保存正文、附件文件名、用量和工具执行摘要。会话不会由应用自动清理。打开历史会话后只恢复近期上下文，阅读历史不请求模型。打开其它工程后可从历史列表查看先前会话。
 
 ## 6. 提示词规范
 
-### 6.1 system prompt 骨架（中文）
+聊天提示用一句话描述组态问答用途。工程提示强调集中查询、按依赖顺序执行、通过真实 ID 或名称引用、批量添加控件和检查整页排版。工具启用时附对应的控件索引或脚本 API。
 
-1. 身份：你是「HMI 组态设计器」的 AI 助手，帮用户改工程：建页面、画控件、加变量、写脚本、翻译。回答中文、简短、直接办事。
-2. 工程模型要点：画布 `meta.canvas` 1024×600；页面类型 `page`（可套公共底 `baseIds`）/`popup`（弹窗）/`base`；控件 `{id,type,name,x,y,w,h,z,props,bindings,actions}`；变量 `{name,type:bool|int|real|string,address}`；报警 `{name,variable,op,value,level}`；脚本 `{name,trig,ms,variable,op,value,code}`；i18n 按原文整句共享译文。
-3. **一切改动必须通过工具**完成，不要只说"你可以…"；每次改完用一两句话汇报改了什么。
-4. 先查后改：不确定控件类型/属性先 `get_widget_catalog`，改之前 `get_project`/`list_*`。
-5. **视觉规范**（2.2 新增，审美靠这段）：8px 栅格；页面安全边距 16；卡片 gap 16 / 内边距 16；字号层级 24/16/14/12（最小 10，同页 ≤4 种）；一页 ≤15 控件；一页 ≤3 类色、总颜色 ≤6；工控色板 `#11283f`（深色条）/`#f7fbff`（条上字）/`#35c8d2`（强调）/`#ffffff`（卡片）/`#d8e2eb`（描边）/`#eaf1f6`（浅底）/`#24518f`（主按钮）/`#173550`（标题）/`#4b657a`（正文）/`#718497`（次要）。
-6. **布局配方**（首选路径）：新做一页先 `apply_layout_recipe`（`overview` 总览 / `dashboard` 看板 / `control` 操作，一次铺几十个控件只占 1 步撤销），再改文字/绑变量；局部小改动别硬套整页。
-7. **交付前自检**：`tidy_layout` 对齐收边 → `inspect_layout` 自检；报 error（出界/重叠）必须修掉才能说完成，warn 尽量修。
-8. 变量纪律：控件绑定的变量必须已在变量表（否则先 `add_vars`）。
-9. 脚本纪律：strict、用 `let/const`、**无 async/await/import**、只能用 `hmi.*`；`hmi.set` 会下发 PLC；别写死循环；触发方式选择给建议。
-10. 批量：一次画 3~15 个控件；超过 20 个分多次。
-11. 删除/覆盖类操作（delete_*）走后端**安全闸门**：面板上「允许删除类操作」没勾时工具会返回 `ok:false`，不要反复重试，直接请用户勾选。
-12. 不要编造控件类型；不确定就先查目录。
+### 6.1 翻译提示词
 
-### 6.2 脚本 prompt 要点（内置在 system prompt）
-
-- `trig`：`init`（进运行态一次）/`interval`（每 ms）/`cycle`（50ms 周期）/`change`（变量变化）/`cond`（条件上升沿）。
-- API 清单：`hmi.get/set/has/vars/log/warn/logNo/page/popup/hidePopup/back/alarms/permLevel/can/lock/now/time/sim/fmtTime/project.*` + `hmi.v`（属性写法，打错名字抛错）+ `hmi.g`（跨次暂存，进/退运行态清空）。
-- 变量类型收敛按变量表；内部变量地址留空；数组元素 `hmi.set('arrw[3]', v)`。
-- 示例给 1~2 条真实写法（interval 正弦、change 边沿）。
-
-### 6.3 翻译 prompt 要点
-
-- 只输出 JSON `{"pairs":[{"k":"…","v":"…"}]}`；
+按请求条目编号返回 JSON 对象。
 - 保留 `{0}`、`{name}`、`%s`、数字、单位、英文缩写（PLC/HMI/OPC UA）；品牌名不译；界面用词精简（按钮文字不超原文长度 +30%）；
 - 同一原文只出现一次；不确定的保留原文；不输出解释。
 
@@ -288,7 +243,7 @@ export function applyPairs(lang, pairs) -> {filled, skipped, unknown}
 
 - 页面/控件/变量/脚本/报警的查找统一支持 **id 或名字**（`project.pages()` 里按 `name` 或 `id` 匹配；重名取第一个并 warn）。
 - `add_widget`：`project.addWidget(type,x,y)` → 再 `project.updateWidgetProp(id,'w',w)` 等；props 合并前用 def 的 `props` 白名单 + `defaults` 过滤未知键（未知键写 warning 返回给模型）。
-- `channels`（trend/xyplot 多通道）→ `project.updateWidgetProp(id,'variables',arr)` 或按 def 的变量槽属性；`actions` 原样写 `w.actions` 并补 `trigger:'click'`。
+- `channels`（trend/xyplot 多通道）→ `project.updateWidgetProp(id,'variables',arr)` 或按 def 的变量槽属性。`actions` 按点击顺序替换。跳转使用 `{type:"gotoPage",params:{page:"页面名或ID"}}`，赋值使用 `{type:"setValue",params:{variable:"变量名",value:0}}`。参数无效时保留原动作。
 - 每个执行器返回 `{ok, summary, data?, warnings?}`；失败返回 `{ok:false, error}`（不要抛异常，模型要能看到错误并重试）。
 - 所有 mutating 工具统一：执行前 `history.begin?` 不需要 —— `project.*` 内部已 commit。
 - `delete_*` 与 `update_page{baseIds}` 等破坏性操作先检查面板的「允许删除类操作」开关（`aiTools.setAllowDestructive(bool)`），未开则返回 `{ok:false, error:'已拦截：请让用户勾选「允许删除类操作」'}`。
@@ -307,12 +262,12 @@ export function applyPairs(lang, pairs) -> {filled, skipped, unknown}
 | `js/editor/aiTools.js` | 前端工具 | 新建，工具 + prompt + agent loop |
 | `js/editor/aiTranslate.js` | 前端工具 | 新建，翻译 |
 | `js/editor/aiPanel.js` | 前端 UI | 新建，§5.6 |
-| `index.html` | Lead | `#dockRow` 末尾 `<aside id="aiSide">` + `#panel-ai` 搬入（标题栏 `#aiCloseBtn` ✕）+ 工具栏 `#btnAi`（🤖 AI） |
+| `index.html` | Lead | `#dockRow` 末尾 `<aside id="aiSide">` + `#panel-ai` 搬入（标题栏 `#aiCloseBtn` ✕）|
 | `css/ai.css` | 前端 UI | 新建，`js/main.js` 里 `<link>`？→ 直接 `<link rel="stylesheet" href="css/ai.css">` 加进 index.html |
 | `js/editor/dock.js` | 无改动 | AI 不是 dock 面板（`PANELS`/`HOME`/`showPanel` 均不涉及 AI） |
 | `js/editor/main.js` | Lead | import + MODULES 加 `aiPanel`；`import('./editor/aiPanel.js')` |
 | `js/editor/menus.js` | Lead | `PANEL_TITLE.ai='AI 助手'` |
-| `js/editor/toolbar.js` | Lead | 工程菜单加「AI 助手…」→ `import('./aiPanel.js').then(m=>m.openAiSide())`；工具栏 `#btnAi` 开关 |
+| `js/editor/toolbar.js` | Lead | 工程菜单加「AI 助手…」→ `import('./aiPanel.js').then(m=>m.toggleAiSide())` |
 | `README.md` | Lead | 帧文档、features、AI 段使用说明 |
 | `docs/ai-assistant.md` | Lead | 本文 |
 
@@ -328,14 +283,13 @@ export function applyPairs(lang, pairs) -> {filled, skipped, unknown}
 2. **前端 e2e**（`test/verify-ai-e2e.mjs`，playwright + 假模型）：
    假模型脚本化两轮：第 1 轮返回 `add_page{name:'AI测试页'}` 工具调用，第 2 轮返回文本 "已建好"；
    浏览器里打开 AI 面板 → 输入「建一个测试页」→ 断言：页面出现在 `project.pages()`、聊天区有工具卡片和回复、Ctrl+Z 能撤销、控制台无报错。
-3. **前端工具层单测**（`test/verify-ai-modules.mjs`，playwright，不开模型）：`page.evaluate` 直接 `import('/js/editor/aiTools.js')` 调 `runTool()` 逐条验 24 工具的参数校验/破坏性闸门/变量存在性/props 白名单/脚本语法检查/数量守恒；`aiTranslate` 验 `pendingStats/pendingFor/applyPairs`（幻觉 source 丢弃、与原文相同跳过）。
-4. **面板 UI**（`test/verify-ai-panel.mjs`，playwright + 假模型，115 项）：固定侧栏默认收起 → 工程菜单 / 工具栏 🤖 AI 开关、`#panel-ai` 在 `#aiSide` 内且不在 `.dock-panes`（不可拖）、聊天/markdown/思考折叠、工具调用折叠组（一轮 5 个工具 / 散卡片攒到第 3 个自动收拢 / 默认收起 / 点开看明细 / 组状态全部成功）、每轮实时用时 + token 用量、停止、**设置对话框：服务商下拉 + 预设按钮（点「小米 MiMo」自动填地址/模型）**、测试连接、翻译对话框写入 `dict.en`、破坏性开关、重复读取保护、历史压缩。
+3. **前端工具层单测**（`test/verify-ai-modules.mjs`，playwright，不开模型）：`page.evaluate` 直接 `import('/js/editor/aiTools.js')` 调 `runTool()` 逐条验组态工具的参数校验/破坏性闸门/变量存在性/props 白名单/脚本语法检查/数量守恒；`aiTranslate` 验 `pendingStats/pendingFor/applyPairs`（幻觉 source 丢弃、与原文相同跳过）。
+4. **面板 UI**（`test/verify-ai-panel.mjs`，playwright + 假模型）：固定侧栏默认收起 → 在工程菜单开关、`#panel-ai` 在 `#aiSide` 内且不在 `.dock-panes`（不可拖）、聊天/markdown/思考折叠、工具调用折叠组（一轮 5 个工具 / 散卡片攒到第 3 个自动收拢 / 默认收起 / 点开看明细 / 组状态全部成功）、每轮实时用时 + token 用量、停止、**设置对话框：服务商下拉 + 预设按钮（点「小米 MiMo」自动填地址/模型）**、测试连接、翻译对话框写入 `dict.en`、破坏性开关、重复读取保护、历史压缩，以及聊天请求省略工具和工程上下文。
 5. **后端单测**（`test/verify-ai-backend.py`，66 项）：含 **profiles 保存/切换（切换后 key 沿用）**、**地址少 `/v1` 时测试连接不再误报**、**非小米地址带 `stream_options.include_usage`**。
 5. **回归**：`node tools/run-suites.mjs`（按 `tools/suite-map.json`）；本机 8866 若是**运行态实例**（`document.body.className==='run-only'`）需另起编辑器实例，套件带端口跑，例如 `python server.py --port 8899 --no-browser --no-auth` + `node test/verify-dock.mjs 8899`。
 
 ## 10. 后续（不在本期）
 
 - 语音输入（MiMo ASR/TTS 模型已存在）；
-- 多会话历史持久化；
 - 公共底（baseIds）批量编排、配方/参数表数据填充；
 - 截图给模型看（`--mcp-live` 的 CDP 截图能力已有）。

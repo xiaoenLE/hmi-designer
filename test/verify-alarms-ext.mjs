@@ -100,6 +100,8 @@ try {
     project.updateWidgetProp(list.id, 'jumpPage', '报警详情页');       // 按**页面名**
     const bar = project.addWidget('alarmBar', 20, 10);
     project.updateWidgetField(bar.id, 'w', 430);
+    project.updateWidgetProp(bar.id, 'hideWhenNone', false);
+    delete bar.props.showIcon; // 模拟旧工程没有「显示图标」字段
     project.updateWidgetProp(bar.id, 'clickJump', target.id);          // 按**页面 id**
     const hist = project.addWidget('alarmHistory', 20, 250);
     project.updateWidgetField(hist.id, 'w', 470);
@@ -162,6 +164,26 @@ try {
   ok('报警历史的属性面板上能看到「点行跳转」',
     propPanel.hist.labels.includes('点行跳转'), JSON.stringify(propPanel.hist.labels.slice(0, 20)));
 
+  await page.evaluate(async (id) => (await import('/js/editor/canvas.js')).select([id]), ids.bar);
+  const showIcon = page.locator('#propBody [data-prop="showIcon"]');
+  const editBar = page.locator('#canvas .w-alarmbar');
+  ok('旧工程默认勾选「显示图标」，编辑画布显示警告图标',
+    propPanel.bar.labels.includes('显示图标') && await showIcon.isChecked()
+    && await editBar.locator('.ab-ico').isVisible());
+  await showIcon.uncheck();
+  const iconLayout = await editBar.evaluate(bar => {
+    const style = getComputedStyle(bar);
+    const view = bar.querySelector('.ab-view');
+    const bounds = bar.getBoundingClientRect();
+    const scale = bounds.width / bar.offsetWidth;
+    return {
+      hasIcon: !!bar.querySelector('.ab-ico'),
+      leftGap: view.getBoundingClientRect().left - bounds.left - parseFloat(style.paddingLeft) * scale,
+    };
+  });
+  ok('取消勾选后编辑画布即时隐藏图标并让文字补齐空位',
+    !iconLayout.hasIcon && Math.abs(iconLayout.leftGap) < 1, JSON.stringify(iconLayout));
+
   /* ═══════════ ② 运行态：报警声 ═══════════ */
   // 换掉 AudioContext 做 spy：beepAlarm 每次响会 createOscillator ×2（两声短促方波）
   await page.evaluate(() => {
@@ -181,6 +203,11 @@ try {
   });
   await page.evaluate(async () => { await (await import('/js/runtime/runtime.js')).enterRun(); });
   await sleep(700);
+  const runBar = page.locator('#runtimeRoot .w-alarmbar');
+  ok('运行态无报警时显示文字并隐藏勾号',
+    await runBar.locator('.ab-copy').textContent() === '无报警' && await runBar.locator('.ab-ico').count() === 0);
+  ok('可见的无报警文字也按持续滚动开关播放',
+    await runBar.locator('.ab-reel').evaluate(reel => getComputedStyle(reel).animationName === 'ab-ticker'));
 
   // 1) 还没勾「报警声」→ 触发第一条报警：不响
   await page.evaluate(async () => { window.app.varStore.set('rSpeed', 3120.5, 'remote'); });
@@ -190,6 +217,9 @@ try {
     return { active: A.activeAlarms().length, osc: window.__osc };
   });
   ok('（前提）新报警触发了一条', quiet.active === 1, JSON.stringify(quiet));
+  ok('运行态有报警时显示报警文字并隐藏警告图标',
+    (await runBar.locator('.ab-copy').textContent()).includes('主轴转速过高')
+    && await runBar.locator('.ab-ico').count() === 0);
   ok('没勾「报警声」→ 完全安静（一个音都不放）', quiet.osc === 0, String(quiet.osc));
 
   // 2) 勾上「报警声」→ 再触发一条新报警：响（2 个振荡器）
@@ -340,6 +370,98 @@ try {
   ok('点「清空记录」→ 历史清了、不跳走，表格显示空占位',
     afterClear.here === true && afterClear.history === 0 && /没有报警记录/.test(afterClear.empty),
     JSON.stringify(afterClear));
+
+  /* 从实际报警弹窗新增自定义级别，三个控件各自选级别。 */
+  await page.evaluate(async id => {
+    (await import('/js/runtime/runtime.js')).exitRun();
+    window.app.project.updateWidgetProp(id, 'hideWhenNone', true);
+  }, ids.bar);
+  await page.click('.lp-tab[data-panel="alarms"]');
+  await page.click('#btnAddAlarm');
+  await page.fill('#alName', '换刀报警');
+  await page.fill('#alValue', '2500');
+  await page.fill('#alarmTextArea', '换刀提醒专用');
+  await page.selectOption('#alLevel', { label: '＋ 新增级别…' });
+  const inline = page.locator('#alarmLevelInline');
+  await inline.locator('[data-level-name]').fill('警告');
+  await page.click('#btnUseAlarmLevel');
+  ok('报警弹窗拒绝与内置级别重名', (await page.textContent('#alarmLevelInlineError')) === '级别名称已存在');
+  await inline.locator('[data-level-name]').fill('维护提醒');
+  await inline.locator('[data-level-color]').fill('#7c3aed');
+  await inline.locator('[data-level-rank]').selectOption('1');
+  await page.click('#btnUseAlarmLevel');
+  const customId = await page.inputValue('#alLevel');
+  ok('新增级别自动选中，报警内容和阈值继续保留',
+    customId.startsWith('alv_') && await page.inputValue('#alValue') === '2500'
+    && await page.inputValue('#alarmTextArea') === '换刀提醒专用');
+  await page.click('#dlgOk');
+  await page.locator('#dlgMask').waitFor({ state: 'hidden' });
+
+  const setDisplayLevels = async (id, labels) => {
+    await page.evaluate(async id => (await import('/js/editor/canvas.js')).select([id]), id);
+    const picker = page.locator('#propBody .alarm-level-picker');
+    await picker.locator('summary').click();
+    await picker.getByRole('button', { name: '清空', exact: true }).click();
+    for (const name of labels) await picker.getByRole('checkbox', { name, exact: true }).check();
+  };
+  await setDisplayLevels(ids.list, ['维护提醒', '紧急']);
+  await setDisplayLevels(ids.hist, ['警告']);
+  await setDisplayLevels(ids.bar, ['报警']);
+  const reloaded = await page.evaluate(async ({ ids, customId }) => {
+    const { project } = await import('/js/core/project.js');
+    const { collectEntries } = await import('/js/core/i18n.js');
+    const { alarmsToCsv } = await import('/js/core/csv.js');
+    const { alarmLevels } = await import('/js/runtime/alarms.js');
+    project.addAlarm({ name: '急停测试', variable: 'rSpeed', op: '>=', value: 3100, level: 'urgent', text: '急停测试专用' });
+    project.replaceData(JSON.parse(JSON.stringify(project.data)));
+    project.setCurrentPage(ids.src);
+    const filters = [ids.list, ids.hist, ids.bar].map(id => project.getWidget(id).props.levelFilter);
+    return {
+      filters,
+      showIcon: project.getWidget(ids.bar).props.showIcon,
+      level: project.customAlarmLevels().find(l => l.v === customId),
+      rule: project.alarms().find(a => a.name === '换刀报警')?.level,
+      translation: collectEntries().some(e => e.source === '维护提醒'),
+      csv: alarmsToCsv(project.alarms(), alarmLevels()).includes(',维护提醒,'),
+    };
+  }, { ids, customId });
+  ok('工程重载保留级别、报警规则和三个控件的独立筛选',
+    reloaded.level?.rank === 1 && reloaded.level?.color === '#7c3aed' && reloaded.rule === customId
+    && JSON.stringify(reloaded.filters) === JSON.stringify([['urgent', customId], ['warn'], ['alarm']])
+    && reloaded.translation && reloaded.csv, JSON.stringify(reloaded));
+  ok('工程重载保留报警条的图标隐藏设置', reloaded.showIcon === false);
+
+  await page.evaluate(async () => (await import('/js/runtime/runtime.js')).enterRun());
+  await page.evaluate(async () => {
+    const { evalAlarms } = await import('/js/runtime/alarms.js');
+    window.app.varStore.set('rSpeed', 3120.5, 'remote');
+    window.app.varStore.set('iCount', 6, 'remote');
+    evalAlarms();
+  });
+  await page.locator(`#rtPage .wd[data-id="${ids.list}"] tr[data-alarm]`).first().waitFor({ state: 'visible' });
+  const visible = await page.evaluate(async ids => {
+    const { registry } = await import('/js/widgets/registry.js');
+    const { project } = await import('/js/core/project.js');
+    const { activeAlarms, historyOfDay } = await import('/js/runtime/alarms.js');
+    const body = id => document.querySelector(`#rtPage .wd[data-id="${id}"]`);
+    const bar = project.getWidget(ids.bar);
+    const drawBar = levelFilter => registry.get('alarmBar').render({ ...bar, props: { ...bar.props, levelFilter } }, 'run');
+    return {
+      list: Array.from(body(ids.list).querySelectorAll('tr[data-alarm]'), row => row.textContent.trim()),
+      hist: Array.from(body(ids.hist).querySelectorAll('tr[data-hist]'), row => row.textContent.trim()),
+      count: body(ids.hist).querySelector('.at-count').textContent,
+      bar: body(ids.bar).querySelector('.ab-copy')?.textContent,
+      legacy: drawBar('warn').includes('急停测试专用') && drawBar('warn').includes('换刀提醒专用'),
+      hiddenWithNoLevels: drawBar([]) === '',
+      total: [activeAlarms().length, historyOfDay(Date.now()).length],
+    };
+  }, ids);
+  ok('运行态支持跳级多选，三个控件分别筛选，历史计数正确且全部记录仍保留',
+    visible.list.length === 2 && visible.list.some(r => r.includes('维护提醒') && r.includes('换刀提醒专用'))
+    && visible.list.some(r => r.includes('急停测试专用'))
+    && visible.hist.length === 1 && visible.hist[0].includes('加工计数到') && visible.count === '1 条'
+    && visible.bar?.includes('主轴转速过高') && !visible.bar.includes('急停测试专用')
+    && visible.legacy && visible.hiddenWithNoLevels && visible.total.every(n => n === 4), JSON.stringify(visible));
 
   ok('全程无未捕获 JS 异常', errs.length === 0, errs.slice(0, 3).join(' | '));
 } finally {

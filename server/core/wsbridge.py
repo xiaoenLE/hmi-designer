@@ -277,7 +277,8 @@ def _ws_dispatch(conn, msg: dict):
             return
         ok, extra = var_write(msg.get("name"), msg.get("value"),
                               bool(msg.get("internal")),
-                              str(msg.get("from") or "") == "script")
+                              str(msg.get("from") or "") == "script",
+                              actor=getattr(conn, "user", "") or "")
         conn.send({"t": "ack", "id": mid, "ok": ok, **extra})
         return
 
@@ -298,7 +299,8 @@ def _ws_dispatch(conn, msg: dict):
                 continue
             ok, extra = var_write(it.get("name"), it.get("value"),
                                   bool(it.get("internal")),
-                                  str(it.get("from") or "") == "script")
+                                  str(it.get("from") or "") == "script",
+                                  actor=getattr(conn, "user", "") or "")
             results.append({"ok": ok, **extra})
         conn.send({"t": "ack", "id": mid, "ok": all(r.get("ok") for r in results), "results": results})
         return

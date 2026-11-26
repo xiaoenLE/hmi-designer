@@ -42,7 +42,6 @@ const freePort = () => new Promise(res => {
 });
 
 const TYPES = ['barcode', 'paramTable'];
-const TITLES = ['条码输入', '参数表'];
 const BARCODE_PROPS = ['placeholder', 'autoSubmitMs', 'minLen', 'clearAfterSubmit', 'uppercase', 'trim',
   'fontSize', 'textColor', 'bgColor', 'borderColor', 'borderWidth', 'radius'];
 const PARAM_PROPS = ['labels', 'units', 'decimals', 'showHeader', 'readonlyRows', 'rowH', 'fontSize',
@@ -241,15 +240,16 @@ ok('注册顺序里两个控件相邻（条码输入 → 参数表）', reg.orde
 const toolbox = await page.evaluate(() => {
   const items = [...document.querySelectorAll('#toolboxList .tb-item')];
   return {
-    names: items.map(e => e.querySelector('.sub')?.previousElementSibling?.textContent || ''),
+    names: items.map(e => e.querySelector('.tb-item-name')?.textContent || ''),
     svgs: items.map(e => !!e.querySelector('svg')),
-    subs: items.map(e => e.querySelector('.sub')?.textContent || ''),
+    tips: items.map(e => e.title),
   };
 });
-const tIdx = TITLES.map(t => toolbox.names.findIndex(n => n === t));
-ok('工具箱里两个条目都在（副标题+图标齐全）',
-  tIdx.every(i => i >= 0) && tIdx.every(i => toolbox.svgs[i] && (toolbox.subs[i] || '').length > 0),
-  tIdx.map((i, k) => TITLES[k] + '@' + i).join(' '));
+ok('条码输入保留兼容定义，工具箱里不再显示',
+  reg.barcode.hidden && staticOf('barcode')?.hidden && !toolbox.names.includes('条码输入'));
+const paramIdx = toolbox.names.indexOf('参数表');
+ok('参数表仍显示在工具箱，副标题和图标齐全',
+  paramIdx >= 0 && toolbox.svgs[paramIdx] && !!toolbox.tips[paramIdx]);
 
 /* ═══════════ 3. MCP 静态提取 == 运行中注册表（声明字段）═══════════ */
 for (const t of TYPES) {

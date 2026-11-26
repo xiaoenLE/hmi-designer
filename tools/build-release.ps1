@@ -203,6 +203,7 @@ VSVersionInfo(
     Remove-Item $payload -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $payload | Out-Null
     Copy-Item (Join-Path $PyInst 'WebHMIDesigner') $payload -Recurse -Force
+    Copy-Item $frpSrc (Join-Path $payload 'WebHMIDesigner\frp') -Recurse -Force
     Copy-Item $AppStage (Join-Path $payload 'app') -Recurse -Force
     foreach ($junk in @('app\server\data', 'app\logs', 'app\server\__pycache__')) {
       $p = Join-Path $payload $junk
@@ -213,6 +214,7 @@ VSVersionInfo(
       Remove-Item -Recurse -Force
     Get-ChildItem $payload -Recurse -Include '*.pyc', '*.pyo' -File -ErrorAction SilentlyContinue | Remove-Item -Force
     if (Test-Path (Join-Path $payload 'app\server\data')) { throw 'payload still contains app\server\data' }
+    if (-not (Test-Path (Join-Path $payload 'WebHMIDesigner\frp\frpc.exe'))) { throw 'installer payload is missing frpc.exe' }
     $env:HMI_STAGE = $Stage
     Remove-Item $setupPath -Force -ErrorAction SilentlyContinue
     & $Python -m PyInstaller 'packaging\installer.spec' --noconfirm --distpath $Release --workpath (Join-Path $root 'build\pywork-inst') 2>&1 | Out-Host

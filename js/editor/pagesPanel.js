@@ -65,17 +65,17 @@ function openNewMenu() {
   const cur = project.currentPage();
   openAt(r.left, r.bottom + 4, [
     { header: '新建 / 复制 / 导入' },
-    { label: '新建页面', onClick: () => project.addPage('page') },
-    { label: '新建弹窗', onClick: () => project.addPage('popup') },
-    { label: '新建公共底', onClick: () => project.addPage('base') },
+    { label: '新建页面', icon: 'add', onClick: () => project.addPage('page') },
+    { label: '新建弹窗', icon: 'screen', onClick: () => project.addPage('popup') },
+    { label: '新建公共底', icon: 'page', onClick: () => project.addPage('base') },
     { sep: true },
     // 复制当前这一页（公共底也能复制 —— 右键菜单里也有同一项）
-    { label: `复制这一页（${cur?.name || '当前页'}）`, onClick: () => duplicatePageOnce(project.currentId) },
-    { label: '多重复制页…', onClick: () => openPageDupDialog(project.currentId) },
+    { label: `复制这一页（${cur?.name || '当前页'}）`, icon: 'copy', onClick: () => duplicatePageOnce(project.currentId) },
+    { label: '多重复制页…', icon: 'copy', onClick: () => openPageDupDialog(project.currentId) },
     { sep: true },
-    { label: '导入页面…（从 .json 文件）', onClick: () => import('./pageIO.js').then(m => m.pickPageFile()) },
-    { label: `导出这一页…（${cur?.name || '当前页'}）`, onClick: () => import('./pageIO.js').then(m => m.exportPage(project.currentId)) },
-  ]);
+    { label: '导入页面…（从 .json 文件）', icon: 'folder', onClick: () => import('./pageIO.js').then(m => m.pickPageFile()) },
+    { label: `导出这一页…（${cur?.name || '当前页'}）`, icon: 'save', onClick: () => import('./pageIO.js').then(m => m.exportPage(project.currentId)) },
+  ], { anchor: btn });
 }
 
 /** 分组开关那个小按钮：分组 ▤ / 平铺 ☰（当前状态用高亮 + 文字说清） */
@@ -121,36 +121,30 @@ export function openPageDupDialog(pageId) {
     body: `
       <div class="f-row"><span class="f-label">复制份数</span>
         <input class="f-input" id="pdupCount" type="number" min="1" max="50" value="${s.count}">
-        <span style="color:var(--text-2);font-size:11px;flex:none">份（新生成几页）</span></div>
+        </div>
       <div class="f-row"><span class="f-label">页面名编号</span>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
           <input class="f-check" id="pdupNameSeq" type="checkbox" ${s.nameSeq ? 'checked' : ''}>
-          <span style="color:var(--text-2);font-size:12px">页名/控件名末尾数字递增（主画面 → 主画面2、主画面3）</span></label></div>
+          <span style="color:var(--text-2);font-size:12px">递增末尾序号</span></label></div>
       <div class="f-row"><span class="f-label">序号步长</span>
         <input class="f-input" id="pdupSeqStep" type="number" min="-999" max="999" value="${s.seqStep}"
-               title="每复制一份，名称/变量名末尾的数字加多少">
-        <span style="color:var(--text-2);font-size:11px;flex:none">可填负数（-1 = 倒着排）</span></div>
+               title="每份增加的序号。可填负数，0 表示不递增。"></div>
       <div class="f-row"><span class="f-label">变量递增</span>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
           <input class="f-check" id="pdupVarSeq" type="checkbox" ${s.varSeq ? 'checked' : ''}>
-          <span style="color:var(--text-2);font-size:12px">每页用各自的变量（rSpeed1 → rSpeed2…）</span></label></div>
+          <span style="color:var(--text-2);font-size:12px">每份使用递增的变量名</span></label></div>
       <div class="f-row"><span class="f-label">名字没数字</span>
         <select class="f-select" id="pdupVarMode">
           <option value="always">也自动加序号（rSpeed → rSpeed1/rSpeed2…）</option>
           <option value="digit">保持同一个变量（只给带数字的名字递增）</option>
         </select></div>
-      <div class="f-row"><span class="f-label">地址间隔</span>
+      <div class="f-row"><span class="f-label">间隔（字）</span>
         <input class="f-input" id="pdupAddrStep" type="number" min="-1000" max="1000" value="${s.addrStep}"
-               title="每个新变量的地址往后挪几个寄存器（负数 = 往前挪）">
-        <span style="color:var(--text-2);font-size:11px;flex:none">字（0 = 按类型自动）</span></div>
+               title="地址间隔按寄存器计。0 按变量类型自动计算，负数向前分配。"></div>
       <div class="f-row"><span class="f-label">自动建变量</span>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
           <input class="f-check" id="pdupAutoVar" type="checkbox" ${s.autoVar ? 'checked' : ''}>
-          <span style="color:var(--text-2);font-size:12px">新变量直接写进变量表（类型/初值照抄，地址按上面间隔往后排）</span></label></div>
-      <div style="color:var(--text-2);font-size:11px;line-height:1.7;border-top:1px dashed var(--border);padding-top:7px">
-        整页复制：页内所有控件、组、绑定、跳转动作都会跟着复制；<br>
-        页内「跳转/弹窗」如果指向的是被复制的页之一，会跟着指到这一份对应的副本。
-      </div>`,
+          <span style="color:var(--text-2);font-size:12px">创建缺少的变量</span></label></div>`,
     onOk: () => {
       const opts = {
         count: Math.max(1, Math.min(50, +document.getElementById('pdupCount').value || 1)),

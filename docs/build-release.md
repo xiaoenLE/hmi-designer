@@ -124,14 +124,13 @@ $env:HMI_GIT_USER='xiaoen'; $env:HMI_GIT_PASS='……'   # 凭据只用环境变
 
 ## 6. 验收：怎么证明这个包是好的
 
+常规发版默认跳过回滚测试。用户明确要求验证回滚时，再运行 `python test\verify-update-apply.py`。
+
 ```powershell
 # ① 语法/结构门禁（不产生产物）
 python tools\check-syntax.py
 
-# ② 沙箱自检：更新成功 / 版本对不上拒绝 / 坏版本自动回滚 / 数据目录保护（不碰真仓库）
-python test\verify-update-apply.py            # 约 3 分钟
-
-# ③ 打包之后才能跑的：exe 就地上更新（真装真跑真更新）
+# ② 打包后验收 EXE 启动及在线更新
 python test\verify-exe-update.py              # 17 项；会临时装一份、验完自己清掉
 ```
 

@@ -54,24 +54,11 @@ export async function openLogSettings() {
         <span style="font-size:12px;color:var(--text-2)">天（${keepRange[0]}~${keepRange[1]}）</span></div>
       <div class="f-row"><span class="f-label">脚本日志上限</span>
         <input class="f-input" id="logMb" type="number" min="${mbRange[0]}" max="${mbRange[1]}"
-               step="1" value="${s.scriptlog_max_mb}" style="width:90px">
+               step="1" value="${s.scriptlog_max_mb}" style="width:90px" title="当天达到上限时停止写入脚本日志。">
         <span style="font-size:12px;color:var(--text-2)">MB / 天（最大 ${mbRange[1]}）</span></div>
-      <div class="dlg-hint" style="margin-top:8px">
-        <b>日志保留天数</b>：服务日志 <code>hmi-*.log</code>、脚本日志 <code>script-*.log</code>、
-        更新日志 <code>update-*.log</code> 一起按它清（超期的文件直接删）。改小后<b>立刻清一次</b>。<br>
-        <b>脚本日志上限</b>：脚本里 <code>hmi.log()</code> 落盘那份到顶后<b>当天不再记</b>
-        （文件里留一行说明）；另外前端还有"每个脚本 20 行/秒"的限速，两道闸一起防写满盘。
-      </div>
-      <div class="dlg-hint" style="margin-top:8px">
-        现在：<b>${esc(usage)}</b><br>
-        <span style="color:var(--text-2)">目录 ${esc(u.dir || '')}</span>
-      </div>
-      <div class="dlg-hint" style="margin-top:8px;color:var(--text-2)">
-        这些是<b>这台机器</b>的设置（存服务器的 <code>settings.json</code>），<b>不进工程</b>，换机器不带走。
-        界面上没设过时按环境变量兜底：
-        <code>HMI_LOG_KEEP_DAYS</code>（现在 ${s.fallback?.keep_days}）、
-        <code>HMI_SCRIPTLOG_MAX_MB</code>（现在 ${s.fallback?.scriptlog_max_mb}）。
-      </div>`,
+      <div class="dlg-hint" style="color:var(--warn)">缩短保留期会立即删除超期日志。</div>
+      <div class="f-row"><span class="f-label">当前用量</span>
+        <span id="logUsage" title="${esc(u.dir || '')}">${esc(usage)}</span></div>`,
     onOk: async () => {
       const keep = Number(document.getElementById('logKeep')?.value);
       const maxMb = Number(document.getElementById('logMb')?.value);

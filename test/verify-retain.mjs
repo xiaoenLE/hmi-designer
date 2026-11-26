@@ -22,7 +22,7 @@ const req = createRequire('C:/Users/Administrator/.workbuddy/binaries/node/works
 const { chromium } = req('playwright-core');
 const EXE = 'C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
 const PY = 'C:/Users/Administrator/AppData/Local/Programs/Python/Python310/python.exe';
-const ROOT = 'C:/Users/Administrator/Desktop/hmi/hmi-designer-v2';
+const ROOT = path.resolve(import.meta.dirname, '..');
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const results = [];
@@ -104,17 +104,16 @@ const ui = await page.evaluate(async (vars) => {
     countChecked: !!ck?.checked,
     tempChecked: !!ck2?.checked,
     plcDisabled: !!ck3?.disabled,
-    tip: (document.getElementById('varTip')?.textContent || '').replace(/\s+/g, ' '),
+    addressHelp: document.querySelector('#varTable [data-sort="addr"]')?.title || '',
+    retainHelp: document.querySelector('#varTable .vt-keep')?.title || '',
   };
 }, VARS);
 ok('变量表有「保持」列，表头在', ui.header);
 ok('勾了保持的内部变量：复选框是勾上的', ui.countChecked);
 ok('没勾的内部变量：复选框没勾', !ui.tempChecked);
 ok('有 PLC 地址的变量：保持列**禁用**（保持由 PLC 负责）', ui.plcDisabled);
-ok('表下方提示写清"地址留空=内部变量、勾保持=掉电保持"',
-  /内部变量/.test(ui.tip) && /掉电保持/.test(ui.tip), ui.tip.slice(0, 90));
-// ⚠ 别要求提示里写 `retain_vars.json`：现场嫌提示条太长，文件路径从那行里去掉了，
-//   改在 README「掉电保持变量 → 值存哪」里写。提示条只讲语义就够了。
+ok('地址和保持的说明可在相应表头查看',
+  /内部变量/.test(ui.addressHelp) && /掉电保持/.test(ui.retainHelp));
 
 /* 用界面真点一下：给"内测_临时"勾上保持 → 工程里就该有 retain:true */
 const toggled = await page.evaluate(async () => {

@@ -42,12 +42,13 @@ const check = await page.evaluate(() => {
   const bodyRect = body.getBoundingClientRect();
   const imgRect = img ? img.getBoundingClientRect() : null;
   const rows = [...body.querySelectorAll('.f-row')].filter(r => r.querySelector('[data-imgpick]')).length;
+  const imageGroup = body.querySelector('[data-imgpick]')?.closest('.prop-group');
   return {
     imgLabels, pickBtns,
     hasPreview: !!img,
     previewInside: imgRect ? (imgRect.right <= bodyRect.right + 1 && imgRect.left >= bodyRect.left - 1) : false,
     pickRowExists: rows === 1,
-    labels,
+    labels: [...(imageGroup?.querySelectorAll('.f-label') || [])].map(el => el.textContent.trim()),
   };
 });
 
@@ -56,14 +57,8 @@ ok('「选图」按钮只有 1 个', check.pickBtns === 1, `实际 ${check.pickB
 ok('选图行只有 1 行（无嵌套）', check.pickRowExists);
 ok('预览图已渲染', check.hasPreview);
 ok('预览图在面板边界内（不再被挤到最右侧）', check.previewInside);
-// ⚠ 这一行是**属性面板的排版护栏**：面板里多一栏、少一栏，这里就会红。
-//   「穿透」是每个控件都有的「点击穿透」那一栏的标签（叠着控件时用，见 verify-clickthrough），
-//   它不是图片属性，只是排在这一栏里 —— 改版式时顺手把它一起算上。
-//   末尾那个 '' 是「权限管理…」按钮行：内置模板的权限管理**默认开着**（等级表里有 操作工/工程师），
-//   所以「权限等级 / 密码框 / 小锁标记 / 权限管理…」这几行都在。
-//   「启用 / 不满足时 / 条件之间 / 弹提示」= 「按条件启用」那一组（2.0.9 起所有控件都有），改版式时一起算上。
-ok('属性行标签序列正常',
-  JSON.stringify(check.labels) === JSON.stringify(['X', 'Y', '宽', '高', '名称', '锁定', '权限等级', '密码框', '小锁标记', '', '启用', '不满足时', '条件之间', '弹提示', '', '穿透', '图片', '']),
+ok('图片组保留选图、预览和背景色的顺序',
+  JSON.stringify(check.labels) === JSON.stringify(['图片', '', '背景色']),
   JSON.stringify(check.labels));
 
 console.log(results.join('\n'));

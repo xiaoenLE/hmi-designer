@@ -197,7 +197,11 @@ class VarStore {
         }
         this.values[base] = next;
         bus.emit('vars:changed', { name: base, value: next, source });
-        if (source === 'local' && backend.expectsServer()) this.push(name, value, from);
+        if (source === 'local' && backend.expectsServer()) {
+          // 内存/内部数组在后端是一个变量；设备数组则让后端按元素写。
+          if (!this._linkModeIsDevice() || this.isInternalVar(base)) this.push(base, next, from);
+          else this.push(name, value, from, base);
+        }
         return;
       }
     }
@@ -382,7 +386,7 @@ class VarStore {
   }
 
   /** 下发到后端/PLC；结果通过 vars:write 广播（失败必须让用户看见）*/
-  push(name, value, from = '') {
+  push(name, value, from = '', declaredName = name) {
     // 变量表里根本没有这个名字 = 脚本的临时量（`_lenAcc`、`_tmp` 这种累加器）。
     // 它只活在 HMI 本地：**一个请求都不发** ——
     //   · 发给 PLC 本来就没有意义（表里没有它，地址无从谈起）；
@@ -390,7 +394,7 @@ class VarStore {
     //     现场一进运行态就看见它，以为哪里配错了（明明只是个临时累加器）。
     // 值已经写进本地 values，脚本之间照样能读能写；要让它进变量表/发给设备，
     // 就去变量表面板加一条（那时它就按普通变量走）。
-    if (typeof this.isDeclaredVar === 'function' && !this.isDeclaredVar(name)) {
+    if (typeof this.isDeclaredVar === 'function' && !this.isDeclaredVar(declaredName)) {
       // 脚本临时量：本来就不该发请求 → 这一笔也不算"本地账"。
       // 不撤账的话，轮询回来的同名设备值会被写后保护窗口扣住、到点还报「设备没保持」
       // （纯误报：我们压根没写；verify-runtime-chrome 的写失败用例抓到过这个）。
@@ -399,7 +403,7 @@ class VarStore {
     }
     // 内部变量（地址留空）：告诉后端「这是 HMI 自己的变量，别当 PLC 变量处理」——
     // 后端表里还没有它时按内部变量就地收下，不会回一句「未在变量表声明」。
-    const internal = this.isInternalVar(name);
+    const internal = this.isInternalVar(declaredName);
     this._writes[name] = (this._writes[name] || 0) + 1;
     const done = () => { if (this._writes[name] && --this._writes[name] <= 0) delete this._writes[name]; };
     return backend.writeVar(name, value, { internal, from })

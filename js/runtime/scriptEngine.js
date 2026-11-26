@@ -48,18 +48,35 @@ const tabOf = (id) => tabs.find(t => t.sc.id === id) || null;
 function makeApi(sc, log) {
   const rt = window.__hmiRuntime || {};        // runtime.js 启动时挂上来（页面/弹窗操作）
   const num = (v) => (v === '' || v === undefined || v === null ? 0 : Number(v));
+  const cast = (value, type) => {
+    if (!type) return value;
+    if (type.endsWith('[]')) {
+      return Array.isArray(value) ? value.map(item => cast(item, type.slice(0, -2))) : value;
+    }
+    if (type === 'bool') return typeof value === 'string'
+      ? !['', '0', 'false'].includes(value.trim().toLowerCase()) : !!value;
+    return type === 'string' || type === 'wstring' ? String(value) : num(value);
+  };
   const api = {
     /** 变量名 → 当前值（没这个名字返回 undefined，便于 if (hmi.get('x') === undefined) 判断） */
-    get(name) { return varStore.get(name); },
+    get(name) {
+      const direct = varStore.get(name);
+      if (direct !== undefined || typeof name !== 'string') return direct;
+      const match = ARR_ELEM_RE.exec(name);
+      const values = match && varStore.get(match[1]);
+      return Array.isArray(values) ? values[Number(match[2])] : undefined;
+    },
     /** 写变量（和控件写值走同一条路：本地更新 + 下发给后端/PLC）
      *  ⚠ 'script' 这个标记是给后端的：脚本写的值**不打进 cmd 那行 `[var] …` 日志**
      *  （脚本可能每 100ms 写一次，会把控制台刷爆；脚本要记录就用 hmi.log）。
      *  屏上按钮/输入框/监控里手改的写值不带这个标记 —— 那些才是操作记录。 */
     set(name, value) {
       if (typeof name !== 'string' || !name) { log('warn', 'set：变量名不能为空'); return; }
-      const v = project.variables().find(x => x.name === name);
-      const val = !v ? value : v.type === 'bool' ? !!value
-        : (v.type === 'string' ? String(value) : num(value));
+      const vars = project.variables();
+      const direct = vars.find(x => x.name === name);
+      const match = !direct && ARR_ELEM_RE.exec(name);
+      const base = match && vars.find(x => x.name === match[1] && x.type?.endsWith('[]'));
+      const val = cast(value, direct?.type || base?.type.slice(0, -2));
       varStore.set(name, val, 'local', 'script');
       return val;
     },
@@ -133,6 +150,7 @@ function makeApi(sc, log) {
 
 /** 数组元素写法 `arrw[3]`（和 varstore 里那条正则同一套口径） */
 const ARR_ELEM_RE = /^(.+)\[(\d+)\]$/;
+const ARRAY_INDEX = /^(?:0|[1-9]\d*)$/;
 
 /**
  * `hmi.v.变量名` —— 变量表的**属性写法**（读、写都像普通属性）：
@@ -141,7 +159,8 @@ const ARR_ELEM_RE = /^(.+)\[(\d+)\]$/;
  *     if (hmi.v.bRun) { … }           // 完全等于 hmi.get('bRun')
  *     hmi.v.转速 = 100                // 中文变量名可以直接点出来
  *     hmi.v['1号泵'] = true           // 名字不是合法标识符（数字开头/横线/空格）→ 方括号
- *     hmi.v['arrw[3]'] = 999          // 数组元素照旧
+ *     hmi.v.arrw[2] = 999             // 按 JS 下标读写数组元素，并走正常变量下发
+ *     hmi.v['arrw[3]'] = 999          // 字符串写法仍可用
  *
  * 只比函数写法多一条：**读/写变量表里没有的名字 → 当场抛错**。
  * 为什么不像 hmi.get 那样给 undefined：函数写法给 undefined 是为了能拿它判断"有没有这个变量"；
@@ -156,14 +175,42 @@ function makeVarProxy(api) {
   /** `arrw[3]` 这种写法只有在"整段 arrw 还以数组存在"时才算（展开成单个变量后名字本身就叫 arrw[1]） */
   const arrBase = (name) => {
     const m = ARR_ELEM_RE.exec(name);
-    return m && api.has(m[1]) ? m : null;
+    return m && api.has(m[1]) && Array.isArray(api.get(m[1])) ? m : null;
   };
+  const arrayView = (name, value, expanded) => new Proxy(value, {
+    get(target, key, receiver) {
+      if (typeof key === 'string' && ARRAY_INDEX.test(key)) {
+        return api.get(name + '[' + key + ']');
+      }
+      return Reflect.get(target, key, receiver);
+    },
+    set(target, key, value) {
+      if (key === 'length' && !expanded && target.length === value) return true;
+      if (typeof key !== 'string' || !ARRAY_INDEX.test(key)
+          || (expanded ? !expanded.has(key) : Number(key) >= target.length)) {
+        throw new RangeError('数组「' + name + '」没有可写的下标 ' + String(key));
+      }
+      api.set(name + '[' + key + ']', value);
+      return true;
+    },
+  });
   return new Proxy({}, {
     get(_, key) {
       if (typeof key !== 'string') return undefined;                    // Symbol（迭代/转原始值）不掺和
-      if (api.has(key)) return api.get(key);                            // 变量优先（连叫 toString 的变量也认）
-      const m = arrBase(key);
-      if (m) { const cur = api.get(m[1]); return Array.isArray(cur) ? cur[Number(m[2])] : undefined; }
+      if (api.has(key)) {
+        const value = api.get(key);
+        return Array.isArray(value) ? arrayView(key, value, null) : value;
+      }
+      if (arrBase(key)) return api.get(key);
+      // 变量表也可能把数组拆成 arr[0]、arr[1] 等独立变量。
+      const elements = new Set();
+      const prefix = key + '[';
+      for (const variable of project.variables()) {
+        if (!variable.name.startsWith(prefix)) continue;
+        const match = ARR_ELEM_RE.exec(variable.name);
+        if (match?.[1] === key) elements.add(match[2]);
+      }
+      if (elements.size) return arrayView(key, Object.create(null), elements);
       /* 下面几条是"别在边角上炸"：hmi.v 被 console 看一眼、被 JSON.stringify、被 String() 时都要正常。
          ⚠ 顺序不能反：先认变量名（上面那两行），再走这些兜底 —— 否则变量真叫 toString 就读不到了。 */
       if (key === 'toString') return () => '[hmi.v 变量表]';

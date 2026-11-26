@@ -72,6 +72,10 @@ register({
     { key: 'color', label: '颜色', type: 'color' },
     { key: 'outline', label: '空心', type: 'check', defVal: false, title: '不勾 = 实心箭头；勾上 = 只描边（线宽就是「粗细」）' },
     { key: 'thickness', label: '粗细', type: 'number', min: 1, max: 40, defVal: 8 },
+    // 线型只在空心（描边）模式下有意义；实心箭头没有描边，改它不影响渲染
+    { key: 'lineStyle', label: '线型', type: 'select', defVal: 'solid', title: '虚线/点线只在空心（描边）模式下生效', options: [
+      { v: 'solid', t: '实线' }, { v: 'dashed', t: '虚线' }, { v: 'dotted', t: '点线' },
+    ] },
   ],
   // 方向变量是**可选**的：不绑 = 完全按静态 dir（老工程老画面不变）。
   // 绑上之后运行态自动进「变量→控件」索引，变量一变就重画，不需要 attach。
@@ -102,8 +106,13 @@ register({
     ].map(([x, y]) => `${fmt2(x)},${fmt2(y)}`).join(' ');
     const color = escapeHtml(p.color || '#52606d');
     const outline = p.outline === true;
+    // 线型：只认 实线/虚线/点线；实心（不描边）没有线型可言，渲染结果照旧 —— 老工程像素不变
+    const ls = ['dashed', 'dotted'].includes(p.lineStyle) ? p.lineStyle : 'solid';
+    let dash = '';
+    if (outline && ls === 'dashed') dash = ` stroke-dasharray="${fmt2(T * 3)} ${fmt2(T * 2)}"`;
+    else if (outline && ls === 'dotted') dash = ` stroke-dasharray="${fmt2(T)} ${fmt2(T * 2)}"`;
     const shape = outline
-      ? `<polygon class="wa-shape" points="${pts}" fill="none" stroke="${color}" stroke-width="${fmt2(T)}" stroke-linejoin="round" stroke-linecap="round"/>`
+      ? `<polygon class="wa-shape" points="${pts}" fill="none" stroke="${color}" stroke-width="${fmt2(T)}"${dash} stroke-linejoin="round" stroke-linecap="round"/>`
       : `<polygon class="wa-shape" points="${pts}" fill="${color}" stroke="none"/>`;
     return `<div class="w-arrow" data-dir="${dir}" data-size="${sizePx}" data-outline="${outline ? 1 : 0}" data-thickness="${fmt2(thickPx)}"
       style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;box-sizing:border-box;overflow:hidden">

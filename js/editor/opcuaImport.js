@@ -73,44 +73,40 @@ export async function openOpcuaImport(opt = {}) {
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
         <b style="font-size:12px">导入方式</b>
         <label style="font-size:12px;display:flex;align-items:center;gap:4px">
-          <input type="radio" name="oiMode" value="xml" checked> CODESYS 导出的符号配置 XML（离线，不用连服务器）</label>
+          <input type="radio" name="oiMode" value="xml" checked> 符号配置 XML（离线）</label>
         <label style="font-size:12px;display:flex;align-items:center;gap:4px">
           <input type="radio" name="oiMode" value="live"> 连上服务器浏览节点</label>
       </div>
       <div id="oiXmlBox">
         <div class="f-row"><span class="f-label">符号配置文件</span>
           <input class="f-input" id="oiXmlName" readonly placeholder="（未选择）">
-          <button class="tb-btn" id="oiXmlPick">选择 XML…</button>
+          <button class="tb-btn" id="oiXmlPick" title="在 CODESYS 中右键符号配置，选择导出符号配置。">选择 XML…</button>
           <input type="file" id="oiXmlFile" accept=".xml" hidden></div>
         <div class="f-row"><span class="f-label">设备/应用</span>
           <input class="f-input" id="oiDevice" placeholder="设备名（XML 里带的，一般不用改）" style="max-width:210px">
-          <input class="f-input" id="oiApp" placeholder="应用名" style="max-width:150px">
-          <span style="color:var(--text-2);font-size:11px;flex:none">NodeId = ns=…;s=|var|<b>设备名.应用名</b>.POU.符号</span></div>
-        <div id="oiXmlMsg" style="font-size:12px;color:var(--text-2);margin:4px 0 0">
-          在 CODESYS 里：右键「符号配置」对象 → 导出符号配置 → 得到 <code>OPCUA.设备.应用.xml</code>，选它就行。
-        </div>
+          <input class="f-input" id="oiApp" placeholder="应用名" style="max-width:150px" title="NodeId 格式：ns=…;s=|var|设备名.应用名.POU.符号"></div>
+        <div id="oiXmlMsg" class="pane-msg"></div>
       </div>
       <div id="oiLiveBox" style="display:none">
       <div class="f-row"><span class="f-label">端点</span>
-        <input class="f-input" id="oiEp" value="${esc(ep)}" placeholder="opc.tcp://192.168.1.10:4840">
-        <span style="color:var(--text-2);font-size:11px;flex:none">CODESYS 内置 OPC UA Server 默认 4840</span></div>
+        <input class="f-input" id="oiEp" value="${esc(ep)}" placeholder="opc.tcp://192.168.1.10:4840" title="CODESYS OPC UA 默认端口 4840"></div>
       <div class="f-row"><span class="f-label">用户名</span>
         <input class="f-input" id="oiUser" value="${esc(username)}" placeholder="留空 = 匿名">
-        <span style="color:var(--text-2);font-size:11px;flex:none">密码</span>
+      </div>
+      <div class="f-row"><span class="f-label">密码</span>
         <input class="f-input" id="oiPass" type="password" value="${esc(password)}" placeholder="留空 = 匿名">
-        <span style="color:var(--text-2);font-size:11px;flex:none">服务器不许匿名时填这里</span></div>
+      </div>
       <div class="f-row"><span class="f-label">起始节点</span>
-        <input class="f-input" id="oiRoot" value="" placeholder="留空 = 整个服务器（Objects）">
-        <span style="color:var(--text-2);font-size:11px;flex:none">只想要某个 POU，就填它的 NodeId</span></div>
+        <input class="f-input" id="oiRoot" value="" placeholder="留空从 Objects 开始" title="只浏览某个 POU 时填它的 NodeId"></div>
       <div class="f-row"><span class="f-label">浏览深度</span>
-        <input class="f-input" id="oiDepth" type="number" min="0" max="10" value="${cfg.depth}" style="width:70px">
+        <input class="f-input" id="oiDepth" type="number" min="0" max="10" value="${cfg.depth}" style="width:70px" title="浏览 CODESYS 程序变量时可从 3～5 层开始">
         <label style="font-size:12px;display:flex;align-items:center;gap:4px">
           <input type="checkbox" id="oiArrays" ${cfg.includeArrays ? 'checked' : ''}> 包含数组节点</label>
-        <span style="color:var(--text-2);font-size:11px;flex:none">看着像 CODESYS 的 Objects → POU → 符号，深度 3~5 够</span></div>
+      </div>
       <div class="f-row"><span class="f-label">过滤</span>
         <input class="f-input" id="oiFilter" placeholder="按 名称 / 路径 / NodeId 过滤（选中项不会被过滤掉）">
-        <button class="tb-btn" id="oiBrowse">浏览节点</button></div>
-      <div id="oiMsg" style="font-size:12px;color:var(--text-2);margin:6px 0 0;white-space:pre-wrap;line-height:1.7">点「浏览节点」拉取服务器上的变量清单（只读，不写 PLC）。</div>
+        <button class="tb-btn" id="oiBrowse" title="读取变量清单，不写 PLC">浏览节点</button></div>
+      <div id="oiMsg" style="font-size:12px;color:var(--text-2);margin:6px 0 0;white-space:pre-wrap;line-height:1.7"></div>
       </div>
       <div class="f-row" style="margin-top:6px">
         <span class="f-label"></span>
@@ -119,7 +115,7 @@ export async function openOpcuaImport(opt = {}) {
         <span id="oiCount" style="color:var(--text-2);font-size:12px"></span>
       </div>
       <div id="oiList" style="max-height:320px;overflow:auto;border:1px solid var(--border);border-radius:6px;margin-top:6px">
-        <div style="padding:14px;color:var(--text-2);font-size:12px">（还没浏览）</div>
+        <div style="padding:14px;color:var(--text-2);font-size:12px">选择文件或浏览节点</div>
       </div>`,
     okText: '导入勾选的变量',
     onOk: async () => {

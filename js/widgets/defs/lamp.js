@@ -22,8 +22,8 @@ register({
     blink: 'none' },
   props: [
     // 双状态文字：灯有两个状态，文字随亮/灭切换；defFrom=老工程 text 键的回落显示
-    { key: 'offText', label: '灭时文字', type: 'text', defFrom: 'text', i18n: 'text' },
-    { key: 'onText', label: '亮时文字', type: 'text', defFrom: 'text', i18n: 'text' },
+    { key: 'offText', label: '灭时文字', type: 'textarea', rows: 2, defFrom: 'text', i18n: 'text' },
+    { key: 'onText', label: '亮时文字', type: 'textarea', rows: 2, defFrom: 'text', i18n: 'text' },
     { key: 'textPos', label: '文字位置', type: 'select', options: [{ v: 'right', t: '右侧' }, { v: 'left', t: '左侧' }, { v: 'bottom', t: '下方' }, { v: 'inside', t: '里面' }] },
     { key: 'fontSize', label: '字号', type: 'number', min: 8, max: 72 },
     { key: 'textColor', label: '文字色', type: 'color' },

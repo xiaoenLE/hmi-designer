@@ -179,9 +179,27 @@ def download_archive(url: str, dest: Path, timeout: float = 120.0, log=print) ->
 
 
 def _backup_dir(data_dir: Path, old_version: str) -> Path:
-    stamp = time.strftime("%Y%m%d-%H%M%S")
+    stamp = f"{time.strftime('%Y%m%d-%H%M%S')}-{time.time_ns() % 1_000_000_000:09d}"
     safe = "".join(c for c in str(old_version or "unknown") if c.isalnum() or c in ".-_") or "unknown"
-    return data_dir / BACKUP_DIRNAME / f"{stamp}_{safe}"
+    parent = data_dir / BACKUP_DIRNAME
+    parent.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=f"{stamp}_{safe}_", dir=parent))
+
+
+def _temp_next_to(target: Path) -> Path:
+    # 同目录暂存，现场数据盘和程序盘分开时也能原子替换。
+    fd, name = tempfile.mkstemp(prefix=".hmi-update-", suffix=".tmp", dir=target.parent)
+    os.close(fd)
+    return Path(name)
+
+
+def _write_json(target: Path, obj: dict):
+    tmp = _temp_next_to(target)
+    try:
+        tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, target)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def prune_backups(data_dir: Path, keep: int = KEEP_BACKUPS, log=print) -> int:
@@ -208,13 +226,9 @@ def apply_archive(zip_path: Path, root: Path, data_dir: Path, old_version: str,
     · **硬断言：写出去的每一个路径都不许落在数据目录里**（现场工程/变量表/配置在 data_dir）——
       白名单已经跳过 server/data，这条是"万一布局变了"的第二道保险：宁可整个更新失败，
       也绝不允许碰到现场数据（见文件开头铁律 1）
-    · 每个文件：先备份旧内容 → 写 xxx.hmi-new → os.replace 顶上（单个文件要么旧的要么新的）
+    · 全部备份并写好回滚清单，再逐个原子替换。中途失败只还原已经替换的文件。
     """
-    root, data_dir = Path(root), Path(data_dir)
-    try:
-        z = zipfile.ZipFile(zip_path)
-    except Exception as e:                                      # noqa: BLE001
-        return {"ok": False, "error": f"代码包打不开：{type(e).__name__}: {e}"}
+    root, data_dir = Path(root).resolve(), Path(data_dir).resolve()
 
     # sha256：确认下到的东西就是发布方给的那一份（传输截断/被中间设备改过都能当场发现）
     if expect_sha256:
@@ -222,6 +236,11 @@ def apply_archive(zip_path: Path, root: Path, data_dir: Path, old_version: str,
         if got.lower() != str(expect_sha256).lower():
             return {"ok": False, "error": f"代码包校验不过（sha256 对不上：下到的 {got[:12]}…，"
                                           f"清单里是 {str(expect_sha256)[:12]}…）—— 已丢弃，代码没动"}
+
+    try:
+        z = zipfile.ZipFile(zip_path)
+    except Exception as e:                                      # noqa: BLE001
+        return {"ok": False, "error": f"代码包打不开：{type(e).__name__}: {e}"}
 
     with z:
         names = z.namelist()
@@ -235,7 +254,7 @@ def apply_archive(zip_path: Path, root: Path, data_dir: Path, old_version: str,
 
         # ── 先算出这次要动哪些文件（不动压缩包，先干活前把清单定死）──
         plan = []
-        data_res = data_dir.resolve()
+        targets = set()
         for info in z.infolist():
             if info.is_dir():
                 continue
@@ -244,17 +263,27 @@ def apply_archive(zip_path: Path, root: Path, data_dir: Path, old_version: str,
             if not is_code_path(rel):
                 continue
             target = (root / rel).resolve()
-            if target == data_res or data_res in target.parents:
+            if target == data_dir or data_dir in target.parents:
                 return {"ok": False, "error": f"代码包里有个文件要写到**现场数据目录**里（{rel}）—— "
-                                              f"已拒绝整个更新（数据目录：{data_res}）"}
+                                              f"已拒绝整个更新（数据目录：{data_dir}）"}
+            if root not in target.parents or ".." in Path(rel).parts or target in targets:
+                return {"ok": False, "error": f"代码包内有无效或重复的目标路径：{rel}"}
+            targets.add(target)
             plan.append((rel, info))
         if not plan:
             return {"ok": False, "error": "代码包里没有可更新的文件（白名单没匹配上，检查 _common_top_dir/目录结构）"}
 
-        backup = _backup_dir(data_dir, old_version)
+        backup = None
         restored, created = [], []
+        staged = {}
+        changed = set()
+        manifest = {
+            "at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "from_version": old_version, "to_version": new_version,
+            "replaced": restored, "created": created,
+        }
         try:
-            backup.mkdir(parents=True, exist_ok=True)
+            backup = _backup_dir(data_dir, old_version)
             for rel, info in plan:
                 target = root / rel
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -265,21 +294,30 @@ def apply_archive(zip_path: Path, root: Path, data_dir: Path, old_version: str,
                     restored.append(rel)
                 else:
                     created.append(rel)
-                tmp = target.with_name(target.name + ".hmi-new")
+                tmp = staged[rel] = _temp_next_to(target)
                 with z.open(info) as src, open(tmp, "wb") as dst:
                     shutil.copyfileobj(src, dst)
-                os.replace(tmp, target)             # 单文件原子替换：不会出现"写了一半的 js"
+                if os.name != "nt":
+                    if target.exists():
+                        shutil.copymode(target, tmp)
+                    else:
+                        tmp.chmod(0o644)
+            _write_json(backup / "_manifest.json", manifest)
+            for rel, tmp in staged.items():
+                os.replace(tmp, root / rel)
+                changed.add(rel)
         except Exception as e:                                  # noqa: BLE001
-            # 中途失败：尽量把自己已经改过的还原回去，别留个半新半旧的现场
-            log(f"[update] 覆盖中途出错：{type(e).__name__}: {e} —— 正在还原")
-            rb = rollback(backup, root, log=log)
+            log(f"[update] 准备或替换文件失败：{type(e).__name__}: {e}")
+            rb = _restore_files(backup, root, manifest, log, changed) if changed else None
+            if backup is not None and (rb is None or rb["ok"]):
+                shutil.rmtree(backup, ignore_errors=True)
             return {"ok": False, "error": f"{type(e).__name__}: {e}", "rollback": rb}
-
-        (backup / "_manifest.json").write_text(json.dumps({
-            "at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "from_version": old_version, "to_version": new_version,
-            "replaced": restored, "created": created,
-        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        finally:
+            for tmp in staged.values():
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError as e:
+                    log(f"[update] 清理暂存文件失败（{tmp.name}）：{e}")
 
         log(f"[update] 代码已更新到 {new_version or '?'}：替换 {len(restored)} 个、新增 {len(created)} 个；"
             f"备份在 {backup}")
@@ -287,7 +325,7 @@ def apply_archive(zip_path: Path, root: Path, data_dir: Path, old_version: str,
                 "backup_dir": str(backup), "skipped_data": True}
 
 
-def rollback(backup_dir: Path, root: Path, log=print) -> dict:
+def rollback(backup_dir: Path, root: Path, log=print, *, discard=False) -> dict:
     """按备份把代码退回旧版：**替换过的还原、新加的删掉**。
     只动备份清单里列的文件 —— 现场数据不在这份清单里，所以回滚也碰不到它们。"""
     backup_dir, root = Path(backup_dir), Path(root)
@@ -296,16 +334,32 @@ def rollback(backup_dir: Path, root: Path, log=print) -> dict:
         man = json.loads(man_file.read_text(encoding="utf-8"))
     except Exception as e:                                      # noqa: BLE001
         return {"ok": False, "error": f"读不到备份清单（{man_file}）：{e}"}
+    result = _restore_files(backup_dir, root, man, log)
+    if discard and result["ok"]:
+        shutil.rmtree(backup_dir, ignore_errors=True)
+    return result
+
+
+def _restore_files(backup_dir, root, man, log, changed=None):
     fixed, removed, failed = 0, 0, []
     for rel in man.get("replaced", []):
+        if changed is not None and rel not in changed:
+            continue
         src, dst = backup_dir / rel, root / rel
         try:
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            tmp = _temp_next_to(dst)
+            try:
+                shutil.copy2(src, tmp)
+                os.replace(tmp, dst)
+            finally:
+                tmp.unlink(missing_ok=True)
             fixed += 1
         except Exception as e:                                  # noqa: BLE001
             failed.append(f"{rel}: {e}")
     for rel in man.get("created", []):
+        if changed is not None and rel not in changed:
+            continue
         try:
             (root / rel).unlink(missing_ok=True)
             removed += 1
@@ -329,7 +383,7 @@ def state_dir(data_dir: Path) -> Path:
 
 def write_state(data_dir: Path, name: str, obj: dict) -> Path:
     p = state_dir(data_dir) / name
-    p.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_json(p, obj)
     return p
 
 

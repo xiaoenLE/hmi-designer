@@ -1,4 +1,4 @@
-// verify-i18n-panel.mjs — 「多语言 / 翻译…」对话框（工程 ▾）回归：
+// verify-i18n-panel.mjs — 「多语言与翻译…」对话框（工程 ▾）回归：
 //   ① 工程菜单里有这一项、点了能打开对话框（语言区：默认语言那行标「原文」、不可删）
 //   ② 添加语言（en）→ languages() 含它、语言列表/预览下拉都跟着长出来
 //   ③ 导出翻译表 CSV → 表头 分类,位置,字段,原文,en；已有原文（按钮的「启动」）在表里
@@ -76,11 +76,11 @@ ok('（前提）画布上按钮文字是「启动」', beforeText === '启动', 
 await page.click('#btnProjMenu');
 await sleep(150);
 const menuLabels = await page.$$eval('#ctxMenu .ctx-item .ctx-label', els => els.map(e => e.textContent.trim()));
-ok('工程菜单里出现「多语言 / 翻译…」', menuLabels.includes('多语言 / 翻译…'), menuLabels.join(' | '));
+ok('工程菜单里出现「多语言与翻译…」', menuLabels.includes('多语言与翻译…'), menuLabels.join(' | '));
 
 await page.evaluate(() => {
   const hit = [...document.querySelectorAll('#ctxMenu .ctx-item')]
-    .find(b => b.textContent.includes('多语言 / 翻译…'));
+    .find(b => b.textContent.includes('多语言与翻译…'));
   if (hit) hit.click();
 });
 await page.waitForFunction(() => {
@@ -277,7 +277,7 @@ await page.click('#btnProjMenu');
 await sleep(150);
 await page.evaluate(() => {
   const hit = [...document.querySelectorAll('#ctxMenu .ctx-item')]
-    .find(b => b.textContent.includes('多语言 / 翻译…'));
+    .find(b => b.textContent.includes('多语言与翻译…'));
   if (hit) hit.click();
 });
 await page.waitForFunction(() =>

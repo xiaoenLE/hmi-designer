@@ -20,7 +20,7 @@ const req = createRequire('C:/Users/Administrator/.workbuddy/binaries/node/works
 const { chromium } = req('playwright-core');
 const EXE = 'C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
 const PY = 'C:/Users/Administrator/AppData/Local/Programs/Python/Python310/python.exe';
-const ROOT = 'C:/Users/Administrator/Desktop/hmi/hmi-designer-v2';
+const ROOT = path.resolve(import.meta.dirname, '..');
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const results = [];
@@ -68,6 +68,7 @@ const prep = await page.evaluate(async () => {
     ['转速', 'int', 0], ['1号泵', 'bool', false], ['sMsg', 'string', ''],
   ].forEach(([name, type, value]) => project.data.variables.push({ name, type, address: '', value, len: 0 }));
   project.data.variables.push({ name: 'arrw', type: 'int[]', address: '', value: [1, 2, 3, 4], len: 4 });
+  project.data.variables.push({ name: '展开[2]', type: 'bool', address: '', value: true });
   varStore.resetFrom(project.variables());      // 编辑态要手工把初值灌进运行值表（进运行态时 runtime 会做）
   project.commit('脚本变量写法测试');
   return project.variables().map(v => v.name);
@@ -135,6 +136,30 @@ ok('hmi.v 读出来的值能直接进日志', readWrite.logs.some(l => /log:ok 1
 const arrRead = await runCode("hmi.log('elem', hmi.v['arrw[3]'])");
 ok("hmi.v['arrw[3]'] 读得出那一个元素", arrRead.ok && arrRead.logs.some(l => /elem 999/.test(l)),
   JSON.stringify(arrRead.logs.slice(-2)));
+
+const indexWrite = await runCode(
+  "const arr = hmi.v.arrw; arr[2] = '42'; hmi.v.展开[2] = '0'; hmi.log('下标', arr[2], hmi.get('arrw[2]'), hmi.v.展开[2]);"
+);
+ok('用下标读写整段数组与已展开变量，保留变量类型', indexWrite.ok
+  && indexWrite.logs.some(line => /下标 42 42 false/.test(line)), JSON.stringify(indexWrite));
+await page.evaluate(() => window.app.backend.syncVarTable(window.app.project.variables(), []));
+const synchronized = await runCode('hmi.v.arrw[2] = 77');
+await page.waitForFunction(async () => (await window.app.backend.readVars()).arrw?.[2] === 77);
+ok('数组元素修改通过 WebSocket 同步到隔离后端', synchronized.ok);
+const outOfBounds = await runCode('hmi.v.arrw[99] = 1');
+ok('固定长度数组拒绝越界写入', !outOfBounds.ok && /下标/.test(outOfBounds.error));
+
+const indexRename = await page.evaluate(() => {
+  const { project } = window.app;
+  const script = project.addScript({ name: '下标引用', code: 'hmi.v.arrw[2] = 1; hmi.v.展开 [ 2 ] = true;' });
+  project.remapScriptRefs('arrw', '数组');
+  project.remapScriptRefs('展开[2]', '开关');
+  const code = project.getScript(script.id).code;
+  project.deleteScript(script.id);
+  return code;
+});
+ok('数组名和展开的元素名改名后，脚本中的下标引用同步更新',
+  indexRename === 'hmi.v.数组[2] = 1; hmi.v.开关 = true;', indexRename);
 
 /* ═══════════ 2. 打错字：读/写都要当场报错（不能静默） ═══════════ */
 const typoWrite = await runCode('hmi.v.rSeed = 100');       // 少打一个 d
@@ -341,6 +366,20 @@ ok('★ 点帮助里 hmi.g 那条的「插入」→ 那段例子原样进代码�
 ok('★ 那段例子在本工程的变量名下**真的能跑**（不是抄了就报错的示例）',
   /试运行完成/.test(insertCheck.status), `${insertCheck.status} | ${insertCheck.log.replace(/\s+/g, ' ').slice(0, 90)}`);
 
+const editor = page.locator('#seCode');
+await editor.fill('hmi.v.转');
+await page.getByRole('option', { name: /转速|本班产量/ }).waitFor({ timeout: 2500 });
+await editor.press('Enter');
+ok('输入 hmi.v. 前缀后选中项目变量', await editor.inputValue() === 'hmi.v.转速');
+const unsaved = 'hmi.v.arrw[2] = 88';
+await editor.fill(unsaved);
+await editor.press('ArrowLeft');
+const cursor = await editor.evaluate(el => el.selectionStart);
+await page.locator('#seMinimize').click();
+ok('收起后编辑浮层不挡住其它面板', !await editor.isVisible() && await page.locator('#seRestore').isVisible());
+await page.locator('#seRestore').click();
+ok('恢复保留未保存的代码和光标', await editor.inputValue() === unsaved
+  && await editor.evaluate(el => el.selectionStart) === cursor);
 ok('全程无未捕获 JS 异常', errs.length === 0, errs.slice(0, 3).join(' | '));
 
 console.log(`\n==== 脚本变量写法（hmi.v / hmi.g）：${results.filter(r => r.ok).length}/${results.length} 通过 ====`);

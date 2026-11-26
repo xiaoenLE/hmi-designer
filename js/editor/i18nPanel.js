@@ -42,13 +42,11 @@ export function openI18nPanel() {
       #i18nLangs .i18n-lang-scale { display:flex; align-items:center; gap:3px; font-size:11.5px; color:var(--text-2); white-space:nowrap; }
       #i18nLangs .i18n-scale-inp { width:62px; height:22px; padding:0 4px; font-size:12px; }
       #i18nLangs .i18n-lang-count { margin-left:auto; font-size:12px; color:var(--text-2); white-space:nowrap; }
+      #i18nStatus:empty { display:none; }
       #i18nStatus.warn { color:var(--danger); }
       #i18nStatus.ok { color:#15803d; }
       #i18nPreviewRow .f-select { flex:0 0 240px; }
     </style>
-    <div class="dlg-hint">默认语言那一行就是<b>原文</b>（不用翻译，也不能删）；其它语言按「原文 → 译文」一句一句配。
-      翻译表导出成 CSV，用 Excel 打开、把译文列填好，再导入回来即可。</div>
-
     <div class="prop-group-title">语言</div>
     <div id="i18nLangs"></div>
     <div class="f-row" style="margin-top:8px">
@@ -61,9 +59,8 @@ export function openI18nPanel() {
 
     <div class="prop-group-title">翻译表</div>
     <div class="f-row">
-      <span class="f-label">可翻译文字</span>
+      <span class="f-label" title="控件文字、页面名和报警共用同一句原文的译文。">可翻译文字</span>
       <b id="i18nTotal">0</b><span style="font-size:12px">条</span>
-      <span class="dlg-hint" style="margin:0">（控件文字 / 页面名 / 报警文字；同一句原文全工程共用一份译文）</span>
     </div>
     <div class="f-row">
       <span class="f-label">翻译表</span>
@@ -73,15 +70,10 @@ export function openI18nPanel() {
         title="导入填好的翻译表：按「原文」列把各语言译文填回来（表头写语言代码如 en，或显示名如 English）">导入翻译表 CSV…</button>
       <input type="file" id="i18nCsvFile" accept=".csv,text/csv" hidden>
     </div>
-    <div class="dlg-hint" style="margin-top:2px">
-      导出的文件名是「&lt;工程名&gt;-翻译表.csv」；每门语言一列，<b>译文留空 = 没翻</b>（运行/预览时照旧显示原文）。
-    </div>
-
     <div class="prop-group-title">预览</div>
     <div class="f-row" id="i18nPreviewRow">
       <span class="f-label">预览语言</span>
-      <select class="f-select" id="i18nLangPreview" title="切一下看看译文对不对（编辑画布当场重画；运行中则运行画面重画）"></select>
-      <span class="dlg-hint" style="margin:0">只影响<b>这台机器</b>（工程里的语言表和译文不受影响）。</span>
+      <select class="f-select" id="i18nLangPreview" title="只切换本机预览，不更改工程语言。译文留空时显示原文。"></select>
     </div>`;
 
   const dlg = showDialog({

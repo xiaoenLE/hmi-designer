@@ -18,7 +18,7 @@ import { project } from '../core/project.js';
 import { VAR_TYPES } from '../core/csv.js';
 import { normAddr, statusNote, escapeHtml as esc } from '../core/utils.js';
 import { backend } from '../api/backend.js';
-import { attachAddrInput, prefixSelectHtml, placeholderFor } from '../core/addrInput.js';
+import { addressHelpFor, attachAddrInput, prefixSelectHtml, placeholderFor } from '../core/addrInput.js';
 import { showDialog } from './toolbar.js';
 
 const STR_LEN_DEFAULT = 10;      // 新字符串变量默认几个字符（和变量表一致）
@@ -51,21 +51,6 @@ export function openAddVarDialog({ name = '', onDone } = {}) {
   const ts = proto === 'ts600';
   // 地址写法提示跟着协议走（INVT 的 %MW… / TS600 的 D100、M10…）—— 混着提示只会让人填错
   const ph = placeholderFor(proto);
-  const addrHint = ua
-    ? `<b>地址留空 = 内部变量</b>：值只存在 HMI 里（控件动作 / 脚本 / 变量监控），不读也不写 PLC。<br>
-        写法：OPC UA 要填<b>完整 NodeId</b>（<code>ns=4;s=|var|设备.Application.POU.符号</code>）。`
-    : (ts
-      ? `<b>地址留空 = 内部变量</b>：值只存在 HMI 里（控件动作 / 脚本 / 变量监控），不读也不写 PLC。<br>
-        写法（TS600 元件写法）：bool 用位元件 <code>M10</code>／<code>X17</code>（只读输入）／<code>Y10</code>，
-        字类型用 <code>D100</code>／<code>R100</code>／<code>C200</code>（C200~C255 是 32 位，配 dint/udint/real）；
-        <b>直接写数字也行</b>（<code>100</code> = 协议寄存器 100）。<br>
-        <b>TS600 没有 %MX 字内取位/位打包</b>：<code>%MX0.0</code>、<code>%M100</code> 这类写法会被当内部变量（不采集、不下发，不报错）。`
-      : `<b>地址留空 = 内部变量</b>：值只存在 HMI 里（控件动作 / 脚本 / 变量监控），不读也不写 PLC。<br>
-        写法：bool 用位地址 <code>%MX0.0</code>（<code>%IX0.0</code> 只读输入 / <code>%QX0.0</code> 线圈），
-        字类型用 <code>%MW100</code>／<code>%MD50</code>；<b>直接写数字也行</b>（<code>100</code> = <code>%MW100</code>），
-        <b>百分号可以省</b>（<code>MX100.0</code> = <code>%MX100.0</code>、<code>MW200</code> = <code>%MW200</code>），
-        老写法 <code>HR100</code> 会自动转成 <code>%MW100</code>。<br>
-        写成 TS600 元件写法（<code>D100</code>／<code>M10</code>）会被当内部变量（不采集、不下发，不报错）。`);
   const types = scalarTypes();
   let addrCtl = null;      // 地址框控制器（showDialog 之后建；onOk 里点「新建」时已经就绪）
 
@@ -85,7 +70,7 @@ export function openAddVarDialog({ name = '', onDone } = {}) {
           <input class="f-input" id="vaLen" type="number" min="1" max="250" value="${STR_LEN_DEFAULT}"
                  style="width:70px" title="字符串占几个字符（2 个字符占 1 个寄存器）">
         </span></div>
-      <div class="f-row"><span class="f-label">PLC 地址</span>
+      <div class="f-row"><span class="f-label" title="${esc(addressHelpFor(proto))}">PLC 地址</span>
         <div style="flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px">
           <div class="addr-input">
             ${prefixSelectHtml({ proto, id: 'vaPrefix' })}
@@ -98,9 +83,6 @@ export function openAddVarDialog({ name = '', onDone } = {}) {
                title="掉电保持：值存在跑后端那台机器上（后端重启 / 整机断电后还在）。只有**地址留空**的内部变量能勾 —— 有 PLC 地址的变量，保持是 PLC 的事。">
           <input type="checkbox" id="vaRetain" disabled><span style="font-size:12px;color:var(--text-2)">掉电保持（内部变量）</span>
         </label></div>
-      <div class="dlg-hint" style="margin-top:6px">
-        ${addrHint}
-      </div>
       <div id="vaMsg" style="color:var(--danger);font-size:12px;line-height:1.7;margin-top:6px"></div>`,
     onOk: async () => {
       const $ = (id) => document.getElementById(id);

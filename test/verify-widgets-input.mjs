@@ -22,7 +22,7 @@ const req = createRequire('C:/Users/Administrator/.workbuddy/binaries/node/works
 const { chromium } = req('playwright-core');
 const EXE = 'C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
 const PY = 'C:/Users/Administrator/AppData/Local/Programs/Python/Python310/python.exe';
-const ROOT = 'C:/Users/Administrator/Desktop/hmi/hmi-designer-v2';
+const ROOT = path.resolve(import.meta.dirname, '..');
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const results = [];
@@ -261,12 +261,12 @@ ok('注册顺序里 3 个控件连续，顺序 = 滑动条→拨动开关→多�
 const toolbox = await page.evaluate(() => {
   const items = [...document.querySelectorAll('#toolboxList .tb-item')];
   return {
-    names: items.map(e => e.querySelector('.sub')?.previousElementSibling?.textContent || ''),
+    names: items.map(e => e.querySelector('.tb-item-name')?.textContent || ''),
     svgs: items.map(e => !!e.querySelector('svg')),
   };
 });
 const idx = TITLES.map(t => toolbox.names.findIndex(n => n === t));
-ok('工具箱里 3 个条目都在（带副标题 + 图标）',
+ok('工具箱里 3 个条目都在（带名称和图标）',
   idx.every(i => i >= 0) && idx.every(i => toolbox.svgs[i]), JSON.stringify(idx));
 ok('工具箱里 3 个条目挨在一起、顺序 = 滑动条→拨动开关→多档位',
   idx.every((v, i) => i === 0 || v === idx[i - 1] + 1), idx.map((i, k) => TITLES[k] + '@' + i).join(' '));

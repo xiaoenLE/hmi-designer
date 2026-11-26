@@ -197,8 +197,8 @@ const panelLegacy = await page.evaluate(() => {
   const rows = [...document.querySelectorAll('#propBody .f-row')];
   const byLabel = (t) => rows.find(r => r.querySelector('.f-label')?.textContent.trim() === t);
   return {
-    off: byLabel('灭时文字')?.querySelector('input')?.value,
-    on: byLabel('亮时文字')?.querySelector('input')?.value,
+    off: byLabel('灭时文字')?.querySelector('textarea')?.value,
+    on: byLabel('亮时文字')?.querySelector('textarea')?.value,
     oldGone: !byLabel('标签文字'),
   };
 });
@@ -210,7 +210,7 @@ await page.waitForTimeout(150);
 const panelDual = await page.evaluate(() => {
   const rows = [...document.querySelectorAll('#propBody .f-row')];
   const byLabel = (t) => rows.find(r => r.querySelector('.f-label')?.textContent.trim() === t);
-  return { off: byLabel('灭时文字')?.querySelector('input')?.value, on: byLabel('亮时文字')?.querySelector('input')?.value };
+  return { off: byLabel('灭时文字')?.querySelector('textarea')?.value, on: byLabel('亮时文字')?.querySelector('textarea')?.value };
 });
 ok('面板：双状态控件各自回显', panelDual.off === '停止' && panelDual.on === '运行', JSON.stringify(panelDual));
 await page.click(`#canvas .wd[data-id="${ids.lampIn}"]`);

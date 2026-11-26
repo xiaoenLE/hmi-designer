@@ -337,6 +337,20 @@ def main():
            "非小米地址带 stream_options.include_usage（LM Studio/OpenAI 才回 usage）",
            call.get("stream_options"))
 
+
+        cfg_post(c, {"base_url": FAKE_URL, "model": "qwen3-vl", "thinking": "disabled"})
+        parts = [
+            {"type": "text", "text": "看一下截图"},
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,dGVzdA=="}},
+        ]
+        c.send_json({"t": "ai", "op": "chat", "id": "vision",
+                     "body": {"messages": [{"role": "user", "content": parts}]}})
+        recv_until(c, lambda j: j.get("t") == "ai_done" and j.get("id") == "vision", timeout=20)
+        content = Fake.calls[-1]["body"]["messages"][-1]["content"]
+        ok(content == parts + [{"type": "text", "text": "/no_think"}],
+           "本机模型保留图文内容块，单独追加 /no_think")
+        cfg_post(c, {"base_url": FAKE_URL, "model": "mimo-v2.6-flash"})
+
         section("6. WS chat：工具调用（ai_tool 分片累积）")
         Fake.mode = "tools"
         Fake.calls.clear()

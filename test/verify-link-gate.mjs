@@ -17,7 +17,7 @@ import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { installPageShim, installNodeFetchPatch } from './_wsfetch.mjs';
+import { installPageShim, installNodeFetchPatch, wsConnect } from './_wsfetch.mjs';
 const req = createRequire('C:/Users/Administrator/.workbuddy/binaries/node/workspace/');
 const { chromium } = req('playwright-core');
 
@@ -232,9 +232,10 @@ const st = () => page.evaluate(async () => {
   await sleep(400);
   const s2 = await st();
   const w2 = await newWrites();
-  ok('★ 读到数据之后：允许操作，请求发得出去、值也是新的',
-    w2.includes('plcVar') && s2.plcVar === 13,
-    JSON.stringify({ writes: w2, val: s2.plcVar }));
+  // 这里仅模拟了前端读到数据。真正的后端仍连不上，必须挡住这笔写。
+  ok('★ 前端模拟首读后能发请求，未采到设备数据的真实后端仍拒绝',
+    w2.includes('plcVar') && /尚未读到本次连接/.test(s2.lastErr?.message || ''),
+    JSON.stringify({ writes: w2, error: s2.lastErr?.message }));
 
   // 链路状态再变（例如断开又连上）→ 重新等一次读
   const again = await page.evaluate(async () => {
@@ -368,6 +369,51 @@ const st = () => page.evaluate(async () => {
     JSON.stringify({ mw100: onDevice?.holding?.['100'], mw101: onDevice?.holding?.['101'] }));
 
   await page.evaluate(async () => (await import('/js/runtime/runtime.js')).exitRun());
+  // 暂停首轮采集，用只读的字序体检建立后端的 TCP 连接。体检读数不能代替实际变量采集。
+  const poll = wsConnect(PORT);
+  try {
+    await poll.ready;
+    await poll.ask({ t: 'poll', on: true });
+    const slave = on => fetch(`http://127.0.0.1:${SIM_WEB}/api/slave`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on }),
+    }).then(r => r.json());
+    const plcStatus = async () => (await api('/api/plc')).body.status;
+    await slave(false);
+    for (let i = 0; i < 40 && (await plcStatus()).online; i++) await sleep(100);
+    const paused = await poll.ask({ t: 'poll', on: false, always: false });
+    await simWrite(100, 0);
+    await simWrite(101, 0x41b4); // 断线期间设备改为 22.5
+    const restored = await slave(true);
+    const diagnostic = await api('/api/plc', { action: 'orders', address: '%MD100', vtype: 'real' });
+    const before = await plcStatus();
+    const recipe = await api('/api/recipes', { action: 'save', name: '重连保护自检', vars: { plcVar: 44.5 } });
+    const applyRecipe = () => api('/api/recipes', { action: 'apply', name: '重连保护自检', revision: recipe.body.revision });
+    const direct = await api('/api/vars', { name: 'plcVar', value: 66.5, from: 'script' });
+    const blocked = await applyRecipe();
+    const held = await fetch(`http://127.0.0.1:${SIM_WEB}/api/state`).then(r => r.json());
+    ok('后端：TCP 恢复后还没采集时，拒绝脚本写入和配方应用',
+      paused.paused && restored.ok && diagnostic.body.ok && !before.online
+      && direct.body.ok === false && blocked.body.failed?.length === 1
+      && (await plcStatus()).writes === before.writes && held.holding['101'] === 0x41b4,
+      JSON.stringify({ paused: paused.paused, online: before.online, direct: direct.body.error, blocked: blocked.body.error }));
+
+    await poll.ask({ t: 'poll', on: true });
+    let reread;
+    for (let i = 0; i < 40; i++) {
+      reread = (await api('/api/vars')).body.vars.plcVar;
+      if (reread === 22.5 && (await plcStatus()).online) break;
+      await sleep(100);
+    }
+    ok('后端：先采到断线期间设备改过的值，恢复时没有补发旧请求',
+      reread === 22.5 && (await plcStatus()).online && (await plcStatus()).writes === before.writes, String(reread));
+    const repeated = await applyRecipe();
+    const final = await fetch(`http://127.0.0.1:${SIM_WEB}/api/state`).then(r => r.json());
+    ok('后端：首读成功后重新应用才写到设备',
+      repeated.body.applied?.includes('plcVar') && final.holding['100'] === 0 && final.holding['101'] === 0x4232,
+      JSON.stringify(repeated.body));
+  } finally {
+    poll.close();
+  }
   // ⚠ 收尾必须**把后端从这台模拟 PLC 上摘下来**再杀掉它：
   //   一套件共用一个后端（见 tools/run-suites.mjs），留着这条连接的话，
   //   下一个套件开局看到的数据源是"接了 PLC 但连不上"，

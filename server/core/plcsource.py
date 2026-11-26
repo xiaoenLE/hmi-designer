@@ -11,7 +11,7 @@
 from .broadcast import broadcast
 from .paths import PLCFG_FILE
 from .retain import _retain
-from .sourcebase import DataSource
+from .sourcebase import DataSource, FreshReads
 
 from .opcualib import opcua
 import json
@@ -62,10 +62,14 @@ class PlcSource(DataSource):
         # 4 种字序：abcd / cdab / badc / dcba（low/high 作兼容别名）
         self.word_order = modbus.normalize_order(word_order)
         self._lock = threading.RLock()
+        self._fresh_reads = FreshReads(self._lock)
         self._vars = {}                 # name -> {"type","address","value","parsed"}
         self._active = None             # 本页要采集的变量名集合（None = 全部）
         self._blocks = 0                # 上一次规划的读取块数（状态栏/体检用）
         self._cli = modbus.ModbusTcpClient(host, self.port, self.unit, timeout)
+        self._io_lock = threading.Lock()
+        self._session = None
+        self._read_session = None
         self._stop = threading.Event()
         self._thread = None
         self._on_change = on_change
@@ -216,6 +220,10 @@ class PlcSource(DataSource):
             v = self._vars.get(name)
             return None if v is None else v.get("value")
 
+    def read_fresh(self, names):
+        with self._lock:
+            return self._fresh_reads.collect(self._vars, names, "parsed")
+
     def reset(self, clear=False):
         """**只重置内部变量**（地址留空的那些）—— 接真 PLC 时按这个口径：
 
@@ -275,19 +283,21 @@ class PlcSource(DataSource):
             return True
         if not v.get("parsed"):
             raise ValueError(f"变量 {base_name} 的地址 {v.get('address')!r} 无效：{v.get('addr_error') or '未填写'}")
-        if not self._cli.connected:
-            self._connect()
-        before = self._cli.fc16_fallbacks
+        session = self._session
+        self._require_read(session)
         vtype = v.get("type", "uint")
+        address = v["parsed"]
+        length = v.get("len") or None
         if elem_idx is not None and str(vtype).lower().endswith("[]"):
-            elem = str(vtype)[:-2].lower()
-            ew = modbus.elem_words(elem)
-            a = v["parsed"]
-            sub = modbus.Address(a.area, a.offset + elem_idx * ew, ew, kind=a.kind)
-            self._cli.write_var(sub, value, elem, self.word_order)
-        else:
-            self._cli.write_var(v["parsed"], value, vtype, self.word_order,
-                                length=v.get("len") or None)
+            vtype = str(vtype)[:-2].lower()
+            ew = modbus.elem_words(vtype)
+            address = modbus.Address(address.area, address.offset + elem_idx * ew, ew, kind=address.kind)
+            length = None
+        with self._io_lock:
+            # 写请求不能等到下一条 TCP 连接重放，多帧写入也要始终使用同一条连接。
+            self._require_read(session)
+            before = self._cli.fc16_fallbacks
+            self._cli.write_var(address, value, vtype, self.word_order, length=length)
         self.writes += 1
         if self._cli.fc16_fallbacks > before:
             self.last_error = ""            # 退回落是正常兜底，不算错，但要留个痕
@@ -310,13 +320,37 @@ class PlcSource(DataSource):
         seen.add(base_name)
 
     # ── 轮询 ──
+    def _require_read(self, session):
+        if (session is None or session is not self._session or session is not self._read_session or self._stop.is_set()
+                or not self._cli.connected or not self.online):
+            raise ValueError("PLC 尚未读到本次连接的设备数据，未下发，请读取成功后重新操作")
+
     def _connect(self):
-        if self._cli.connected:
-            return
-        self._cli.connect()
-        self.online = True
-        self.last_error = ""
-        print(f"[plc] 已连接 {self.host}:{self.port} 站号 {self.unit}")
+        with self._io_lock:
+            if self._stop.is_set():
+                raise modbus.ModbusError("PLC 数据源已停止")
+            if not self._cli.connected:
+                self.online = False
+                self._cli.connect()
+                self._session = object()
+                self.last_error = ""
+                print(f"[plc] 已连接 {self.host}:{self.port} 站号 {self.unit}，等待读取设备数据")
+            return self._session
+
+    def _read_complete(self, session, *, device_values):
+        with self._io_lock:
+            if session is self._session and self._cli.connected and not self._stop.is_set():
+                self.last_ok = time.time()
+                self.online = True
+                if device_values:
+                    self._read_session = session
+
+    def _disconnect(self):
+        with self._io_lock:
+            self.online = False
+            self._session = None
+            self._read_session = None
+            self._cli.close()
 
     def start(self):
         if self._thread and self._thread.is_alive():
@@ -327,9 +361,9 @@ class PlcSource(DataSource):
 
     def stop(self):
         self._stop.set()
-        self._cli.close()
+        self._disconnect()
 
-    def _plan(self):
+    def _plan(self, *, first_read=False):
         """把「本页要采的」地址按区域合并成连续区间：[(area, start, count, [(name, parsed, vtype, vlen)])]
 
         连续地址合并成一次读（FC03 一次读多个寄存器）—— %MW100/102/104 三个变量
@@ -340,7 +374,13 @@ class PlcSource(DataSource):
         written = getattr(self, "_written", None) or set()
         with self._lock:
             items = [(n, v["parsed"]) for n, v in self._vars.items()
-                     if v.get("parsed") and (active is None or n in active or n in written)]
+                     if v.get("parsed") and (active is None or n in active or n in written
+                                             or n in self._fresh_reads.pending)]
+            if first_read and not items:
+                # 只显示配方等控件的页面可能没有常驻采集点，重连后仍先读一个声明的设备变量。
+                first = next(((n, v["parsed"]) for n, v in self._vars.items() if v.get("parsed")), None)
+                if first is not None:
+                    items.append(first)
         plan = []
         for area in (modbus.HOLDING, modbus.INPUT_REG):
             regs = sorted([(p.offset, n, p, (self._vars.get(n) or {}).get("type", "uint"),
@@ -423,17 +463,15 @@ class PlcSource(DataSource):
                 if not poll_gate.wanted():
                     self._stop.wait(0.2)
                     continue
-                if not self._cli.connected:
-                    self._connect()
-                plan = self._plan()
+                session = self._connect()
+                plan = self._plan(first_read=session is not self._read_session)
                 self._blocks = len(plan)
                 if not plan:
                     # 本页没用变量（采集范围空）→ 什么都不读也"成功"，PLC 断了发现不了。
                     # 保活：探一个寄存器/线圈，读不动就按掉线处理（界面上要能提示）
                     self._cli.read_registers(0, 1, modbus.FC_READ_HOLDING)
                     self.reads += 1
-                    self.last_ok = time.time()
-                    self.online = True
+                    self._read_complete(session, device_values=False)
                     self._pace(t_round)
                     continue
                 for area, start, count, members in plan:
@@ -450,9 +488,10 @@ class PlcSource(DataSource):
                     self.reads += 1
                     changed = []
                     with self._lock:
+                        sampling = bool(self._fresh_reads.pending)
                         for name, p, vtype, vlen in members:
                             v = self._vars.get(name)
-                            if not v:
+                            if not v or v.get("parsed") is not p:
                                 continue
                             # %MX 内存位：与 %MW 同一片内存，从那个字里取第 p.bit 位
                             #   ⚠ 这里必须先于下面的「整字解码」—— 否则会落到 decode_value 的
@@ -485,13 +524,14 @@ class PlcSource(DataSource):
                             else:                                   # 线圈/离散输入（单个 bool）
                                 idx = p.offset - start
                                 val = bits[idx] if 0 <= idx < len(bits) else False
+                            if sampling:
+                                self._fresh_reads.sampled(name, val)
                             if v.get("value") != val and not (isinstance(val, float) and isinstance(v.get("value"), float)
                                                               and abs(val - v["value"]) < 1e-9):
                                 v["value"] = val
                                 changed.append((name, val))
                     _emit_changed(changed, self._on_changes, self._on_change)
-                self.last_ok = time.time()
-                self.online = True            # 这一轮读成功 = 通讯正常
+                self._read_complete(session, device_values=True)
                 # 低频心跳（60 秒一条）：让日志里能看出轮询一直在跑，而不是"读了一次就不读了"
                 if self.last_ok - getattr(self, "_beat_at", 0.0) >= 60:
                     self._beat_at = self.last_ok
@@ -502,15 +542,13 @@ class PlcSource(DataSource):
             except modbus.ModbusError as e:
                 self.errors += 1
                 self.last_error = str(e)
-                self.online = False
-                self._cli.close()
+                self._disconnect()
                 # 断线重连退避：至少 200ms（poll_ms 可以填到 1ms，别把重连也打成忙等）
                 time.sleep(min(2.0, max(0.2, self.poll_ms / 1000 * 5)))
             except Exception as e:                                  # noqa: BLE001
                 self.errors += 1
                 self.last_error = str(e)
-                self.online = False
-                self._cli.close()
+                self._disconnect()
                 time.sleep(1.0)
             self._pace(t_round)
 
@@ -546,7 +584,7 @@ class PlcSource(DataSource):
             # 地址模型：同一份变量表按哪种 PLC 的地址规则解析（invt-modbus-slave / ts600-modbus-tcp）
             "addr_profile": modbus.get_profile(),
             "addr_profile_cn": modbus.profile_cn(),
-            "online": bool(self.online and self._cli.connected),
+            "online": bool(self.online and self._cli.connected and not self._stop.is_set()),
             "last_error": self.last_error,
             "last_ok": self.last_ok,
             "reads": self.reads, "writes": self.writes, "errors": self.errors,

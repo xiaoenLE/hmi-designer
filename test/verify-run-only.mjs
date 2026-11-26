@@ -166,7 +166,7 @@ ok('运行页没有编辑器界面（工具条/工作区都不显示）',
   runPage.toolbar === 'hidden' && runPage.workspace === 'hidden', JSON.stringify([runPage.toolbar, runPage.workspace]));
 ok('运行页直接进运行态并画出服务器上的工程',
   runPage.runtime === 'shown' && runPage.widgets > 0, JSON.stringify({ runtime: runPage.runtime, widgets: runPage.widgets }));
-ok('运行页不建右键菜单（客户摸不到编辑器入口）', runPage.ctxMenu === false);
+ok('运行页默认不弹右键菜单', runPage.ctxMenu === false);
 
 // 客户机想摸编辑器：/edit 老地址跳回 /，而没登录的 / 是运行页
 await gPage.goto(H + '/edit', { waitUntil: 'domcontentloaded' });
@@ -267,15 +267,32 @@ await sleep(350);
 const zoomAfter = await gPage.evaluate(async () => (await import('/js/runtime/runtime.js')).getZoomMode());
 ok('Ctrl+Shift+F 切视图在客户页面上照常能用（不用密码）', zoomAfter !== zoomBefore, `${zoomBefore} → ${zoomAfter}`);
 
-// Ctrl+Shift+E：没登录 → 跳 /login（服务端按登录状态决定 / 给哪个页面）
+// 输入框获得焦点时，Ctrl+Shift+E 仍是编辑器快捷键。
+await gPage.evaluate(() => {
+  const input = document.createElement('input');
+  document.getElementById('rtPage').append(input);
+  input.focus();
+});
 await gPage.keyboard.press('Control+Shift+E');
 await sleep(900);
 const afterE = await gPage.evaluate(() => ({
   path: location.pathname, hasPw: !!document.querySelector('input[type=password]'),
 }));
-ok('Ctrl+Shift+E 没登录时落到 /login（进去要密码）',
+ok('输入框有焦点时 Ctrl+Shift+E 仍能进入管理员登录页',
   afterE.path === '/login' && afterE.hasPw === true, JSON.stringify(afterE));
-await openRun(gPage);            // 回到运行页继续后面的检查
+await openRun(gPage);
+await gPage.keyboard.press('F8');
+await gPage.waitForURL(u => u.pathname === '/login');
+ok('运行页的备用键 F8 可进入管理员登录页', await gPage.locator('#pw').isVisible());
+await openRun(gPage);
+await gPage.locator('#rtPage').dispatchEvent('contextmenu', { bubbles: true, clientX: 160, clientY: 160 });
+await gPage.getByRole('menuitem', { name: /进入编辑器/ }).click();
+await gPage.waitForURL(u => u.pathname === '/login');
+ok('运行页右键菜单可进入管理员登录页', await gPage.locator('#pw').isVisible());
+await gPage.goto(H + '/?edit=1', { waitUntil: 'domcontentloaded' });
+await gPage.waitForURL(u => u.pathname === '/login');
+ok('进入编辑器时会话无效，重新打开登录页', await gPage.locator('#pw').isVisible());
+await openRun(gPage);
 await sleep(300);
 
 /* ══════ 4. 接口闸门：改配置要登录，写变量值不拦 ══════ */
@@ -358,15 +375,27 @@ const afterLogin = await gPage.evaluate(async () => (await (await fetch('/api/se
 ok('登录之后这台浏览器就是登录态（12 小时不用再输）', afterLogin.logged_in === true,
   JSON.stringify(afterLogin));
 
-// 登录过之后再按 Ctrl+Shift+E：这回同一个 / 给的就是编辑器
+// 模拟 PLC 请求占用主连接：切换不应等待这条连接上的会话请求。
+await gPage.evaluate(() => { window.app.backend.session = () => new Promise(() => {}); });
 await gPage.keyboard.press('Control+Shift+E');
 await sleep(1400);
 const intoEditor = await gPage.evaluate(() => ({
   path: location.pathname,
   editor: !document.body.classList.contains('run-only') && !!document.getElementById('workspace')?.offsetParent,
 }));
-ok('已经登录过之后，Ctrl+Shift+E 直接进组态编辑器（不用再输密码）',
+ok('管理员按 Ctrl+Shift+E 可立即切换，无需等待旧页面的会话请求',
   intoEditor.path === '/' && intoEditor.editor === true, JSON.stringify(intoEditor));
+await gPage.evaluate(() => window.app.enterRun());
+await gPage.evaluate(() => {
+  const input = document.createElement('input');
+  document.getElementById('rtPage').append(input);
+  input.focus();
+  input.dispatchEvent(new KeyboardEvent('keydown', {
+    code: 'KeyE', key: 'Process', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true,
+  }));
+});
+ok('编辑器预览在输入法持有焦点时识别 Ctrl+Shift+E 并返回编辑',
+  await gPage.locator('#runtimeRoot').isHidden());
 
 /* ══════ 4c. 重启后端也不用重新登录（会话落盘 sessions.json）══════ */
 srv.kill();
@@ -405,8 +434,8 @@ await aPage.click('#btnProjMenu');
 await sleep(350);
 const projItems = await aPage.evaluate(() => [...document.querySelectorAll('#ctxMenu .ctx-item')]
   .map(b => b.querySelector('.ctx-label').textContent));
-ok('编辑器「工程 ▾」里有「去运行画面」和「退出登录」（登录闸门开着时才出现）',
-  projItems.some(x => x.includes('去运行画面')) && projItems.some(x => x.includes('退出登录')),
+ok('编辑器「工程 ▾」里有「打开运行画面」和「退出登录」（登录闸门开着时才出现）',
+  projItems.some(x => x.includes('打开运行画面')) && projItems.some(x => x.includes('退出登录')),
   JSON.stringify(projItems.slice(-4)));
 await aPage.evaluate(() => {
   const b = [...document.querySelectorAll('#ctxMenu .ctx-item')]

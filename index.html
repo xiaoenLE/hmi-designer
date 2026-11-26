@@ -15,47 +15,97 @@
 <body>
 
 <!-- ══════════ 顶部工具栏 ══════════ -->
+<svg class="ui-symbols" width="0" height="0" aria-hidden="true">
+  <symbol id="ui-screen" viewBox="0 0 20 20"><rect x="2" y="3" width="16" height="11" rx="2"/><path d="M7 17h6M10 14v3M5 7h5m-5 3h8"/></symbol>
+  <symbol id="ui-play" viewBox="0 0 20 20"><path d="M7 4.5 15.5 10 7 15.5z" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="ui-undo" viewBox="0 0 20 20"><path d="M7 5 3 9l4 4M3 9h9a4 4 0 0 1 4 4v2"/></symbol>
+  <symbol id="ui-redo" viewBox="0 0 20 20"><path d="m13 5 4 4-4 4m4-4H8a4 4 0 0 0-4 4v2"/></symbol>
+  <symbol id="ui-front" viewBox="0 0 20 20"><path d="M3 4h14m-7 12V7m-4 4 4-4 4 4"/></symbol>
+  <symbol id="ui-layer-up" viewBox="0 0 20 20"><path d="M10 16V4m-4 4 4-4 4 4"/></symbol>
+  <symbol id="ui-layer-down" viewBox="0 0 20 20"><path d="M10 4v12m-4-4 4 4 4-4"/></symbol>
+  <symbol id="ui-back" viewBox="0 0 20 20"><path d="M3 16h14M10 4v9m-4-4 4 4 4-4"/></symbol>
+  <symbol id="ui-lock" viewBox="0 0 20 20"><rect x="4.5" y="9" width="11" height="8" rx="2"/><path d="M7 9V6a3 3 0 1 1 6 0v3m-3 3v2"/></symbol>
+  <symbol id="ui-unlock" viewBox="0 0 20 20"><rect x="4.5" y="9" width="11" height="8" rx="2"/><path d="M7 9V6a3 3 0 0 1 5.5-1.7M10 12v2"/></symbol>
+  <symbol id="ui-grid" viewBox="0 0 20 20"><rect x="4" y="4" width="12" height="12" rx="1.5"/><path d="M4 10h12m-6-6v12"/></symbol>
+  <symbol id="ui-plug" viewBox="0 0 20 20"><path d="M7 2.5v4m6-4v4M5.5 7h9v3a4.5 4.5 0 0 1-9 0zm4.5 7.5V18"/></symbol>
+  <symbol id="ui-chevron" viewBox="0 0 20 20"><path d="m5.5 8 4.5 4.5L14.5 8"/></symbol>
+  <symbol id="ui-left" viewBox="0 0 20 20"><path d="M4 3v14"/><rect x="7" y="5" width="7" height="3" rx=".5"/><rect x="7" y="12" width="10" height="3" rx=".5"/></symbol>
+  <symbol id="ui-hcenter" viewBox="0 0 20 20"><path d="M10 2.5v2.5m0 3v4m0 3v2.5"/><rect x="6.5" y="5" width="7" height="3" rx=".5"/><rect x="4.5" y="12" width="11" height="3" rx=".5"/></symbol>
+  <symbol id="ui-right" viewBox="0 0 20 20"><path d="M16 3v14"/><rect x="6" y="5" width="7" height="3" rx=".5"/><rect x="3" y="12" width="10" height="3" rx=".5"/></symbol>
+  <symbol id="ui-top" viewBox="0 0 20 20"><path d="M3 4h14"/><rect x="5" y="7" width="3" height="7" rx=".5"/><rect x="12" y="7" width="3" height="10" rx=".5"/></symbol>
+  <symbol id="ui-vcenter" viewBox="0 0 20 20"><path d="M2.5 10H5m3 0h4m3 0h2.5"/><rect x="5" y="6.5" width="3" height="7" rx=".5"/><rect x="12" y="4.5" width="3" height="11" rx=".5"/></symbol>
+  <symbol id="ui-bottom" viewBox="0 0 20 20"><path d="M3 16h14"/><rect x="5" y="6" width="3" height="7" rx=".5"/><rect x="12" y="3" width="3" height="10" rx=".5"/></symbol>
+  <symbol id="ui-hdist" viewBox="0 0 20 20"><path d="M3 3v14M17 3v14m-10-2h6"/><rect x="8.5" y="5" width="3" height="6" rx=".5"/></symbol>
+  <symbol id="ui-vdist" viewBox="0 0 20 20"><path d="M3 3h14M3 17h14M15 7v6"/><rect x="5" y="8.5" width="6" height="3" rx=".5"/></symbol>
+  <symbol id="ui-width" viewBox="0 0 20 20"><rect x="4" y="9" width="12" height="6.5" rx="1"/><path d="M4 5h12m-12-1v2m12-2v2"/></symbol>
+  <symbol id="ui-height" viewBox="0 0 20 20"><rect x="9" y="4" width="6.5" height="12" rx="1"/><path d="M5 4v12m-1-12h2m-2 12h2"/></symbol>
+  <symbol id="ui-both" viewBox="0 0 20 20"><rect x="5.5" y="5.5" width="9" height="9" rx="1"/><path d="M2.5 6V2.5H6m8 0h3.5V6m0 8v3.5H14m-8 0H2.5V14"/></symbol>
+  <symbol id="ui-group" viewBox="0 0 20 20"><rect x="2.5" y="2.5" width="15" height="15" rx="2"/><rect x="5.5" y="5.5" width="4" height="4" rx=".5"/><rect x="11" y="11" width="3.5" height="3.5" rx=".5"/></symbol>
+  <symbol id="ui-ungroup" viewBox="0 0 20 20"><rect x="3" y="3" width="5" height="5" rx=".7"/><rect x="12" y="12" width="5" height="5" rx=".7"/><path d="M12 3h5v5m-14 4v5h5" stroke-dasharray="1.6 2"/></symbol>
+  <symbol id="ui-page" viewBox="0 0 20 20"><path d="M5 3h7l3 3v11H5zm7 0v4h3M8 11h4m-4 3h4"/></symbol>
+  <symbol id="ui-add" viewBox="0 0 20 20"><path d="M5 3h7l3 3v11H5zm7 0v4h3m-5 2v5m-2.5-2.5h5"/></symbol>
+  <symbol id="ui-folder" viewBox="0 0 20 20"><path d="M3 15V5h5l2 2h7v8z"/><path d="M3.5 15 6 9h11l-2 6"/></symbol>
+  <symbol id="ui-save" viewBox="0 0 20 20"><path d="M4 3.5h10l2 2v11H4zM7 3.5v4h5v-4M7 16.5v-5h6v5"/></symbol>
+  <symbol id="ui-server" viewBox="0 0 20 20"><rect x="3.5" y="4" width="13" height="5" rx="1"/><rect x="3.5" y="11" width="13" height="5" rx="1"/><path d="M6 6.5h.1M6 13.5h.1M10 6.5h4M10 13.5h4"/></symbol>
+  <symbol id="ui-settings" viewBox="0 0 20 20"><path d="M4 5h12M4 10h12M4 15h12M8 3v4m4 1v4m-5 1v4"/></symbol>
+  <symbol id="ui-history" viewBox="0 0 20 20"><path d="M3.5 8a6.7 6.7 0 1 1 .8 6m-1-9v4h4m3-3v4l2 1.5"/></symbol>
+  <symbol id="ui-network" viewBox="0 0 20 20"><rect x="7.5" y="3" width="5" height="4" rx=".65"/><rect x="3" y="13" width="5" height="4" rx=".65"/><rect x="12" y="13" width="5" height="4" rx=".65"/><path d="M10 7v3m-4.5 3v-3h9v3"/></symbol>
+  <symbol id="ui-ai" viewBox="0 0 20 20"><path d="M9 3.5 10.7 8l4.5 1.7-4.5 1.7L9 16l-1.7-4.6-4.5-1.7L7.3 8zM15.5 2.5v4m-2-2h4m-2 8v4m-2-2h4"/></symbol>
+  <symbol id="ui-logout" viewBox="0 0 20 20"><path d="M10 4H4v12h6m-2-6h9m-3-3 3 3-3 3"/></symbol>
+  <symbol id="ui-refresh" viewBox="0 0 20 20"><path d="M16 7a6.4 6.4 0 1 0 .4 5M16 3.5V8h-4"/></symbol>
+  <symbol id="ui-copy" viewBox="0 0 20 20"><rect x="6.5" y="6.5" width="10" height="10" rx="1.2"/><path d="M13 3.5H3.5V13"/></symbol>
+</svg>
 <header id="toolbar">
-  <div class="tb-logo">
-    <svg viewBox="0 0 24 24" width="22" height="22"><rect x="2" y="4" width="20" height="14" rx="2" fill="none" stroke="#2563eb" stroke-width="2"/><path d="M7 18v3M17 18v3M6 9h6M6 13h9" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/></svg>
-    <span>WebHMI_设计器</span>
-  </div>
-  <div class="tb-group">
-    <button id="btnRun" class="tb-btn primary" title="进入运行预览 (F5)">▶ 运行</button>
-    <button id="btnUndo" class="tb-btn" title="撤销 (Ctrl+Z)">↶ 撤销</button>
-    <button id="btnRedo" class="tb-btn" title="重做 (Ctrl+Y)">↷ 重做</button>
-  </div>
-  <div class="tb-group" id="alignGroup" style="display:none">
-    <span class="tb-label">对齐</span>
-    <button class="tb-btn sm" data-align="left" title="左对齐">⇤</button>
-    <button class="tb-btn sm" data-align="hcenter" title="水平居中">↔</button>
-    <button class="tb-btn sm" data-align="right" title="右对齐">⇥</button>
-    <button class="tb-btn sm" data-align="top" title="顶对齐">⇧</button>
-    <button class="tb-btn sm" data-align="vcenter" title="垂直居中">↕</button>
-    <button class="tb-btn sm" data-align="bottom" title="底对齐">⇩</button>
-    <button class="tb-btn sm" data-align="hdist" title="水平等间距分布">水平</button>
-    <button class="tb-btn sm" data-align="vdist" title="垂直等间距分布">垂直</button>
-    <span class="tb-label" style="margin-left:6px">尺寸</span>
-    <button class="tb-btn sm" data-size="width" title="等宽（以高亮控件为基准）">等宽</button>
-    <button class="tb-btn sm" data-size="height" title="等高（以高亮控件为基准）">等高</button>
-    <button class="tb-btn sm" data-size="both" title="等大小（以高亮控件为基准）">等大</button>
-    <span class="tb-label" style="margin-left:6px">组合</span>
-    <button id="btnGroup" class="tb-btn sm" title="组合选中控件（Ctrl+G）：之后点一个就选中整组，一起移动/缩放/删除">⧉ 组合</button>
-    <button id="btnUngroup" class="tb-btn sm" title="取消组合（Ctrl+Shift+G）">⧈ 取消组合</button>
-  </div>
-  <div class="tb-group">
-    <button id="btnZTop" class="tb-btn sm" title="置于顶层">⤒ 顶层</button>
-    <button id="btnZBottom" class="tb-btn sm" title="置于底层">⤓ 底层</button>
-    <button id="btnLock" class="tb-btn sm" title="锁定/解锁选中控件（锁定后无法移动缩放）">🔒 锁定</button>
-    <button id="btnGrid" class="tb-btn sm active" title="网格吸附开关"># 网格</button>
-  </div>
-  <div class="tb-spacer"></div>
-  <div class="tb-group">
-    <button id="btnAi" class="tb-btn" title="AI 助手：对话式改工程（建页面 / 画控件 / 写脚本 / 翻译，可 Ctrl+Z 撤销）">🤖 AI</button>
-    <button id="btnPlc" class="tb-btn" title="连接设备：Modbus TCP（寄存器地址）或 OPC UA（NodeId 寻址）">🔌 PLC</button>
-    <span class="tb-label">工程</span>
-    <input id="projName" class="tb-name" spellcheck="false" title="工程名（保存/打开时的文件名，也是浏览器里那份自动保存的名字）">
-    <button id="btnProjMenu" class="tb-btn" title="工程操作：新建 / 打开 / 保存（Ctrl+S）/ 另存为 / 存到服务器 / 从服务器读">▾</button>
+  <div class="toolbar-main">
+    <div class="tb-logo"><svg class="ui-icon" aria-hidden="true"><use href="#ui-screen"/></svg><span>WebHMI_设计器</span></div>
+    <button id="btnRun" class="tb-btn primary" aria-label="运行" title="进入运行预览（F5）"><svg class="ui-icon" aria-hidden="true"><use href="#ui-play"/></svg><span class="tb-caption">运行</span></button>
+    <div class="tb-cluster" role="group" aria-label="编辑历史">
+      <button id="btnUndo" class="tb-btn tb-icon-btn" aria-label="撤销" title="撤销（Ctrl+Z）" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-undo"/></svg></button>
+      <button id="btnRedo" class="tb-btn tb-icon-btn" aria-label="重做" title="重做（Ctrl+Y）" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-redo"/></svg></button>
+    </div>
+    <div class="tb-cluster" role="group" aria-label="控件层级和锁定">
+      <button id="btnZTop" class="tb-btn tb-icon-btn" aria-label="置于顶层" title="置于顶层" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-front"/></svg></button>
+      <button id="btnZUp" class="tb-btn tb-icon-btn" aria-label="上移一层" title="上移一层" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-layer-up"/></svg></button>
+      <button id="btnZDown" class="tb-btn tb-icon-btn" aria-label="下移一层" title="下移一层" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-layer-down"/></svg></button>
+      <button id="btnZBottom" class="tb-btn tb-icon-btn" aria-label="置于底层" title="置于底层" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-back"/></svg></button>
+      <button id="btnLock" class="tb-btn tb-icon-btn" aria-label="锁定" aria-pressed="false" title="锁定选中控件" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-lock"/></svg></button>
+    </div>
+    <div class="tb-group">
+      <div class="tb-cluster" role="group" aria-label="画布辅助">
+        <button id="btnGrid" class="tb-btn tb-icon-btn active" aria-label="网格吸附" aria-pressed="true" title="网格吸附开关"><svg class="ui-icon" aria-hidden="true"><use href="#ui-grid"/></svg></button>
+      </div>
+      <div class="tb-cluster" role="group" aria-label="编组">
+        <button id="btnGroup" class="tb-btn tb-icon-btn" aria-label="组合" title="组合（Ctrl+G）" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-group"/></svg></button>
+        <button id="btnUngroup" class="tb-btn tb-icon-btn" aria-label="取消组合" title="取消组合（Ctrl+Shift+G）" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-ungroup"/></svg></button>
+      </div>
+    </div>
+    <div id="alignGroup" role="group" aria-label="多选控件操作">
+      <div class="tb-cluster" role="group" aria-label="对齐">
+        <button class="tb-btn tb-icon-btn" data-align="left" aria-label="左对齐" title="左对齐" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-left"/></svg></button>
+        <button class="tb-btn tb-icon-btn" data-align="hcenter" aria-label="水平居中" title="水平居中" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-hcenter"/></svg></button>
+        <button class="tb-btn tb-icon-btn" data-align="right" aria-label="右对齐" title="右对齐" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-right"/></svg></button>
+        <button class="tb-btn tb-icon-btn" data-align="top" aria-label="顶对齐" title="顶对齐" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-top"/></svg></button>
+        <button class="tb-btn tb-icon-btn" data-align="vcenter" aria-label="垂直居中" title="垂直居中" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-vcenter"/></svg></button>
+        <button class="tb-btn tb-icon-btn" data-align="bottom" aria-label="底对齐" title="底对齐" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-bottom"/></svg></button>
+      </div>
+      <div class="tb-cluster" role="group" aria-label="等间距分布">
+        <button class="tb-btn tb-icon-btn" data-align="hdist" aria-label="水平等间距分布" title="水平等间距分布" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-hdist"/></svg></button>
+        <button class="tb-btn tb-icon-btn" data-align="vdist" aria-label="垂直等间距分布" title="垂直等间距分布" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-vdist"/></svg></button>
+      </div>
+      <div class="tb-cluster" role="group" aria-label="尺寸">
+        <button class="tb-btn tb-icon-btn" data-size="width" aria-label="等宽" title="等宽（以高亮控件为基准）" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-width"/></svg></button>
+        <button class="tb-btn tb-icon-btn" data-size="height" aria-label="等高" title="等高（以高亮控件为基准）" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-height"/></svg></button>
+        <button class="tb-btn tb-icon-btn" data-size="both" aria-label="等大小" title="等大小（以高亮控件为基准）" disabled><svg class="ui-icon" aria-hidden="true"><use href="#ui-both"/></svg></button>
+      </div>
+    </div>
+    <div class="tb-group tb-project">
+      <button id="btnPlc" class="tb-btn" aria-label="PLC 连接" title="连接设备：Modbus TCP 或 OPC UA"><svg class="ui-icon" aria-hidden="true"><use href="#ui-plug"/></svg><span class="tb-caption">PLC</span></button>
+      <div class="tb-project-field">
+        <label class="tb-label" for="projName">工程</label>
+        <input id="projName" class="tb-name" spellcheck="false" title="工程名">
+        <button id="btnProjMenu" class="tb-btn tb-menu-trigger" aria-label="工程菜单" aria-haspopup="menu" aria-expanded="false" aria-controls="ctxMenu" title="工程菜单"><svg class="ui-icon" aria-hidden="true"><use href="#ui-chevron"/></svg></button>
+      </div>
+    </div>
   </div>
   <input type="file" id="fileImport" accept=".LE,.le,.json" style="display:none">
 </header>
@@ -78,6 +128,7 @@
           <div id="alarmTable"></div>
           <div class="pane-actions">
             <button class="tb-btn" id="btnAddAlarm">＋ 添加报警</button>
+            <button class="tb-btn" id="btnAlarmLevels">级别管理</button>
             <button class="tb-btn danger" id="btnDelAlarms" hidden
               title="删除表格里勾选的报警：整批一次删掉，Ctrl+Z 可整体撤销">删除选中</button>
             <button class="tb-btn" id="btnAlarmCsvIn" title="从 CSV 导入报警：名称,变量,比较,阈值,延时s,级别,内容,启用（Excel 里批量写好内容再导进来）">导入 CSV</button>
@@ -119,9 +170,8 @@
           <!-- 分组开关放在**内容区**里、不放标题栏：分屏停靠时标题栏整条会被藏掉
                （css/layout.css 的 .dock-panes.split 那条），放标题栏等于这个按钮在某些布局下点不着。 -->
           <div class="pg-tools">
-            <button id="btnAddPage" class="tb-btn" title="新建：页面 / 弹窗 / 公共底，以及复制这一页（下拉菜单）。
-弹窗可以指定尺寸和标题栏；公共底是"每页都一样"的那一层（底部导航条 / 标题栏），页面套用它，改一次全变。
-（原来这里是并排四个按钮，面板窄的时候会挤出去 —— 收进下拉就不会超出面板宽度了）">＋ 新建 ▾</button>
+            <button id="btnAddPage" class="tb-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="ctxMenu"
+              title="新建、复制或导入页面">新建 <svg class="ui-icon" aria-hidden="true"><use href="#ui-chevron"/></svg></button>
             <button id="btnPgGroup" class="tb-btn" title="按类型分组显示（页面 / 弹窗 / 公共底 各一组，点组表头展开收起）">▤ 分组</button>
           </div>
           <div id="pageList"></div>
@@ -147,6 +197,7 @@
             <button id="btnFindVar" class="tb-btn" title="查找变量（Ctrl+F）：它在哪些地方被用到（控件绑定 / 波形通道 / 动作 / 报警条件与内容 / 脚本），一处一行、点「定位」直接跳过去；还能把引用整体替换成另一个变量。
 下次打开会把上次查的那个词填回去、结果自动重跑。">🔍 查找/替换…</button>
             <button id="btnImportVars" class="tb-btn" title="从 CSV 导入：名称,类型,地址,长度,初始值；同名更新">导入 CSV</button>
+            <button id="btnOpcImport" class="tb-btn" hidden title="导入 CODESYS 符号配置 XML，或浏览 OPC UA 服务器节点">从 OPC UA 导入…</button>
             <button id="btnExportVars" class="tb-btn" title="导出全部变量为 CSV（Excel 可直接打开）">导出 CSV</button>
             <button id="btnExpandArr" class="tb-btn" hidden
               title="把选中的数组变量拆成单个标量变量：arrw(int[] , 13) → arrw[1]…arrw[13]（int）。
@@ -227,40 +278,74 @@ CODESYS 的 OPC UA 里数组元素本身就是独立节点（…GVL.arrw[1] 能�
     </div>
   </aside>
 
-  <!-- AI 助手：**固定在最右边**的常驻侧栏（跟停靠区不同 —— 不参与拖拽/停靠/分屏，
-       开：工具栏 🤖 AI / 工程 ▾ →「AI 助手…」；关：面板右上角 ✕。逻辑在 js/editor/aiPanel.js） -->
-  <aside id="aiSide" class="ai-side hidden">
+
+  <aside id="aiSide" class="ai-side hidden" aria-labelledby="aiTitle">
     <section class="panel" id="panel-ai" data-panel="ai">
-      <div class="panel-head"><span class="panel-title">AI 助手</span>
-        <button class="panel-btn" id="aiCloseBtn" title="关闭 AI 助手（随时点工具栏 🤖 AI 再打开）">✕</button></div>
+      <header class="panel-head ai-header">
+        <span class="ai-title-mark" aria-hidden="true"></span>
+        <div class="ai-heading">
+          <h2 id="aiTitle" class="panel-title">AI 组态助手</h2>
+          <span class="ai-connection"><span id="aiStatusDot" class="ai-dot"></span><span id="aiStatusText">连接中</span></span>
+        </div>
+        <button type="button" class="ai-header-btn" id="aiSettingsBtn" title="模型和 API Key">设置</button>
+        <button type="button" class="ai-header-btn ai-close" id="aiCloseBtn" aria-label="关闭 AI 助手">×</button>
+      </header>
       <div class="panel-body ai-body">
-        <div class="ai-head">
-          <span id="aiStatusDot" class="ai-dot" title="AI 状态：未配置"></span>
-          <span class="ai-spacer"></span>
-          <button type="button" class="tb-btn sm" id="aiTranslateBtn" title="把界面文字批量翻译成其它语言">🌐 翻译</button>
-          <button type="button" class="tb-btn sm" id="aiSettingsBtn" title="AI 设置：接口地址 / 模型 / API Key">⚙ 设置</button>
-          <button type="button" class="tb-btn sm" id="aiClearBtn" title="清空当前 AI 会话（不删工程内容）">🗑 清空</button>
-        </div>
-        <div class="ai-quick" id="aiQuick">
-          <button type="button" class="ai-chip" data-cmd="翻译整个工程">翻译整个工程</button>
-          <button type="button" class="ai-chip" data-cmd="新建一个页面">新建一个页面</button>
-          <button type="button" class="ai-chip" data-cmd="给当前页加一个按钮">给当前页加一个按钮</button>
-          <button type="button" class="ai-chip" data-cmd="检查我的脚本">检查我的脚本</button>
-        </div>
-        <div id="aiLog" class="ai-log" aria-live="polite">
-          <div class="ai-empty"><b>让 AI 直接改工程。</b>例如：<br>· 新建一个「配方管理」页面，放 3 个按钮<br>· 给当前页加一个启动按钮，绑定 <code>start</code><br>· 检查我的脚本有没有语法/变量问题<br>改动都可 <b>Ctrl+Z</b> 撤销。</div>
-        </div>
-        <div class="ai-composer">
-          <textarea id="aiInput" class="ai-input" rows="1"
-            placeholder="让 AI 改工程…（Enter 发送）"></textarea>
-          <div class="ai-bar">
-            <label class="ai-chk" title="允许 AI 执行删除/覆盖页面、控件、变量、脚本（默认关闭；关闭时 AI 会先征求同意）">
-              <input type="checkbox" id="aiAllowDestructive"> 允许删除类操作</label>
-            <span class="ai-spacer"></span>
-            <button type="button" class="tb-btn primary sm" id="aiSendBtn" title="发送（Enter）">发送</button>
-            <button type="button" class="tb-btn sm hidden" id="aiStopBtn" title="停止本次回复">■ 停止</button>
+        <div class="ai-toolbar">
+          <div class="ai-mode" role="group" aria-label="助手模式">
+            <button type="button" data-mode="auto" aria-pressed="true">自动</button>
+            <button type="button" data-mode="chat" aria-pressed="false">聊天</button>
+            <button type="button" data-mode="project" aria-pressed="false">工程</button>
           </div>
+          <button type="button" class="ai-text-btn" id="aiTranslateBtn" title="批量翻译工程文字">翻译</button>
+          <button type="button" class="ai-text-btn" id="aiHistoryBtn" aria-controls="aiHistory" aria-expanded="false">历史</button>
+          <button type="button" class="ai-text-btn" id="aiClearBtn" title="开始新会话">新会话</button>
         </div>
+        <div class="ai-scope" id="aiScope">
+          <span class="ai-scope-tag" id="aiScopeTag">自动</span>
+          <span class="ai-scope-text" id="aiScopeText">按提问选择聊天或工程</span>
+        </div>
+        <div id="aiLog" class="ai-log" role="log" aria-label="助手会话" aria-live="polite"></div>
+        <section id="aiHistory" class="ai-history" aria-labelledby="aiHistoryTitle" hidden>
+          <div class="ai-history-head">
+            <h3 id="aiHistoryTitle">历史会话</h3>
+            <button type="button" class="ai-text-btn" id="aiHistoryBack">返回会话</button>
+          </div>
+          <p class="ai-history-note">会话保存在当前浏览器</p>
+          <p id="aiHistoryStatus" class="ai-history-note" role="status" hidden></p>
+          <ul id="aiHistoryList" class="ai-history-list"></ul>
+        </section>
+        <template id="aiWelcome">
+          <div class="ai-empty">
+            <h3>从这里开始</h3>
+            <div class="ai-quick" id="aiQuick">
+              <button type="button" class="ai-chip" data-prompt="怎么选数值显示和数值输入控件？">
+                <strong title="数值显示和输入怎么选">问组态用法</strong><span aria-hidden="true">↗</span>
+              </button>
+              <button type="button" class="ai-chip" data-prompt="在当前页加一个按钮">
+                <strong title="放一个按钮，再补充名称和位置">在当前页加控件</strong><span aria-hidden="true">↗</span>
+              </button>
+              <button type="button" class="ai-chip" data-prompt="检查当前工程的脚本是否有语法错误">
+                <strong title="查看触发方式和语法">检查工程脚本</strong><span aria-hidden="true">↗</span>
+              </button>
+            </div>
+          </div>
+        </template>
+        <form class="ai-composer" id="aiComposer">
+          <p class="ai-task-status" id="aiTaskStatus" role="status" aria-atomic="true"></p>
+          <div id="aiAttachments" class="ai-attachments" aria-label="待发送附件" hidden></div>
+          <div id="aiAttachmentInfo" class="ai-attachment-info" role="status" hidden></div>
+          <textarea id="aiInput" class="ai-input" rows="2" aria-label="消息"
+            placeholder="问组态用法，或描述要改的画面"></textarea>
+          <div class="ai-bar">
+            <input type="file" id="aiAttachmentPicker" aria-label="选择 AI 附件" multiple hidden>
+            <button type="button" class="ai-attach-btn" id="aiAttachBtn" title="添加截图、点表或文本资料">+ 附件</button>
+            <label class="ai-chk"><input type="checkbox" id="aiAllowDestructive"> 允许删除</label>
+            <span class="ai-keyboard">Enter 发送</span>
+            <button type="submit" class="ai-send" id="aiSendBtn">发送 <span aria-hidden="true">↑</span></button>
+            <button type="button" class="ai-send ai-stop hidden" id="aiStopBtn">停止</button>
+          </div>
+        </form>
       </div>
     </section>
   </aside>
@@ -282,7 +367,7 @@ CODESYS 的 OPC UA 里数组元素本身就是独立节点（…GVL.arrw[1] 能�
 <footer id="statusbar">
   <span id="stBackend" class="st-dot offline" title="Python 后端连接状态">后端：离线(模拟)</span>
   <span class="st-sep"></span>
-  <span id="stPlc" class="st-dot offline" title="PLC 数据源状态（点工具栏 🔌 PLC 配置）">PLC：未连接</span>
+  <span id="stPlc" class="st-dot offline" title="PLC 数据源状态（点工具栏的 PLC 按钮配置）">PLC：未连接</span>
   <span class="st-sep"></span>
   <span id="stWrite" class="st-write hidden" title="最近一次下发到后端/PLC 的结果">下发正常</span>
   <span class="st-sep"></span>
@@ -411,6 +496,7 @@ CODESYS 的 OPC UA 里数组元素本身就是独立节点（…GVL.arrw[1] 能�
       <span style="flex:1"></span>
       <button id="seRun" class="tb-btn" title="用当前代码跑一次（写变量、日志都跟运行态一样）">▶ 试运行</button>
       <button id="seSave" class="tb-btn primary" title="Ctrl+S / Ctrl+Enter">保存</button>
+      <button id="seMinimize" type="button" class="tb-btn" title="收起脚本编辑器并保留草稿">收起</button>
       <button id="seClose" class="tb-btn" title="Esc">✕</button>
     </div>
     <div class="se-body">
@@ -418,26 +504,21 @@ CODESYS 的 OPC UA 里数组元素本身就是独立节点（…GVL.arrw[1] 能�
         <div id="seGutter" class="se-gutter"></div>
         <div class="se-editwrap">
           <pre id="seHl" class="se-hl" aria-hidden="true"></pre>
-          <textarea id="seCode" class="se-area" spellcheck="false" autocomplete="off"></textarea>
+          <textarea id="seCode" class="se-area" aria-label="脚本代码" spellcheck="false" autocomplete="off"></textarea>
+          <div id="seVarSuggest" class="se-suggest" role="listbox" aria-label="变量候选" hidden></div>
         </div>
       </div>
       <div class="se-side">
         <div class="se-side-sec">
-          <div class="se-side-title">变量怎么写</div>
+          <div class="se-side-title" title="点击名称插入 hmi.v.变量名。也可用 hmi.get／hmi.set 按名称读写。">变量</div>
           <div id="seVarsWrap" class="se-chips"></div>
-          <div class="se-tip">变量可以直接点出来（<code>hmi.v.名字</code>），也可以写成字符串（<code>hmi.set('名字', 值)</code>）—— 两种完全等价。点上面那条插到光标处。</div>
         </div>
         <div class="se-side-sec" style="flex:1;min-height:0">
           <div class="se-side-title se-side-title-row">
-            <span>API 速查（点一下插入）</span>
+            <span>API 速查</span>
             <button id="seHelp" class="tb-btn sm" title="打开 API 帮助：每个函数干什么、返回值是什么，还有能直接抄进代码的例子（每个例子旁边有「插入」）">? 帮助</button>
           </div>
           <div id="seDoc" class="se-doc"></div>
-          <div class="se-tip">
-            算术/分支/循环/模板字符串都能写：<code>1*5</code>、<code>let s=0; for(…) s+=i;</code>、<code>`n=${n}`</code>。<br>
-            只是「光写一个表达式」不会有输出 —— 要看得见就 <code>hmi.log(1*5)</code>、<code>hmi.set('x', 1*5)</code>，
-            或者点「▶ 试运行」：它会像控制台一样把**最后一句话的值**打出来。
-          </div>
         </div>
       </div>
     </div>
@@ -451,10 +532,11 @@ CODESYS 的 OPC UA 里数组元素本身就是独立节点（…GVL.arrw[1] 能�
       <pre id="seLog" class="se-log"></pre>
     </div>
   </div>
+  <button id="seRestore" type="button" class="tb-btn">继续编辑脚本</button>
 </div>
 
 <!-- ══════════ 右键菜单 ══════════ -->
-<div id="ctxMenu" class="hidden" role="menu"></div>
+<div id="ctxMenu" class="hidden" role="menu" tabindex="-1"></div>
 
 <!-- ══════════ 通用对话框 ══════════ -->
 <div id="dlgMask" class="hidden">

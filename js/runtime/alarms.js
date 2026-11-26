@@ -33,15 +33,12 @@ import { backend } from '../api/backend.js';
 import { varStore } from './varstore.js';
 import { onTick } from './ticker.js';
 import { tr } from '../core/i18n.js';
+import { ALARM_LEVELS, alarmLevelOf } from '../core/alarmLevels.js';
 
-/** 报警级别：颜色 + 中文名（控件和编辑栏都用它） */
-export const ALARM_LEVELS = [
-  { v: 'info', t: '提示', color: '#0ea5e9', bg: '#e0f2fe' },
-  { v: 'warn', t: '警告', color: '#f59e0b', bg: '#fef3c7' },
-  { v: 'alarm', t: '报警', color: '#ef4444', bg: '#fee2e2' },
-  { v: 'urgent', t: '紧急', color: '#b91c1c', bg: '#fecaca' },
-];
-export const levelOf = (v) => ALARM_LEVELS.find(l => l.v === (v || 'alarm')) || ALARM_LEVELS[2];
+export { ALARM_LEVELS };
+export const alarmLevels = () => [...ALARM_LEVELS, ...project.customAlarmLevels()];
+export const levelOf = (v) => alarmLevelOf(v, project.customAlarmLevels());
+export const compareAlarmPriority = (a, b) => levelOf(b.level).rank - levelOf(a.level).rank || a.at - b.at;
 
 const LS_KEY = 'hmi-alarm-history';       // 本地兜底（后端没开时用）
 const MAX_BYTES = 5 * 1024 * 1024;        // 内存里这份的上限：与后端 ALARM_CAP_BYTES 一致，
@@ -494,10 +491,7 @@ export function shiftAlarmHistoryDay(id, deltaDays) {
 export const activeCount = () => active.length;
 /** 最严重的一条（报警条用）：按级别 urgent > alarm > warn > info，同级取最早的 */
 export function worstActive() {
-  if (!active.length) return null;
-  const rank = { urgent: 3, alarm: 2, warn: 1, info: 0 };
-  return active.slice().sort((a, b) =>
-    (rank[b.level] ?? 2) - (rank[a.level] ?? 2) || a.at - b.at)[0];
+  return active.slice().sort(compareAlarmPriority)[0] || null;
 }
 export function ackAlarm(key) {
   const a = active.find(x => x.key === key);

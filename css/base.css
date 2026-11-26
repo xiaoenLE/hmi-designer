@@ -65,18 +65,71 @@ button { font-family: inherit; }
   color: var(--text); font-size: 12px; font-family: inherit;
 }
 .f-input:focus, .f-select:focus { outline: none; border-color: var(--primary); }
+select.f-select {
+  appearance: none; padding-inline-end: 25px; border-radius: 6px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='m1 1.5 4 4 4-4' fill='none' stroke='%23576c85' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 8px center;
+}
+select.f-select:disabled { cursor: default; opacity: .66; }
+select.f-select:focus-visible { outline: 2px solid #c4d7fb; outline-offset: 1px; }
 /* 属性面板里的多行输入（下拉框的「选项」、表格的「单元格文字」）：固定 200px 高，
    几十行选项一眼看全，不用在小框里滚来滚去（要更高可以往下拖） */
 .f-area {
   height: 200px; min-height: 200px; padding: 6px 8px; resize: vertical;
   line-height: 1.6; white-space: pre; overflow: auto; font-family: inherit;
 }
+.f-area.f-area-compact { height: auto; min-height: 0; white-space: pre-wrap; }
 /* 高框那一行的标签贴顶（不然"选项"两个字挂在 200px 的正中间） */
 .f-row:has(.f-area) { align-items: flex-start; }
 .f-row:has(.f-area) > .f-label { padding-top: 6px; }
 .f-color { width: 100%; height: 26px; padding: 1px 2px; border: 1px solid var(--border);
   border-radius: 4px; background: #fff; cursor: pointer; }
 .f-check { accent-color: var(--primary); width: 15px; height: 15px; }
+
+/* ── 桌面版取色框（长得像浏览器原生那个：色板 + 色相条 + 代码 + RGB） ── */
+/* * { margin: 0 } 把 dialog 默认的 margin:auto（居中）也清了 —— 这里显式补回来 */
+.desktop-colors { margin: auto; max-height: calc(100vh - 32px); overflow: auto; width: min(304px, 92vw); padding: 14px 16px 12px; border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); color: var(--text); background: var(--panel, #fff); }
+.desktop-colors::backdrop { background: transparent; }
+.desktop-colors.sampling { visibility: hidden; }
+.desktop-colors.sampling::backdrop { cursor: crosshair; }
+.desktop-colors form { margin: 0; }
+.desktop-colors h2 { margin: 0 0 10px; font-size: 15px; }
+/* 饱和度 → 右，明度 → 上；背景渐变由 JS 按当前色相拼出来 */
+.dc-area { position: relative; height: 150px; border-radius: 6px; cursor: crosshair; touch-action: none; box-shadow: inset 0 0 0 1px rgb(15 23 42 / .12); }
+.dc-area:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.dc-cursor { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px rgb(0 0 0 / .55); pointer-events: none; }
+.dc-hue { display: block; width: 100%; height: 14px; margin: 10px 0 0; padding: 0; border: none; border-radius: 7px; appearance: none; cursor: pointer;
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+.dc-hue::-webkit-slider-runnable-track { height: 14px; background: transparent; border-radius: 7px; }
+.dc-hue::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; margin-top: -1px; border: 1px solid var(--border); border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgb(15 23 42 / .35); }
+.dc-hue::-moz-range-track { height: 14px; background: transparent; border-radius: 7px; }
+.dc-hue::-moz-range-thumb { width: 16px; height: 16px; border: 1px solid var(--border); border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgb(15 23 42 / .35); }
+/* 一行：吸管图标 + 当前色 + 色相条（照着浏览器原生取色框的排法） */
+.dc-bar { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.dc-drop { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex: none;
+  padding: 0; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--text-2); cursor: pointer; }
+.dc-drop:hover { color: var(--primary); border-color: var(--primary); }
+.dc-drop:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.dc-drop.on { color: #fff; background: var(--primary); border-color: var(--primary); }
+.dc-preview { width: 30px; height: 30px; flex: none; border: 1px solid var(--border); border-radius: 4px; }
+.dc-bar .dc-hue { flex: 1; min-width: 0; margin: 0; }
+.dc-hex { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--text-2); white-space: nowrap; }
+.dc-hex input { flex: 1; min-width: 0; }
+.desktop-color-rgb { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 0; }
+.desktop-color-rgb label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text-2); }
+.desktop-color-rgb input { width: 100%; min-width: 0; }
+.desktop-color-swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 10px; }
+.desktop-color-swatches button { height: 23px; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+/* 「最近用过」：和常用色块同样式，一行 8 个，没记录时整块隐藏 */
+.desktop-color-recent { margin-top: 10px; }
+.dc-recent-title { font-size: 11px; color: var(--text-2); }
+.dc-recent-list { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin-top: 4px; }
+.dc-recent-list button { height: 20px; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+.desktop-colors [data-error] { margin: 8px 0 0; color: var(--danger); }
+/* 吸管采色时的操作提示（"左键单击取色，Esc 取消"）—— 比 error 淡一档，别当报错看 */
+.desktop-colors [data-hint] { margin: 8px 0 0; color: var(--text-2); }
+.desktop-color-buttons { display: flex; justify-content: flex-end; gap: 6px; margin-top: 14px; }
+.desktop-color-buttons [data-sample] { margin-right: auto; }
 
 /* ── 变量输入框（输入即检索 + ✕ 清空） ──
    框本身就是搜索框：配 <datalist> 用，点开是全量候选、打字即按关键字过滤（中文/地址照样搜）。
@@ -291,31 +344,60 @@ button { font-family: inherit; }
 .al-cond { font-size: 12px; color: var(--text-2); margin-bottom: 8px; }
 .al-cond b { color: var(--text); font-family: var(--mono); }
 .al-cond .bad { color: var(--danger); }
+.al-levels { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+.al-levels th, .al-levels td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+.al-levels th { color: var(--text-2); font-size: 12px; }
+.al-levels tbody + tbody tr:first-child td { border-top: 2px solid var(--border); }
+.al-levels .f-input { width: 100%; min-width: 0; }
+.al-level-swatch { display: inline-block; width: 20px; height: 12px; border-radius: 2px; background: var(--level-color); }
+.al-level-error { color: var(--danger); }
+.al-level-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.al-level-inline { margin-bottom: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 4px; }
+.al-level-fields { display: grid; grid-template-columns: minmax(0, 2fr) auto minmax(0, 1fr); gap: 10px; margin-bottom: 8px; }
+.f-row:has(.alarm-level-picker) { align-items: flex-start; }
+.f-row:has(.alarm-level-picker) > .f-label { padding-top: 6px; }
+.alarm-level-picker { flex: 1; min-width: 0; }
+.alarm-level-picker summary { cursor: pointer; line-height: 24px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alarm-level-choices { border: 1px solid var(--border); border-radius: 4px; margin-top: 4px; padding: 4px 6px; max-height: 212px; overflow: auto; }
+.alarm-level-bulk { display: flex; gap: 6px; padding-bottom: 3px; }
+.alarm-level-choice { display: flex; align-items: center; gap: 5px; cursor: pointer; min-height: 25px; }
+.alarm-level-choice .f-check { flex: none; margin: 0; }
+.alarm-level-choice .al-level-swatch { width: 8px; height: 8px; flex: none; }
+.alarm-level-choice > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .hidden { display: none !important; }
 
 /* ── 应用内右键菜单 ── */
 #ctxMenu {
-  position: fixed; z-index: 8000; min-width: 186px; max-width: 300px; padding: 4px;
-  background: #fff; border: 1px solid var(--border-2); border-radius: 8px;
-  box-shadow: 0 12px 32px rgba(23,26,31,.20); font-size: 12px; user-select: none;
+  position: fixed; z-index: 8000; padding: 5px;
+  min-width: min(190px, calc(100vw - 12px)); max-width: min(320px, calc(100vw - 12px));
+  overflow: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  background: #fff; border: 1px solid #d7e1ef; border-radius: 10px; outline: none;
+  box-shadow: 0 12px 28px rgba(33,55,80,.16), 0 2px 7px rgba(33,55,80,.08);
+  font-size: 12px; user-select: none;
 }
+#ctxMenu[data-kind="dropdown"] { min-width: min(236px, calc(100vw - 12px)); }
 #ctxMenu.hidden { display: none; }
 .ctx-item {
-  display: flex; align-items: center; gap: 6px; width: 100%;
-  border: none; background: none; padding: 6px 8px; border-radius: 5px;
-  cursor: pointer; color: var(--text); text-align: left; font-size: 12px; font-family: inherit;
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px;
+  border: 0; background: none; padding: 5px 8px; border-radius: 6px;
+  cursor: pointer; color: #213750; text-align: left; font: inherit;
 }
-.ctx-item:hover:not(.disabled), .ctx-item.active:not(.disabled) { background: #eef4ff; color: var(--primary); }
+.ctx-item:hover:not(.disabled), .ctx-item.active:not(.disabled) { background: #e6efff; color: var(--primary); }
 .ctx-item.danger:hover, .ctx-item.danger.active { background: #fdeaea; color: var(--danger); }
-.ctx-item.disabled { opacity: .42; cursor: default; }
-.ctx-check { flex: none; width: 11px; color: var(--primary); font-size: 11px; }
+.ctx-item.disabled { color: #8190a4; cursor: default; }
+.ctx-icon { width: 16px; height: 16px; }
+.ctx-check { flex: none; width: 12px; color: var(--primary); font-size: 11px; text-align: center; }
 .ctx-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ctx-key { flex: none; color: var(--text-2); font-size: 11px; }
-.ctx-sep { height: 1px; margin: 4px 6px; background: var(--border); }
+.ctx-key { flex: none; color: #576c85; font: 11px var(--mono); }
+.ctx-sep { height: 1px; margin: 4px 6px; background: #d7e1ef; }
 .ctx-head {
-  padding: 5px 8px 3px; color: var(--text-2); font-size: 11px;
+  padding: 5px 8px 4px; color: #576c85; font-size: 11px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#ctxMenu[data-kind="dropdown"] .ctx-head:first-child {
+  margin-bottom: 3px; padding: 6px 8px; border-radius: 6px;
+  background: #f1f5fa; font-weight: 600;
 }
 
 /* ── 启动失败提示（file:// 打开 / 模块加载失败 / 缓存不匹配）── */

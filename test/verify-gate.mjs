@@ -142,6 +142,10 @@ ok('A 「条件之间」两个选项：全部满足（and）/ 任一满足（or�
   JSON.stringify(panel.logicOpts) === JSON.stringify(['and', 'or']), JSON.stringify(panel.logicOpts));
 
 // 点「＋ 添加条件」→ 出一行；每行的零件齐（变量/运算符/值/非/删除）
+const gateGroup = page.getByRole('button', { name: '按条件启用', exact: true });
+ok('A 未配置的条件组默认折叠', await gateGroup.getAttribute('aria-expanded') === 'false');
+await gateGroup.press('Enter');
+ok('A 条件组可用键盘展开', await gateGroup.getAttribute('aria-expanded') === 'true');
 await page.click('#gateAdd');
 await sleep(250);
 const row = await page.evaluate(() => {

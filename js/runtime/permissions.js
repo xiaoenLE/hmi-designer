@@ -114,11 +114,11 @@ export function ensure(w, extraLevelId) {
 }
 
 /** 直接对某一级要权限（没有控件的那种入口，比如报警历史控件里的「清空记录」按钮） */
-export function ensureLevel(levelId) {
+export function ensureLevel(levelId, host) {
   if (can(levelId)) { touchActivity(); return Promise.resolve(true); }
   const lv = levelOf(levelId);
   if (!lv) return Promise.resolve(true);
-  return openDialog(lv);
+  return openDialog(lv, host);
 }
 
 /** 两个等级取高的那个（空的那个不算数；都空 = 不限） */
@@ -172,7 +172,13 @@ export function decorate(el, w) {
   // 个别不想显示的控件在属性面板把「小锁标记」取消勾选即可（showPermBadge === false）。
   const show = w?.props?.showPermBadge !== false;
   // 没开权限管理 / 没配等级 / 等级已删 / 已经解锁 → 都不画
-  if (!show || !isPermEnabled() || !need || project.permRank(need) < 0 || can(need)) { old?.remove(); return; }
+  const locked = show && !!need && !can(need);
+  if (w?.type === 'recipe') {
+    old?.remove();
+    el.classList.toggle('rc-delete-locked', locked && w.props?.allowDelete === true && w.props?.showList !== false);
+    return;
+  }
+  if (!locked) { old?.remove(); return; }
   const name = project.permLevelName(need);
   const span = old || document.createElement('span');
   const short = Math.min(Math.abs(+w?.w || 0), Math.abs(+w?.h || 0)) || 40;   // 控件短边（设计像素）
@@ -296,8 +302,10 @@ function buildDialog() {
   });
   return mask;
 }
-function openDialog(level) {
+function openDialog(level, host) {
   dialogEl = dialogEl || buildDialog();
+  const parent = host || document.getElementById('runtimeRoot') || document.body;
+  if (dialogEl.parentElement !== parent) parent.appendChild(dialogEl);
   dialogEl.dataset.level = level.id;
   dialogEl.dataset.need = level.id;          // 触发这个弹窗时"实际需要"的那一级
   dialogEl.querySelector('#permLevelName').textContent = level.name || '';
@@ -330,6 +338,8 @@ function closeDialog(ok) {
     //   （tag === 'INPUT' 就当"在打字"）会把 Ctrl+Shift+Q / Esc 全部吞掉，现场表现就是
     //   "解完锁快捷键全不管用了，点一下画面才好"
     try { dialogEl.querySelector('#permPw')?.blur(); } catch { /* 忽略 */ }
+    const parent = document.getElementById('runtimeRoot') || document.body;
+    if (dialogEl.parentElement !== parent) parent.appendChild(dialogEl);
   }
   const p = pending;
   pending = null;

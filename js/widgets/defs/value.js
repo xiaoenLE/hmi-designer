@@ -5,9 +5,10 @@
  * 属性面板 / 工具箱 / 运行态都从 register() 走的注册表读，这里不用管它们。
  */
 /* 数值显示（已并入 number，隐藏保留兼容旧工程） */
+import { TEXT_ALIGN } from '../shared.js';
 import { register, rutil } from '../registry.js';
 const { fmtValue, escapeHtml, varValue } = rutil;
-import { numberFmtOf, dispValueOf } from '../../core/utils.js';
+import { textAlignOf, numberFmtOf, dispValueOf } from '../../core/utils.js';
 import { tr } from '../../core/i18n.js';
 
 register({
@@ -16,12 +17,13 @@ register({
   hidden: true,
   sub: '绑定变量输出',
   icon: '<svg viewBox="0 0 36 36" width="30" height="30"><rect x="4" y="10" width="28" height="16" rx="3" fill="#fff" stroke="#94a3b8"/><text x="23" y="22" font-size="10" fill="#1f2329" text-anchor="end" font-family="Consolas">12.5</text></svg>',
-  defaults: { w: 120, h: 38, fmt: '%.1f', dispType: 'float', decimals: 1, unit: '', fontSize: 16, textColor: '#1f2329', bgColor: '#ffffff', borderColor: '#c3cbd6' },
+  defaults: { w: 120, h: 38, fmt: '%.1f', dispType: 'float', decimals: 1, unit: '', fontSize: 16, align: 'right', textColor: '#1f2329', bgColor: '#ffffff', borderColor: '#c3cbd6' },
   props: [
     // 老工程只有 fmt 下拉（%d / %.1f / %.2f / %.3f）—— 现在和「数值」一样能选数据类型 + 自己填小数位
     { key: 'dispType', label: '数据类型', type: 'dtype' },
     { key: 'unit', label: '单位', type: 'text', i18n: 'text' },
     { key: 'fontSize', label: '字号', type: 'number', min: 8, max: 72 },
+    { key: 'align', label: '对齐', type: 'select', options: TEXT_ALIGN, defVal: 'right' },
     { key: 'textColor', label: '文字色', type: 'color' },
     { key: 'bgColor', label: '背景色', type: 'color' },
     { key: 'borderColor', label: '边框色', type: 'color' },
@@ -31,8 +33,17 @@ register({
   render(w, mode, vars) {
     const p = w.props;
     const v = varValue(w, vars);
-    return `<div class="w-value" style="background:${p.bgColor};border-color:${p.borderColor}">
-      <span class="v" style="font-size:${p.fontSize}px;color:${p.textColor}">${fmtValue(dispValueOf(v, p), numberFmtOf(p))}</span>
+    // 颜色兜底（全工程约定：空串 = 透明）。老工程没有这两个键时保持控件默认色（#fff 底 / 细边），
+    // 只有用户明确点过「透明」（空串）才算透明 —— 别把默认外观改掉。
+    const bg = p.bgColor == null ? '#ffffff' : (p.bgColor || 'transparent');
+    const bd = p.borderColor == null ? '#c3cbd6' : (p.borderColor || 'transparent');
+    // is-flat：背景或边框被清成透明 → 交给 css/widgets.css 去掉 .w-value 自带的内阴影。
+    // 内联样式只能盖 background / border-color，盖不掉 box-shadow，透明后还剩一淡边。
+    const off = (c) => c === '' || c === 'transparent';
+    const flat = off(p.bgColor) || off(p.borderColor);
+    const justify = { left: 'flex-start', center: 'center', right: 'flex-end' }[textAlignOf(p.align, 'right')];
+    return `<div class="w-value${flat ? ' is-flat' : ''}" style="background:${bg};border-color:${bd};justify-content:${justify}">
+      <span class="v" style="font-size:${p.fontSize}px;color:${p.textColor}">${escapeHtml(fmtValue(dispValueOf(v, p), numberFmtOf(p)))}</span>
       ${p.unit ? `<span class="u">${escapeHtml(tr(p.unit))}</span>` : ''}</div>`;
   },
 });

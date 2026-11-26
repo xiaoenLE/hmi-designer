@@ -1,4 +1,4 @@
-﻿// verify-ai-modules.mjs — AI 模块**单元级**回归：不调用任何模型，直接在页面里调 runTool()/aiTranslate 辅助函数
+// verify-ai-modules.mjs — AI 模块**单元级**回归：不调用任何模型，直接在页面里调 runTool()/aiTranslate 辅助函数
 //
 // 为什么要单独一套：e2e 那套要有假模型、跑得慢、只覆盖"happy path"；
 // 真正的边界（变量不存在 / props 白名单 / 删除闸门 / 脚本语法 / 翻译幻觉过滤）在这里逐条钉死。
@@ -15,6 +15,7 @@
 //
 // 跑法：node test/verify-ai-modules.mjs
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
 import fs from 'node:fs';
@@ -26,7 +27,7 @@ const req = createRequire('C:/Users/Administrator/.workbuddy/binaries/node/works
 const { chromium } = req('playwright-core');
 const EXE = 'C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
 const PY = 'C:/Users/Administrator/AppData/Local/Programs/Python/Python310/python.exe';
-const ROOT = 'C:/Users/Administrator/Desktop/hmi/hmi-designer-v2';
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const freePort = () => new Promise(res => {
   const s = net.createServer();
@@ -103,15 +104,17 @@ try {
       requiredPage: byName.update_page?.required || [],
       requiredType: byName.add_widget?.required || [],
       prompt: T.buildSystemPrompt(),
-      brief: T.projectBrief(),
+      brief: JSON.parse(T.projectBrief()),
+      route: ['你好', '怎么添加变量？', '新建 AI测试页', '检查当前脚本', '给当前页加按钮'].map(t => T.assistantMode(t)),
       unknown: T.runTool('不存在的工具', {}),
       badJson: T.runTool('list_pages', '{这不是 JSON'),
       pick: {
-        base: cat(''),
+        page: cat('新建一个页面'),
+        widget: cat('加一个按钮'),
         alarm: cat('加一个报警'),
         script: cat('写个脚本'),
         layout: cat('帮我排版好看点'),
-        full: T.pickTools('x', 'full').map(d => d.function.name),
+        full: T.pickTools().map(d => d.function.name),
         autoChars: JSON.stringify(auto).length,
         fullChars: JSON.stringify(T.TOOL_DEFS).length,
       },
@@ -124,24 +127,19 @@ try {
   ok(surface.defs.every(d => d.paramsType === 'object' && d.requiredArr && d.propsObj), 'parameters 都是 {type:object, properties, required}');
   ok(surface.defs.every(d => d.desc.startsWith('') && d.desc.length >= 8), '工具描述非空');
   ok(surface.requiredPage.includes('page'), 'update_page 必填 page', surface.requiredPage);
-  ok(surface.requiredType.includes('type'), 'add_widget 必填 type', surface.requiredType);
-  ok(surface.prompt.length > 2000, 'system prompt 有内容', surface.prompt.length);
-  ok(surface.prompt.includes('【工作方式】') && surface.prompt.includes('【控件速查】') && surface.prompt.includes('【脚本可用 API】'), 'prompt 有工作方式/控件速查/脚本 API 三段');
-  ok(surface.prompt.includes('【视觉规范】') && surface.prompt.includes('【布局配方】'), 'prompt 有视觉规范 + 布局配方两段（审美靠这个）');
-  ok(surface.prompt.includes('apply_layout_recipe') && surface.prompt.includes('inspect_layout') && surface.prompt.includes('tidy_layout'), 'prompt 引导先铺配方、交付前自检');
-  ok(/视觉风格/.test(surface.brief), 'projectBrief 带视觉风格（颜色/字号）');
-  ok(surface.prompt.includes('hmi.v') && surface.prompt.includes('button=按钮'), 'prompt 含 hmi.v 与控件速查表');
-  ok(surface.brief.includes('工程：') && surface.brief.includes('页面(') && surface.brief.includes('危险操作闸门'), 'projectBrief 含工程/页面/闸门状态');
-  ok(surface.brief.includes('已关闭'), '默认状态：破坏性闸门关着');
+  ok(surface.requiredType.length === 0, 'add_widget 同时接受单控件或 items 批量参数', surface.requiredType);
+  ok(surface.prompt.length < 1200, '完整工程提示词压缩在 1200 字符内', surface.prompt.length);
+  ok(surface.prompt.includes('hmi.v') && surface.prompt.includes('button=按钮'), '项目提示保留脚本和控件索引');
+  ok(surface.brief.当前页?.id && surface.brief.允许删除 === false, '工程简报只带当前页、范围及删除权限');
   ok(!surface.unknown.ok && /没有工具/.test(surface.unknown.error || ''), '未知工具名 → ok:false');
   ok(!surface.badJson.ok && /JSON/.test(surface.badJson.error || ''), '参数不是合法 JSON → ok:false');
-  // 按需下发工具（省 token）：一句话只带相关工具组，full 模式才是 27 个
-  ok(surface.pick.base.includes('get_project') && surface.pick.base.includes('add_widget'), '基础工具集含 get_project/add_widget', surface.pick.base.length);
-  ok(!surface.pick.base.includes('add_alarm') && !surface.pick.base.includes('add_script'), '基础工具集不含报警/脚本工具（按需再加）', surface.pick.base.filter(n => n === 'add_alarm' || n === 'add_script'));
-  ok(surface.pick.alarm.includes('add_alarm') && surface.pick.alarm.includes('update_alarm'), '说"报警"时下发报警工具组', surface.pick.alarm.filter(n => /alarm/.test(n)));
-  ok(surface.pick.script.includes('add_script') && surface.pick.layout.includes('apply_layout_recipe'), '说"脚本"/"排版"时下发对应工具组');
-  ok(surface.pick.full.length === 27, 'full 模式下发全部 27 个', surface.pick.full.length);
-  ok(surface.pick.autoChars < surface.pick.fullChars * 0.75, '按需下发后 schema 字符数至少省 25%', { auto: surface.pick.autoChars, full: surface.pick.fullChars });
+  ok(surface.route.join(',') === 'chat,chat,project,project,project', '自动识别问答与工程指令', surface.route);
+  ok(surface.pick.page.includes('add_page') && !surface.pick.page.includes('add_widget'), '建页只开放页面工具组', surface.pick.page);
+  ok(surface.pick.widget.includes('add_widget') && !surface.pick.widget.includes('add_script'), '加按钮只开放控件工具组', surface.pick.widget);
+  ok(surface.pick.alarm.includes('add_alarm') && surface.pick.alarm.includes('list_vars'), '报警任务可查相关变量', surface.pick.alarm);
+  ok(surface.pick.script.includes('add_script') && surface.pick.layout.includes('apply_layout_recipe'), '脚本和排版按需开放工具');
+  ok(surface.pick.full.length === 27, '工程模式无法按对象缩小时仍可调用全部组态工具');
+  ok(surface.pick.autoChars < surface.pick.fullChars * 0.75, '布局工具定义较全量至少省 25%', { auto: surface.pick.autoChars, full: surface.pick.fullChars });
 
   // ── 2. 控件目录 ────────────────────────────────────────────────────────
   section('2. 控件目录（get_widget_catalog 从注册表实时生成）');
@@ -160,11 +158,11 @@ try {
   });
   ok(cat.all.ok && Array.isArray(cat.all.data?.widgets), 'get_widget_catalog() 返回 widgets 数组');
   ok(cat.all.data.widgets.length === cat.regCount, '目录条数 = 注册表条数', { dir: cat.all.data.widgets.length, reg: cat.regCount });
-  ok(cat.all.data.widgets.length === 30, '控件总数 30（README 里写的 29 是旧数）', cat.all.data.widgets.length);
+  ok(cat.all.data.widgets.length >= 30, '控件总数 ≥30（控件库只增不减，写死具体数字每次加控件都要改测试）', cat.all.data.widgets.length);
   ok(cat.all.data.widgets.every(w => w.type && w.title && typeof w.w === 'number'), '简表每项有 type/title/默认尺寸');
   ok(cat.btn.ok && cat.btn.data?.type === 'button' && cat.btn.data?.title === '按钮', '按 type 查返回完整属性', cat.btn.data?.type);
   ok(Array.isArray(cat.btn.data?.props) && cat.btn.data.props.some(p => p.key === 'offText'), 'button 属性里有 offText', cat.btn.data?.props?.map(p => p.key).slice(0, 6));
-  ok(Array.isArray(cat.btn.data?.actions) && cat.btn.data.actions.length === 9, 'button 支持 9 种动作', cat.btn.data?.actions?.length);
+  ok(Array.isArray(cat.btn.data?.actions) && cat.btn.data.actions.length >= 9, 'button 支持 ≥9 种动作（同上，别写死）', cat.btn.data?.actions?.length);
   ok(cat.btn.data.props.every(p => !p.key || p.key !== 'render'), '目录不带 render 函数');
   ok(!cat.nan.ok && /没有/.test(cat.nan.error || ''), '查不存在的控件 → ok:false');
 
@@ -560,6 +558,49 @@ try {
   ok(lay.oobFixed.errs === 0, 'tidy_layout 把出界控件收回画布', lay.oobFixed);
   ok(lay.clean.ok && /检查通过/.test(lay.clean.summary || ''), '干净的页面 inspect_layout 返回「检查通过」', lay.clean.summary);
   ok(!lay.badRecipe.ok && /没有配方/.test(lay.badRecipe.error || ''), '未知配方 → ok:false');
+
+  section('9b. AI 按钮写入赋值和目标页');
+  const nav = await ev(async () => {
+    const T = await import('/js/editor/aiTools.js');
+    const { project } = window.app;
+    const { select } = await import('/js/editor/canvas.js');
+    const origin = T.runTool('add_page', { name: 'AI导航来源' }).data.pageId;
+    const target = T.runTool('add_page', { name: 'AI手动目标' }).data.pageId;
+    const marker = T.runTool('add_widget', { page: target, type: 'label', name: '目标页标记' }).data.widgets[0].id;
+    T.runTool('add_vars', { vars: [{ name: 'aiNavMode', type: 'int', value: 5 }] });
+    const made = T.runTool('add_widget', { page: origin, type: 'button', name: '手动按钮', actions: [
+      { type: 'setValue', variable: 'aiNavMode', value: 0 },
+      { type: 'gotoPage', params: { targetPageId: 'AI手动目标' } },
+    ]});
+    const id = made.data.widgets[0].id;
+    const saved = project.getWidget(id).actions;
+    const bad = T.runTool('update_widget', { page: origin, ids: [id], actions: [{ type: 'gotoPage' }] });
+    const kept = project.getWidget(id).actions === saved;
+    const changed = T.runTool('update_widget', { page: origin, ids: [id], actions: [
+      { type: 'setValue', params: { variable: 'aiNavMode', value: 0 } },
+      { type: 'gotoPage', pageId: target },
+    ]});
+    select([id]);
+    const selectValue = document.querySelector('#propBody [data-ap="page"]')?.value;
+    return { id, target, marker, saved, bad, kept, changed, selectValue,
+      compact: T.compactToolMessage('get_project', T.runTool('get_project', { page: origin })),
+      tools: T.pickTools('跳转到手动画面并赋值').map(def => def.function.name),
+      mode: T.assistantMode('跳转到手动画面并赋值') };
+  });
+  ok(nav.saved[1]?.params.page === nav.target && nav.saved[0]?.params.value === 0, '建按钮时写真实页面 ID 并保留赋值 0');
+  ok(!nav.bad.ok && nav.kept, '目标缺失返回失败并保留之前动作');
+  ok(nav.changed.ok && nav.selectValue === nav.target, '修改后属性下拉框显示目标页');
+  ok(nav.compact.includes(nav.target) && nav.compact.includes('setValue') && nav.compact.includes('aiNavMode'), '压缩回读保留动作参数');
+  ok(nav.mode === 'project' && ['list_pages', 'list_vars', 'update_widget'].every(name => nav.tools.includes(name)), '按需加载跳转、赋值工具');
+  await ev(async () => {
+    const rt = await import('/js/runtime/runtime.js');
+    await rt.enterRun();
+    rt.hideRuntimeHint();
+  });
+  await page.locator('#rtPage .wd[data-id="' + nav.id + '"]').click();
+  await page.waitForFunction(() => window.app.varStore.get('aiNavMode') === 0);
+  await page.locator('#rtPage .wd[data-id="' + nav.marker + '"]').waitFor();
+  ok(await page.evaluate(() => window.app.varStore.get('aiNavMode') === 0), '实际运行点击后写 0 并跳转');
 
   // ── 10. 收尾 ───────────────────────────────────────────────────────────
   section('10. 收尾检查');

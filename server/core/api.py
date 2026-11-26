@@ -22,6 +22,7 @@
 """
 from . import ai                      # AI 助手（配置 + 连通性测试，见 core/ai.py）
 from . import auth
+from . import operations
 from . import datasource
 from .alarmstore import _alarm_add
 from .alarmstore import _alarm_lock
@@ -45,6 +46,7 @@ from .plcsource import _norm_protocol_name
 from .plcsource import _addr_model_lock
 from .plcsource import _protocol_of
 from .recipe import _recipes          # 配方（现场数据：配方名 + 变量值，见 core/recipe.py）
+from .recipe import RecipeConflict, recipe_value
 from .history import _history         # 历史数据（采样/查询/CSV，见 core/history.py）
 from .users import ROLES as USER_ROLES       # 多用户/角色（账号表，见 core/users.py）
 from .users import ROLE_CN as USER_ROLE_CN
@@ -75,6 +77,7 @@ from .versioninfo import SERVER_BUILD
 from .versioninfo import check_update
 
 import json
+import re
 import comm                       # 同目录：通讯协议注册表 + 地址校验（server/comm/，可扩展）
 import modbus                     # 同目录：Modbus TCP 主站 + %MW/%MD 地址解析
 
@@ -151,6 +154,14 @@ def _ctx_role(ctx: Ctx) -> str:
 
 def _ctx_user(ctx: Ctx) -> str:
     return str(getattr(ctx, "user", "") or "")
+
+
+_DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _is_day(text) -> bool:
+    """'YYYY-MM-DD' 才算一天（操作记录这类按天查询的入参校验）。"""
+    return bool(_DAY_RE.match(str(text or "")))
 
 
 def _is_admin(ctx: Ctx) -> bool:
@@ -281,6 +292,14 @@ def dispatch(method: str, path: str, query: dict, body: dict, ctx: Ctx):
         return 200, check_update(force=force)
 
     if path == "/api/recipes" and method == "GET":
+        if q1("summary", "") == "1":
+            return 200, {"ok": True, "rows": _recipes.summary()}
+        name = str(q1("name", "")).strip()
+        if name:
+            recipe = _recipes.get(name)
+            if recipe is None:
+                return 404, {"ok": False, "error": f"没有这个配方：{name}"}
+            return 200, {"ok": True, "recipe": recipe}
         # 配方列表（运行页/编辑器都要看）：**读不用登录**；存/删/应用才要管理员。
         # ?full=1 = 连每个配方的 vars 一起给（界面一次拿全，省得逐个取）。
         full = str(q1("full", "0")).lower() in ("1", "true", "yes")
@@ -288,6 +307,56 @@ def dispatch(method: str, path: str, query: dict, body: dict, ctx: Ctx):
         if full:
             out["recipes"] = _recipes.snapshot()
         return 200, out
+
+    if path == "/api/operations" and method == "GET":
+        deny = _need_login(ctx, "查看操作记录")
+        if deny:
+            return deny
+        day = str(q1("date", "") or "").strip()
+        if day and not _is_day(day):
+            return 400, {"ok": False, "error": "日期格式应为 YYYY-MM-DD"}
+        try:
+            return 200, {"ok": True, **operations.recent(
+                q1("limit", "200"), day or None, offset=q1("offset", "0"),
+                query=str(q1("q", ""))[:360], actions=query.get("action", []),
+                results=[value == "1" for value in query.get("result", []) if value in ("0", "1")],
+            )}
+        except OSError:
+            return 500, {"ok": False, "error": "读取操作记录失败"}
+
+    if path == "/api/operations/button" and method == "POST":
+        name = str((body or {}).get("name") or "").strip()[:200]
+        if not name:
+            return 400, {"ok": False, "error": "缺少按钮名称"}
+        text = str((body or {}).get("text") or "").strip()[:360]
+        if not operations.record(_ctx_user(ctx), "button", name, True, text):
+            return 500, {"ok": False, "error": "保存操作记录失败"}
+        return 200, {"ok": True}
+
+    if path == "/api/operations/page" and method == "POST":
+        # 运行画面切换的留痕：谁把画面切到了哪一页（运行态用户可能没登录，所以**不设闸门**，
+        # 只接一个页面名，写完就返回 —— 读记录仍然只给管理员）。
+        name = str((body or {}).get("name") or "").strip()[:80]
+        if not name:
+            return 400, {"ok": False, "error": "缺少页面名"}
+        operations.record(_ctx_user(ctx), "page", name, True, f"切到「{name}」")
+        return 200, {"ok": True}
+
+    if path == "/api/operations/clear" and method == "POST":
+        # 清空操作记录 = 删审计存档，只给管理员（和查看操作记录同一道闸）
+        deny = _need_login(ctx, "清空操作记录")
+        if deny:
+            return deny
+        day = str((body or {}).get("date") or "").strip()
+        if day and not _is_day(day):
+            return 400, {"ok": False, "error": "日期格式应为 YYYY-MM-DD"}
+        try:
+            removed = operations.clear(day or None)
+        except OSError:
+            return 500, {"ok": False, "error": "清空操作记录失败"}
+        # 清空本身也记一笔：谁清的、清的是哪一天、删了多少条（审计留痕）
+        operations.record(_ctx_user(ctx), "clear", day or "全部", True, f"清除 {removed} 条")
+        return 200, {"ok": True, "removed": removed}
 
     if path == "/api/history" and method == "GET":
         # 历史数据：不带 from/to/vars = 现状（配置 + 统计）；带了 = 查采样点。
@@ -355,7 +424,8 @@ def dispatch(method: str, path: str, query: dict, body: dict, ctx: Ctx):
         # 会把 cmd 刷爆 —— 所以脚本写值不打操作日志，控制台只留人在触摸屏上的操作。
         ok, extra = var_write(body.get("name"), body.get("value"),
                               bool(body.get("internal")),
-                              str(body.get("from") or "") == "script")
+                              str(body.get("from") or "") == "script",
+                              actor=_ctx_user(ctx))
         return (200 if ok else 400), {"ok": ok, **extra}
 
     if path == "/api/vars/declare":
@@ -414,7 +484,37 @@ def dispatch(method: str, path: str, query: dict, body: dict, ctx: Ctx):
     if path == "/api/recipes" and method == "POST":
         # 配方是存下来的配置：save / delete / **apply** 统统要管理员（admin 闸门已在上面）——
         # 操作员"只能改设备连接"，应用配方这种批量写变量的动作也不给他。
-        return _ep_recipes(body)
+        status, result = _ep_recipes(body)
+        action = str(body.get("action") or "").strip().lower()
+        name = str(body.get("name") or "").strip()
+        if name and action in ("save", "delete", "apply"):
+            detail = result.get("error", "")
+            if action == "apply" and "applied" in result:
+                detail = f"成功 {len(result['applied'])} 项，失败 {len(result['failed'])} 项。" + detail
+            elif action == "save" and result.get("ok"):
+                detail = f"{result['count']} 项"
+            elif action == "delete" and result.get("deleted") is False:
+                detail = "配方已不存在"
+            operations.record(_ctx_user(ctx), "recipe_" + action, name, result["ok"], detail)
+        return status, result
+    if path == "/api/recipes/current" and method == "POST":
+        deny = _need_login(ctx, "读取配方当前值")
+        if deny:
+            return deny
+        names = body.get("names")
+        if (not isinstance(names, list) or len(names) > 5000
+                or any(not isinstance(n, str) or not n for n in names)):
+            return 400, {"ok": False, "error": "请选择有效的配方变量（最多 5000 项）"}
+        source = datasource.get_source()
+        fresh = getattr(source, "read_fresh", None)
+        if fresh:
+            values = fresh(names)
+        else:
+            cached = read_all_vars()
+            values = {n: cached[n] for n in names if n in cached}
+        meta = source.meta()
+        values = {name: recipe_value(value, meta.get(name, {}).get("type")) for name, value in values.items()}
+        return 200, {"ok": True, "values": values}
     if path == "/api/history" and method == "POST":
         return _ep_history(body, ctx)
     if path == "/api/alarms" and method == "POST":
@@ -902,26 +1002,28 @@ def _ep_recipes(body: dict):
     """
     action = str(body.get("action") or "").strip().lower()
     name = str(body.get("name") or "").strip()
+    revision = body.get("revision")
     try:
         if action == "save":
             if not name:
                 return 400, {"ok": False, "error": "缺少配方名（name）"}
-            rec = _recipes.save(name, body.get("vars"))
+            rec = _recipes.save(name, body.get("vars"), expected=revision,
+                                create_only=body.get("create_only") is True)
             return 200, {"ok": True, "name": rec["name"], "updated": rec["updated"],
-                         "count": len(rec["vars"])}
+                         "count": len(rec["vars"]), "revision": rec["revision"]}
         if action == "delete":
             if not name:
                 return 400, {"ok": False, "error": "缺少配方名（name）"}
-            return 200, {"ok": True, "name": name, "deleted": _recipes.delete(name)}
+            return 200, {"ok": True, "name": name, "deleted": _recipes.delete(name, expected=revision)}
         if action == "apply":
             if not name:
                 return 400, {"ok": False, "error": "缺少配方名（name）"}
-            if _recipes.get(name) is None:          # 先看一眼：不存在给一句人话 + 404
-                return 404, {"ok": False, "name": name, "applied": [], "failed": [],
-                             "error": f"没有这个配方：{name}"}
-            return 200, _recipes.apply(name)
+            result = _recipes.apply(name, expected=revision)
+            return (200 if result["ok"] or result["failed"] else 404), result
         return 400, {"ok": False,
                      "error": f"不认识的配方操作：{action!r}（只认 save / delete / apply）"}
+    except RecipeConflict as e:
+        return 409, {"ok": False, "error": str(e)}
     except ValueError as e:                                     # 参数不合法（名字空/太长、vars 不是对象）
         return 400, {"ok": False, "error": str(e)}
     except OSError as e:                                        # 盘写不进去：现场要看见，别假装存上了

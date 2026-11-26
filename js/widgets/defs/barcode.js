@@ -40,6 +40,7 @@ function bufOf(w, create) {
 register({
   type: 'barcode',                 // ⚠ 永久 id：存进工程 JSON，定了别再改
   title: '条码输入',
+  hidden: true,
   sub: '扫码枪/键盘输入，回车提交',
   icon: '<svg viewBox="0 0 36 36" width="30" height="30"><rect x="4" y="8" width="28" height="20" rx="3" fill="#fff" stroke="#94a3b8"/><path d="M9 13v10M12 13v10M16 13v10M19 13v10M22 13v10M26 13v10" stroke="#1f2329" stroke-width="1.4" stroke-linecap="round"/></svg>',
   defaults: {
@@ -65,14 +66,14 @@ register({
     { key: 'bgColor', label: '背景色', type: 'color' },
     { key: 'borderColor', label: '边框色', type: 'color' },
     { key: 'borderWidth', label: '边框宽', type: 'number', min: 0, max: 8 },
-    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 30 },
+    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 100 },
   ],
   binding: { variable: { types: ['string', 'wstring'], label: '绑定变量（条码字符串）' } },
   actions: [],
   render(w, mode, vars) {
     const p = w.props || {};
     const bw = intIn(p.borderWidth, 1, 0, 8);
-    const radius = intIn(p.radius, 5, 0, 30);
+    const radius = intIn(p.radius, 5, 0, 100);
     const fs = intIn(p.fontSize, 16, 10, 72);
     // 绑定变量的当前值就是待显示的内容（编辑态所见即所得）；运行态如果在输入中，用缓冲里的字
     const v = varValue(w, vars);

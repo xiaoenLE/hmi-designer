@@ -15,6 +15,7 @@ from .datasource import _err_seen
 from .datasource import _extra_internal
 from .datasource import _source_lock
 from .datasource import _source_status
+from .operations import record
 
 import time
 
@@ -63,7 +64,15 @@ def _note_write_error(name, value, e):
 
 
 
-def var_write(name, value, is_internal=False, from_script=False):
+def var_write(name, value, is_internal=False, from_script=False, *, actor=None):
+    ok, extra = _write_value(name, value, is_internal, from_script)
+    if not from_script and actor is not None:
+        detail = f"请求值 {value!r}" if ok else extra.get("error", "写入失败")
+        record(actor, "write", name, ok, detail)
+    return ok, extra
+
+
+def _write_value(name, value, is_internal, from_script):
     """写一个变量 → (ok, extra)。extra 里带 error 或 internal。
 
     内部变量（地址留空）：前端写值时带 internal=true 说明它只活在 HMI 里。

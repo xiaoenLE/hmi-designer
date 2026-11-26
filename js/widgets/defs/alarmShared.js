@@ -9,6 +9,7 @@
  * 编辑态没有运行数据 → 显示示例内容，方便调样式。
  */
 import { activeAlarms, alarmHistory, historyOfDay, alarmHistoryDay, levelOf } from '../../runtime/alarms.js';
+import { alarmLevelMatcher } from '../../core/alarmLevels.js';
 import { escapeHtml } from '../../core/utils.js';
 import { pickTimeFmt } from '../shared.js';
 import { setExtraHelpers } from '../pack.js';
@@ -24,22 +25,18 @@ export const esc = escapeHtml;
 export function alarmTimeFmt(p) {
   return pickTimeFmt(p, 'hh:mm:ss', 'hh:mm:ss.SSS');
 }
-export const LEVEL_RANK = { info: 0, warn: 1, alarm: 2, urgent: 3 };
-/** 按「最低级别」过滤：warn → 只看 warn/alarm/urgent */
+export const alarmLevelFilterProp = {
+  key: 'levelFilter', label: '显示级别', type: 'alarmLevels', defVal: 'all',
+};
+
 export function filterByLevel(list, filter) {
-  const min = LEVEL_RANK[filter];
-  if (min === undefined) return list;
-  return list.filter(a => (LEVEL_RANK[a.level] ?? 2) >= min);
-}
-/** 最严重的一条（同级取最早发生的） */
-export function worstOf(list) {
-  if (!list.length) return null;
-  return list.slice().sort((a, b) =>
-    (LEVEL_RANK[b.level] ?? 2) - (LEVEL_RANK[a.level] ?? 2) || a.at - b.at)[0];
+  if (!filter || filter === 'all') return list;
+  const match = alarmLevelMatcher(filter);
+  return list.filter(a => match(levelOf(a.level)));
 }
 /** 编辑态预览/示例统一用**固定时间**：不随真实时间变，控件库基线（verify-widget-split）才稳定 */
 const DEMO_T0 = 1750000000000;   // 2025-06-15 前后（只用于预览占位）
-export const DEMO_ACTIVE = [
+const DEMO_ACTIVE = [
   { key: 'd1', text: '主轴转速过高：3120 m/min（上限 3000）', level: 'alarm', at: DEMO_T0 - 42000 },
   { key: 'd2', text: '液压油温偏高：62 ℃', level: 'warn', at: DEMO_T0 - 9000 },
 ];
@@ -48,12 +45,12 @@ export const DEMO_ACTIVE = [
  *  工程里一条报警都没配时，退回示例内容（方便调样式）。
  *  ⚠ 示例内容是写死的，翻译表里没有它们 —— 所以有真实报警时一定要用真实定义，
  *    否则"切了英文画布还是中文"就出在这儿。 */
-export function editSampleActive() {
+export function editSampleActive(filter) {
   const proj = (typeof globalThis !== 'undefined' && globalThis.app) ? globalThis.app.project : null;
   const list = (proj && typeof proj.alarms === 'function') ? (proj.alarms() || []) : [];
-  if (!list.length) return DEMO_ACTIVE;
+  if (!list.length) return filterByLevel(DEMO_ACTIVE, filter);
   const now = DEMO_T0;
-  return list.slice(0, Math.min(6, list.length)).map((a, i) => ({
+  return filterByLevel(list, filter).slice(0, 6).map((a, i) => ({
     key: a.id || ('e' + i),
     name: tr(a.name || ''),
     text: tr(a.text || a.name || ''),
@@ -63,9 +60,9 @@ export function editSampleActive() {
   }));
 }
 /** 编辑态预览「报警历史」行（真实报警 + 恢复时间） */
-export function editSampleHistory() {
+export function editSampleHistory(filter) {
   const now = DEMO_T0;
-  return editSampleActive().map((r, i) => ({ ...r, at: now - (i + 1) * 3600e3, endAt: now - (i + 1) * 3540e3, acked: true }));
+  return editSampleActive(filter).map((r, i) => ({ ...r, at: now - (i + 1) * 3600e3, endAt: now - (i + 1) * 3540e3, acked: true }));
 }
 /** 「当前报警」列表最多画多少行（同时报警上千条时，整块 DOM 重建会拖低帧率） */
 export const LIST_MAX = 200;
@@ -80,10 +77,6 @@ export const LIST_MAX = 200;
  *    滚动区本来就只看得到 maxRows 行，所以最多画 HIST_MAX 行、剩下的写一行提示 ——
  *    800 行足够操作工往回翻，按钮上/翻页条上的"共 N 条"仍然报的是真实总数。 */
 export const HIST_MAX = 800;
-export const DEMO_HISTORY = [
-  ...DEMO_ACTIVE.map(x => ({ ...x, endAt: Date.now() - 3000, acked: true })),
-  { key: 'd3', text: '急停按钮被按下', level: 'urgent', at: Date.now() - 3600e3, endAt: Date.now() - 3500e3, acked: true },
-];
 
 /* 把报警类 helper 补进「控件包」的 render 白名单（见 js/widgets/pack.js）：
    别人导进来的自定义报警控件，render 里才能用 activeAlarms / levelOf 这些。

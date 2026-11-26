@@ -3,10 +3,12 @@
  *
  *   无选中   → 页面/画布信息（可改尺寸背景）
  *   单选     → 几何 + 类型属性 + 数据绑定 + 动作配置
- *   多选     → 批量几何
+ *   多选     → 批量几何和共同属性
  */
 import { bus } from '../core/eventBus.js';
 import { project } from '../core/project.js';
+import { ALARM_LEVELS, alarmLevelMatcher } from '../core/alarmLevels.js';
+import { initColorPicker } from './desktopColors.js';
 import { backend } from '../api/backend.js';
 import { registry, ACTION_DEFS } from '../widgets/registry.js';
 import { keyLabel, debounce, dtypeFromFmt, decimalsFromFmt, statusNote,
@@ -15,6 +17,7 @@ import { keyLabel, debounce, dtypeFromFmt, decimalsFromFmt, statusNote,
 import { attachVarPick } from './varPick.js';
 import { PALETTE as TREND_PALETTE } from '../runtime/trend.js';
 import { select } from './canvas.js';
+import { toolboxGroupOf } from './toolbox.js';
 import { getLang, defaultLang, textOf, setTranslationFor, widgetFontPx, setWidgetFontPx } from '../core/i18n.js';
 
 /** 波形通道允许的变量类型（跟 defs.js 里 trend 的 binding.types 对应） */
@@ -27,6 +30,92 @@ const isFontPropKey = (k) => /^(fontSize|textSize|numberSize|valueSize)$/.test(S
 const LIMIT_TYPES = ['int', 'uint', 'dint', 'udint', 'real', 'lreal'];
 
 const commitLater = debounce(() => project.commit('修改属性', { merge: true }), 600);
+
+/**
+ * 图片导入：把选中的图缩到最长边 ≤1280 再重编码（优先 WebP，能保住透明）。
+ *
+ * 为什么必须缩：图片是 base64 内嵌进工程 JSON 的（全工程没有"图片文件"，只有 src 这个 dataURL），
+ * 一张 1200×1200 的截图就有 6MB+，直接撞两条硬上限：
+ *   · 本地缓存 localStorage ≈5MB → 状态栏报「自动保存失败：浏览器存储已满」
+ *   · WS 单帧 1MB / 单条消息 4MB（server/wschannel.py）→ 工程根本存不进服务器
+ * 实测一张 6.3MB 的 PNG 导进去：缓存写失败、服务器工程里连控件都没有，刷新一下就没了。
+ * 画面上放的图 1280 像素 + WebP 已经足够清楚（触摸屏看的是画面，不是原图的像素级细节）。
+ */
+const IMG_MAX_EDGE = 1280;
+const IMG_MAX_BYTES = 900 * 1024;    // 单张 dataURL 的字符数上限（base64 约是原图的 1.33 倍）
+const IMG_KEEP_BYTES = 220 * 1024;   // 已经是小图就原样用，不做无谓的重编码
+
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result || ''));
+    fr.onerror = () => reject(new Error('读取文件失败'));
+    fr.readAsDataURL(file);
+  });
+}
+
+function loadImageEl(src) {
+  return new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => resolve(im);
+    im.onerror = () => reject(new Error('这个文件不是能显示的图片'));
+    im.src = src;
+  });
+}
+
+function drawScaled(img, iw, ih, scale) {
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(1, Math.round(iw * scale));
+  cv.height = Math.max(1, Math.round(ih * scale));
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.drawImage(img, 0, 0, cv.width, cv.height);
+  return cv;
+}
+
+/** 有没有透明像素：有透明就绝不能用 JPEG（透明会被填黑/填白） */
+function canvasHasAlpha(cv) {
+  try {
+    const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    for (let i = 3; i < d.length; i += 4) if (d[i] < 250) return true;
+    return false;
+  } catch {
+    return true;   // 取不到像素就当有透明，走 PNG 更安全
+  }
+}
+
+/** 内嵌图片的"体检"文本：属性面板里让用户看得见这张图占了多少工程体积 */
+function imgSizeHint(src) {
+  if (!src || !src.startsWith('data:')) return '';
+  const kb = Math.round(src.length * 0.75 / 1024);   // base64 → 原始字节 ≈ ×0.75
+  return kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${kb} KB`;
+}
+
+async function fitImageDataUrl(dataUrl) {
+  if (dataUrl.length <= IMG_KEEP_BYTES) return dataUrl;
+  let img;
+  try { img = await loadImageEl(dataUrl); } catch { return dataUrl; }
+  const iw = img.naturalWidth || 1;
+  const ih = img.naturalHeight || 1;
+  const base = Math.min(1, IMG_MAX_EDGE / Math.max(iw, ih));
+  let last = '';
+  // 先按原缩放比压质量，还不够就再降尺寸 —— 最多 4×3 次，正常第一轮就够
+  for (const factor of [1, 0.75, 0.55, 0.4]) {
+    const cv = drawScaled(img, iw, ih, base * factor);
+    const alpha = canvasHasAlpha(cv);
+    for (const q of [0.9, 0.75, 0.6]) {
+      const webp = cv.toDataURL('image/webp', q);
+      last = webp.startsWith('data:image/webp')
+        ? webp
+        : (alpha ? cv.toDataURL('image/png') : cv.toDataURL('image/jpeg', q));
+      if (last.length <= IMG_MAX_BYTES) return last;
+    }
+  }
+  return last || dataUrl;
+}
+
 
 /**
  * 属性编辑的「延迟生效」：停下来 300ms 才真的写进工程（用户要求）。
@@ -57,17 +146,28 @@ function wireFold(body) {
     if (!title) return;
     // 去掉动态计数等括号内容，得到稳定存储键（如「批量几何（3 个控件）」→「批量几何」）
     const key = title.textContent.replace(/（.*?）/g, '').trim();
-    if (map[key]) g.classList.add('folded');
+    const setFolded = (folded) => {
+      g.classList.toggle('folded', folded);
+      title.setAttribute('aria-expanded', String(!folded));
+    };
+    setFolded(map[key] ?? g.hasAttribute('data-fold-default'));
     title.addEventListener('click', () => {
-      g.classList.toggle('folded');
+      const folded = !g.classList.contains('folded');
+      setFolded(folded);
       const m = foldMap();
-      m[key] = g.classList.contains('folded');
+      m[key] = folded;
       try { localStorage.setItem(FOLD_KEY, JSON.stringify(m)); } catch { /* 忽略 */ }
     });
   });
 }
 
 export function initProperties() {
+  let refreshAfterColor = false;
+  const choosingColor = initColorPicker(() => {
+    if (!refreshAfterColor) return;
+    refreshAfterColor = false;
+    render();
+  });
   bus.on('selection:changed', render);
   bus.on('page:current', render);
   // 换了协议（Modbus ↔ OPC UA）→「数据类型」那一行的可编辑性跟着变，得重画
@@ -75,6 +175,12 @@ export function initProperties() {
   // 切语言 → 面板里的文本（显示译文）和字号（这门语言的生效值）当场跟着变
   bus.on('i18n:lang', render);
   bus.on('project:changed', () => {
+    if (committingBatch) return;
+    if (choosingColor()) {
+      // 取色框打开时焦点在弹窗里，工程自动提交也要保留原来的颜色输入框。
+      refreshAfterColor = true;
+      return;
+    }
     // 数据结构变化（非本面板引起）时刷新；但**正在打字的输入框**别重建（会丢焦点/丢半截输入）。
     //   ⚠ 只对"真的在打字"的元素让路：按钮 / 下拉（公共底的 ↑ ↓ ✕、「添加一层」这类）点完
     //     必须立刻重建 —— 以前按"焦点在面板里就跳过"一律让路，于是点完按钮面板不更新，
@@ -113,13 +219,13 @@ function renderPageProps(body) {
   const using = isBase ? project.pagesUsingBase(page.id) : [];
   body.innerHTML = `
     <div class="prop-group">
-      <div class="prop-group-title">画布 / 页面</div>
+      <button type="button" class="prop-group-title">画布 / 页面</button>
       <div class="f-row"><span class="f-label">工程名</span>
         <input class="f-input" id="ppName" value="${esc(project.data.meta.name)}"></div>
-      <div class="f-row"><span class="f-label">画布宽</span>
-        <input class="f-input" id="ppW" type="number" min="200" max="4000" value="${c.w}"></div>
-      <div class="f-row"><span class="f-label">画布高</span>
-        <input class="f-input" id="ppH" type="number" min="200" max="3000" value="${c.h}"></div>
+      <div class="prop-grid">
+        <label class="prop-pair"><span class="f-label">画布宽</span><input class="f-input" id="ppW" type="number" min="200" max="4000" value="${c.w}"></label>
+        <label class="prop-pair"><span class="f-label">画布高</span><input class="f-input" id="ppH" type="number" min="200" max="3000" value="${c.h}"></label>
+      </div>
       <div class="f-row"><span class="f-label">背景色</span>
         <input class="f-color" id="ppBg" type="color" value="${c.bg || '#f4f5f7'}"></div>
       <div class="f-row"><span class="f-label">当前${isBase ? '底' : '页面'}</span>
@@ -129,7 +235,7 @@ function renderPageProps(body) {
     </div>
     ${page?.type === 'page' ? `
     <div class="prop-group">
-      <div class="prop-group-title">公共底</div>
+      <button type="button" class="prop-group-title">公共底</button>
       <div class="f-row"><span class="f-label">已套用</span>
         <span style="color:var(--text-2);font-size:12px">${layers.length} 层</span></div>
       ${layers.length ? layers.map((b, i) => `
@@ -152,7 +258,7 @@ function renderPageProps(body) {
     </div>` : ''}
     ${isBase ? `
     <div class="prop-group">
-      <div class="prop-group-title">这个公共底</div>
+      <button type="button" class="prop-group-title">这个公共底</button>
       <div style="color:var(--text-2);font-size:11.5px;line-height:1.7">
         ${using.length
           ? `被 <b>${using.length}</b> 个页面套用：${using.slice(0, 12).map(x => esc(x.name)).join('、')}${using.length > 12 ? ' …' : ''}`
@@ -161,18 +267,17 @@ function renderPageProps(body) {
     </div>` : ''}
     ${page?.type === 'popup' ? `
     <div class="prop-group">
-      <div class="prop-group-title">弹窗设置</div>
+      <button type="button" class="prop-group-title">弹窗设置</button>
       <div class="prop-grid">
-        <span class="f-label">弹窗宽</span><input class="f-input" id="ppPW" type="number" min="120" max="2000" value="${page.popupW || 420}"><span></span>
-        <span class="f-label">弹窗高</span><input class="f-input" id="ppPH" type="number" min="80" max="1500" value="${page.popupH || 240}"><span></span>
+        <label class="prop-pair"><span class="f-label">弹窗宽</span><input class="f-input" id="ppPW" type="number" min="120" max="2000" value="${page.popupW || 420}"></label>
+        <label class="prop-pair"><span class="f-label">弹窗高</span><input class="f-input" id="ppPH" type="number" min="80" max="1500" value="${page.popupH || 240}"></label>
       </div>
       <div class="f-row"><span class="f-label">弹窗标题</span>
         <input class="f-input" id="ppTitle" value="${esc(page.title || '')}" placeholder="留空则不显示标题文字"></div>
-      <div class="f-row"><span class="f-label">关闭按钮</span>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input class="f-check" id="ppClose" type="checkbox" ${page.showClose !== false ? 'checked' : ''}>
-          <span style="color:var(--text-2);font-size:12px">标题栏右上角显示 ✕</span>
-        </label></div>
+      <label class="f-row prop-check" title="在弹窗标题栏右上角显示关闭按钮">
+        <span class="f-label">关闭按钮</span>
+        <input class="f-check" id="ppClose" type="checkbox" ${page.showClose !== false ? 'checked' : ''}>
+      </label>
     </div>` : ''}`;
   const upd = () => project.updateCanvas({
     w: +document.getElementById('ppW').value || 1024,
@@ -222,15 +327,134 @@ function renderPageProps(body) {
   wireFold(body);
 }
 
-/* ═══════════ 多选（批量几何） ═══════════ */
+/* ═══════════ 多选 ═══════════ */
+let committingBatch = false;
+const BATCH_TYPES = new Set(['number', 'color', 'select', 'check', 'text', 'textarea']);
+const batchColorClear = (w, key) => w.type === 'button' && key === 'borderColor' ? 'transparent' : '';
+const isTransparentColor = color => !color || color === 'transparent';
+const colorInputValue = color => /^#[a-f\d]{6}$/i.test(color || '') ? color : '#ffffff';
+
+function widgetPropVisible(p, w, boundType) {
+  return (!p.showIf || w.props[p.showIf])
+    && (p.showVarType !== 'notBool' || (!!boundType && boundType !== 'bool'));
+}
+
+function widgetPropOptions(p, boundType) {
+  return p.key === 'op' && boundType === 'string'
+    ? p.options?.filter(o => o.v === '==' || o.v === '!=')
+    : p.options;
+}
+
+function widgetPropValue(p, w, def) {
+  return w.props[p.key] ?? (p.defFrom ? w.props[p.defFrom] : undefined)
+    ?? p.defVal ?? def?.defaults?.[p.key];
+}
+
+function widgetDecimals(w, type) {
+  return isIntDtype(type) ? (isIntDtype(w.props.dispType) ? intDecimalsOf(w.props) : 0)
+    : (w.props.decimals ?? decimalsFromFmt(w.props.fmt));
+}
+
+function setWidgetDecimals(w, type, value) {
+  project.updateWidgetProp(w.id, 'decimals', value, { notify: false });
+  project.updateWidgetProp(w.id, 'fmt', fmtOfDecimals(type, value), { notify: false });
+  if (type && w.props.dispType !== type) {
+    project.updateWidgetProp(w.id, 'dispType', type, { notify: false });
+  }
+}
+
+function commonProperties(widgets) {
+  const definitions = widgets.map(w => registry.get(w.type));
+  const variables = new Map(project.variables().map(v => [v.name, v.type]));
+  const activeProps = definitions.map((def, i) => {
+    const w = widgets[i];
+    const boundType = variables.get(w.bindings?.variable);
+    const fields = (def?.props || []).filter(p => widgetPropVisible(p, w, boundType)).flatMap(p => {
+      if (BATCH_TYPES.has(p.type)) return [{ ...p, options: widgetPropOptions(p, boundType) }];
+      if (p.type === 'varOrValue' && w.props[p.modeKey] !== 'var') {
+        return [{ ...p, type: 'text', placeholder: '不限' }];
+      }
+      if (p.type === 'dtype') {
+        const type = boundType ? dtypeOfVarType(boundType) : w.props.dispType || dtypeFromFmt(w.props.fmt);
+        if (type && type !== 'string') {
+          return [{ key: 'decimals', label: '小数位', type: 'number', min: 0, max: 6,
+            numberType: type, value: widgetDecimals(w, type) }];
+        }
+      }
+      return [];
+    });
+    return new Map(fields.map(p => [p.key, p]));
+  });
+  const langDiff = getLang() !== defaultLang();
+  const common = [...(activeProps[0]?.values() || [])].flatMap(p => {
+    const peers = activeProps.map(fields => fields.get(p.key));
+    if (!peers.every(peer => peer?.type === p.type && peer.label === p.label && peer.i18n === p.i18n
+      && !!peer.numberType === !!p.numberType && isIntDtype(peer.numberType) === isIntDtype(p.numberType))) return [];
+    const min = Math.max(...peers.map(peer => peer.min ?? -Infinity));
+    const max = Math.min(...peers.map(peer => peer.max ?? Infinity));
+    const options = p.options?.filter(o => peers.every(peer => peer.options?.some(other => other.v === o.v)));
+    if (min > max || (p.type === 'select' && !options?.length)) return [];
+    const font = isFontPropKey(p.key);
+    const translatedFont = font && langDiff;
+    const translatedText = (p.type === 'text' || p.type === 'textarea') && !!p.i18n && langDiff;
+    const originals = widgets.map((w, i) => widgetPropValue(peers[i], w, definitions[i]));
+    const values = widgets.map((w, i) => {
+      if (p.numberType) return peers[i].value;
+      if (translatedFont) return widgetFontPx(w, p.key);
+      return translatedText ? textOf(originals[i]) : originals[i];
+    });
+    const mixed = values.some(v => v !== values[0]);
+    return [{ ...p, min, max, options, font, translatedFont, translatedText, mixed,
+      numberTypes: p.numberType ? peers.map(peer => peer.numberType) : null,
+      value: mixed ? undefined : values[0],
+      disabled: translatedText && originals.some(v => v == null || v === '') }];
+  });
+  return common.sort((a, b) => Number(b.font) - Number(a.font));
+}
+
+function batchPropertyHtml(p) {
+  const label = esc(p.label || keyLabel(p.key));
+  const field = `data-prop="${esc(p.key)}" aria-label="${label}"`;
+  const placeholder = p.mixed ? '不同值' : (p.placeholder || '');
+  const disabled = p.disabled ? ' disabled title="请先在默认语言填写原文"' : '';
+  const canClearText = (p.type === 'text' || p.type === 'textarea') && p.mixed && !p.disabled;
+  let control;
+  if (p.type === 'color') {
+    control = `<input class="f-color" type="color" ${field} data-color-commit-only value="${colorInputValue(p.value)}">
+      <button type="button" class="tb-btn sm clear-color${!p.mixed && isTransparentColor(p.value) ? ' active' : ''}" data-batch-clear="${esc(p.key)}">透明</button>`;
+  } else if (p.type === 'number') {
+    control = `<input class="f-input" type="number" ${field} value="${esc(p.value)}" placeholder="${p.mixed ? '不同值' : '批量设置'}"
+      ${Number.isFinite(p.min) ? `min="${p.min}"` : ''} ${Number.isFinite(p.max) ? `max="${p.max}"` : ''}>`;
+  } else if (p.type === 'check') {
+    control = `<input class="f-check" type="checkbox" ${field}${p.value ? ' checked' : ''}>`;
+  } else if (p.type === 'text') {
+    control = `<input class="f-input" ${field} value="${esc(p.value)}" placeholder="${esc(placeholder)}"${disabled}>`;
+  } else if (p.type === 'textarea') {
+    const rows = p.rows || 5;
+    control = `<textarea class="f-input f-area${rows <= 3 ? ' f-area-compact' : ''}" ${field}
+      rows="${rows}" placeholder="${esc(placeholder)}"${disabled}>
+${esc(p.value)}</textarea>`;
+  } else {
+    control = `<select class="f-select" ${field}>
+      ${p.mixed || p.value == null ? '<option value="" disabled selected>不同值</option>' : ''}
+      ${p.options.map(o => `<option value="${esc(o.v)}"${String(p.value) === String(o.v) ? ' selected' : ''}>${esc(o.t)}</option>`).join('')}
+    </select>`;
+  }
+  const mixedHint = p.mixed && (p.type === 'color' || p.type === 'check') ? '<small>不同值</small>' : '';
+  const clearText = canClearText
+    ? `<button type="button" class="tb-btn sm" data-batch-empty="${esc(p.key)}" aria-label="清空${label}">清空</button>` : '';
+  return `<div class="f-row"><span class="f-label">${label}</span>${control}${mixedHint}${clearText}</div>`;
+}
 function renderMultiProps(body, ids) {
   /* 整组选中时：先给一份「组内控件」清单 —— 点一个就只选中它，
      属性面板立刻切成它自己的属性（想改组合里某一个控件时不用去猜 Alt+点击）。 */
   const wholeGroup = project.isWholeGroup(ids);
-  const members = wholeGroup ? ids.map(id => project.getWidget(id)).filter(Boolean) : [];
+  const members = ids.map(id => project.getWidget(id)).filter(Boolean);
+  const propertyMembers = members.filter(w => toolboxGroupOf(registry.get(w.type)) !== 'deco');
+  const common = propertyMembers.length > 1 ? commonProperties(propertyMembers) : [];
   const memberHtml = wholeGroup ? `
     <div class="prop-group">
-      <div class="prop-group-title">组内控件（${members.length} 个）· 点一个只选它</div>
+      <button type="button" class="prop-group-title">组内控件（${members.length} 个）</button>
       <div class="group-members">
         ${members.map(m => `<button type="button" class="gm-item" data-pick="${esc(m.id)}" title="只选中「${esc(m.name)}」，然后就能单独改它的属性">
           <span class="gm-badge">${esc(registry.get(m.type)?.title || m.type)}</span>
@@ -240,28 +464,92 @@ function renderMultiProps(body, ids) {
 
   body.innerHTML = `${memberHtml}
     <div class="prop-group">
-      <div class="prop-group-title">批量几何（${ids.length} 个控件）</div>
+      <button type="button" class="prop-group-title">批量几何（${ids.length} 个控件）</button>
       <div class="prop-grid">
-        <span class="f-label">X</span><input class="f-input" id="mX" type="number" placeholder="批量设置">
-        <span></span>
-        <span class="f-label">Y</span><input class="f-input" id="mY" type="number" placeholder="批量设置">
-        <span></span>
-        <span class="f-label">宽</span><input class="f-input" id="mW" type="number" placeholder="批量设置">
-        <span></span>
-        <span class="f-label">高</span><input class="f-input" id="mH" type="number" placeholder="批量设置">
-        <span></span>
+        <label class="prop-pair"><span class="f-label">X</span><input class="f-input" id="mX" type="number" placeholder="批量设置"></label>
+        <label class="prop-pair"><span class="f-label">Y</span><input class="f-input" id="mY" type="number" placeholder="批量设置"></label>
+        <label class="prop-pair"><span class="f-label">宽</span><input class="f-input" id="mW" type="number" placeholder="批量设置"></label>
+        <label class="prop-pair"><span class="f-label">高</span><input class="f-input" id="mH" type="number" placeholder="批量设置"></label>
       </div>
-    </div>`;
+    </div>
+    ${common.length ? `<div class="prop-group"><button type="button" class="prop-group-title">共同属性</button>
+      <div class="prop-fields">${common.map(batchPropertyHtml).join('')}</div></div>` : ''}`;
   body.querySelectorAll('[data-pick]').forEach(btn => {
     btn.addEventListener('click', () => select([btn.dataset.pick], { raw: true }));   // 只选这一个
   });
   [['mX', 'x'], ['mY', 'y'], ['mW', 'w'], ['mH', 'h']].forEach(([id, key]) => {
     document.getElementById(id).addEventListener('change', e => {
-      const v = +e.target.value;
-      if (!v && v !== 0) return;
+      if (e.target.value === '') return;
+      const v = Number(e.target.value);
+      if (!Number.isFinite(v)) return;
       if (key === 'w' || key === 'h') { if (v < 8) return; }
       project.updateWidgets(ids, { [key]: v });
       project.commit('批量几何');
+    });
+  });
+  const apply = (p, valueFor) => {
+    let changed = false;
+    propertyMembers.forEach((w, i) => {
+      const value = valueFor(w);
+      if (p.translatedFont) {
+        if (widgetFontPx(w, p.key) === value) return;
+        setWidgetFontPx(w, p.key, value);
+        project.markDirty(w.id);
+      } else if (p.translatedText) {
+        const raw = widgetPropValue(p, w, registry.get(w.type));
+        if (textOf(raw) === value || !setTranslationFor(raw, value)) return;
+      } else if (p.numberTypes) {
+        const type = p.numberTypes[i];
+        if (w.props.decimals === value && w.props.dispType === type && w.props.fmt === fmtOfDecimals(type, value)) return;
+        setWidgetDecimals(w, type, value);
+      } else {
+        if (w.props[p.key] === value) return;
+        project.updateWidgetProp(w.id, p.key, value, { notify: false });
+      }
+      changed = true;
+    });
+    if (changed) {
+      // 画布照常更新，属性面板保留焦点，避免失焦提交时重建下一个要点的输入框。
+      committingBatch = true;
+      try {
+        project.commit(p.font ? '批量修改字号' : '批量修改属性', { merge: p.font });
+      } finally {
+        committingBatch = false;
+      }
+    }
+    return changed;
+  };
+  common.forEach(p => {
+    const key = CSS.escape(p.key);
+    const input = body.querySelector(`[data-prop="${key}"]`);
+    if (p.type === 'check') input.indeterminate = p.mixed;
+    const clearText = body.querySelector(`[data-batch-empty="${key}"]`);
+    const applyInput = (normalize) => {
+      if (p.type === 'number' && input.value === '') return;
+      let value = p.type === 'check' ? input.checked : input.value;
+      if (p.type === 'number') {
+        value = Math.min(p.max, Math.max(p.min, Number(value)));
+        if (p.font || p.numberTypes) value = Math.round(value);
+        if (normalize) input.value = value;
+      }
+      if (apply(p, () => value)) {
+        clearText?.remove();
+        input.placeholder = p.placeholder || '';
+      }
+    };
+    if (p.font) input.addEventListener('input', () => applySoon(input, () => {
+      if (input.isConnected) applyInput(false);
+    }));
+    input.addEventListener('change', () => {
+      cancelSoon(input);
+      applyInput(true);
+      if (input.isConnected && (p.type === 'color' || p.type === 'check')) render();
+    });
+    body.querySelector(`[data-batch-clear="${key}"]`)?.addEventListener('click', () => {
+      if (apply(p, w => batchColorClear(w, p.key))) render();
+    });
+    clearText?.addEventListener('click', () => {
+      if (apply(p, () => '')) render();
     });
   });
   wireFold(body);
@@ -270,6 +558,12 @@ function renderMultiProps(body, ids) {
 /* ═══════════ 单个控件 ═══════════ */
 function renderWidgetProps(body, w) {
   if (!w) return renderPageProps(body);
+  const previousLevels = body.querySelector('.alarm-level-picker');
+  const sameLevels = previousLevels?.dataset.widget === w.id;
+  const levelsOpen = sameLevels && previousLevels.open;
+  const levelScroll = levelsOpen ? previousLevels.querySelector('.alarm-level-choices').scrollTop : 0;
+  const levelFocus = sameLevels && previousLevels.contains(document.activeElement)
+    ? document.activeElement.dataset.levelFocus : '';
   const def = registry.get(w.type) || {};      // || {}：类型没定义时也不能把面板渲染搞崩（见下面的提示条）
   // 当前语言 ≠ 默认语言时：i18n 文本属性显示译文、字号属性显示这门语言下的生效 px；
   // 编辑时分别写 dict / wsize（不改原文、不改基础字号）；默认语言下行为与以前完全一致。
@@ -301,83 +595,58 @@ function renderWidgetProps(body, w) {
   // 几何
   html += `
     <div class="prop-group">
-      <div class="prop-group-title">几何 / 名称</div>
+      <button type="button" class="prop-group-title">几何 / 名称</button>
       <div class="prop-grid">
-        <span class="f-label">X</span><input class="f-input" data-fld="x" type="number" value="${w.x}"><span></span>
-        <span class="f-label">Y</span><input class="f-input" data-fld="y" type="number" value="${w.y}"><span></span>
-        <span class="f-label">宽</span><input class="f-input" data-fld="w" type="number" min="1" value="${w.w}"><span></span>
-        <span class="f-label">高</span><input class="f-input" data-fld="h" type="number" min="1" value="${w.h}"><span></span>
+        <label class="prop-pair"><span class="f-label">X</span><input class="f-input" data-fld="x" type="number" value="${w.x}"></label>
+        <label class="prop-pair"><span class="f-label">Y</span><input class="f-input" data-fld="y" type="number" value="${w.y}"></label>
+        <label class="prop-pair"><span class="f-label">宽</span><input class="f-input" data-fld="w" type="number" min="1" value="${w.w}"></label>
+        <label class="prop-pair"><span class="f-label">高</span><input class="f-input" data-fld="h" type="number" min="1" value="${w.h}"></label>
       </div>
-      <div class="f-row"><span class="f-label">名称</span>
-        <input class="f-input" data-fld="name" value="${esc(w.name)}"></div>
-      <div class="f-row"><span class="f-label">锁定</span>
-        <!-- 勾选框右边的「锁定后无法移动/缩放」文字**去掉了**（现场要求只删文字、留勾选框）：
-             意思在「锁定」这个标签上，工具栏也有「🔒 锁定」按钮 -->
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"
-          title="勾上：这个控件在画布上不能拖动/缩放（还能选中看属性）。锁定/解锁也可以点工具栏的「🔒 锁定」。">
+      <div class="f-row prop-identity">
+        <label class="f-label" for="propWidgetName">名称</label>
+        <input class="f-input" id="propWidgetName" data-fld="name" value="${esc(w.name)}">
+        <label class="prop-check" title="锁定后仍可选中控件，但在画布上无法拖动或缩放">
           <input class="f-check" data-lock="1" type="checkbox" ${w.locked ? 'checked' : ''}>
-        </label></div>
+          <span>锁定</span>
+        </label>
+      </div>
     </div>`;
 
-  // 操作权限（所有控件都能配）：运行态点到它时先查权限，不够就弹密码框。
-  // 等级表在「工程 ▾ → 权限管理…」里配（名字 + 密码，跟着工程走）。
-  // ⚠ 三行（权限等级 / 密码框 / 小锁标记）**一直显示**，不管有没有选等级、权限管理开没开 ——
-  //   现场不想为了改一下设置还要先选个等级（"一直显示"比"按状态显隐"更省事）。
-  // ⚠ 这里以前还有一行「⚠ 权限管理现在是关的…」的提示：现场要求去掉（面板上少一句废话），
-  //   权限管理开关本身在「工程 ▾ → 权限管理…」里，按钮就在这一栏下面。
+  // 已配置的权限、条件和穿透默认展开。手动折叠状态优先，见 wireFold。
   const levels = project.permLevels();
   const curLv = String(w.props?.permLevel || '');
-  const showBadge = w.props?.showPermBadge !== false;     // 默认显示（不喜欢可以单独关掉）
+  const recipeDeleteOnly = w.type === 'recipe';
   html += `
-    <div class="prop-group">
-      <div class="prop-group-title">操作权限</div>
-      <div class="f-row"><span class="f-label">权限等级</span>
-        <select class="f-select" data-prop="permLevel" style="flex:1" ${levels.length ? '' : 'disabled'}>
-          <option value="">不限（谁都能操作）</option>
+    <div class="prop-group"${curLv ? '' : ' data-fold-default'}>
+      <button type="button" class="prop-group-title">操作权限</button>
+      <div class="f-row"><label class="f-label" for="propPermLevel">${recipeDeleteOnly ? '删除权限等级' : '权限等级'}</label>
+        <select class="f-select" id="propPermLevel" data-prop="permLevel" ${levels.length ? '' : 'disabled'}>
+          <option value="">${recipeDeleteOnly ? '不限（无额外操作等级）' : '不限（谁都能操作）'}</option>
           ${levels.map(l => `<option value="${esc(l.id)}" ${curLv === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}
         </select>
       </div>
-      <div class="f-row"><span class="f-label">密码框</span>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"
-          title="勾上（默认）：权限不够时点这个控件 → 弹出密码框，输对了才能操作。
-不勾：权限不够就**点不动**，也不弹密码框、不给任何提示（不想让现场看到密码入口时用；这时建议留着下面的「小锁标记」勾选，好让人知道为什么点不动）。">
+      <div class="prop-options">
+        <label class="f-row prop-check" title="${recipeDeleteOnly ? '删除配方时，权限不足则弹出密码框' : '操作控件时，权限不足则弹出密码框'}">
           <input class="f-check" data-prop="permPrompt" type="checkbox" ${w.props?.permPrompt !== false ? 'checked' : ''}>
-          <!-- 勾选框右边的「权限不够时自动弹出」文字**去掉了**（现场要求只删文字、留开关）：
-               意思在「密码框」这个标签 + 悬停提示里，勾选框自己说话 -->
-        </label></div>
-      <div class="f-row"><span class="f-label">小锁标记</span>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"
-          title="勾上（默认）：等级不够时，这个控件角上挂一个 🔒 —— 一眼看出为什么点不动；解锁后标记自动消失。
-不勾：这个控件不挂标记（运行态照样拦），画面想更干净时用。">
-          <input class="f-check" data-prop="showPermBadge" type="checkbox" ${showBadge ? 'checked' : ''}>
-        </label></div>
-      ${levels.length ? '' : `<div class="f-row"><span class="f-label"></span></div>`}
-      <div class="f-row"><span class="f-label"></span>
+          <span class="f-label">密码框</span>
+        </label>
+        <label class="f-row prop-check" title="${recipeDeleteOnly ? '权限不足时在删除按钮旁显示小锁' : '权限不足时在控件角上显示小锁'}">
+          <input class="f-check" data-prop="showPermBadge" type="checkbox" ${w.props?.showPermBadge !== false ? 'checked' : ''}>
+          <span class="f-label">小锁标记</span>
+        </label>
         <button type="button" class="tb-btn sm" id="permCfgBtn">权限管理…</button>
       </div>
     </div>`;
 
-  // 按条件启用（所有控件都能配）：跟「操作权限」管的是同一件事（这个控件现在能不能操作），
-  // 所以**紧挨着权限那一栏**放；区别是开锁的不是密码、而是变量条件；不满足时还能整个藏起来。
-  // ⚠ 缺键 = 不启用，老工程行为一个字不变。
   html += gateGroupHtml(w);
-
-  // 点击穿透（所有控件都能配）：叠着放的时候，点一下要不要把**压在下面的控件**也一起点到。
-  // 现场场景：一个大方框压在按钮上（或者两个透明按钮叠在一起），希望点一下两个都生效。
-  // ⚠ 默认不勾 = 现在的行为（点谁就只算谁），老画面一点不变；
-  //   勾上「穿透」= 我自己的动作照做，**同时继续往下传**（下面的也一起做）。
-  //   见 js/runtime/runtime.js 的 fireBelowWidgets / isClickThrough。
   const ct = isClickThrough(w.props);
   html += `
-    <div class="prop-group">
-      <div class="prop-group-title">点击穿透</div>
-      <div class="f-row"><span class="f-label">穿透</span>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"
-          title="勾上（穿透）：运行态点我，我自己的动作照做，压在下面的控件的动作也一起做 —— 两个控件叠着放，点一下两个都触发；方框没配动作时，就等于透过方框点到下面的按钮。
-不勾（默认，不穿透）：点谁算谁，和以前完全一样。
-只作用于运行态：组态画布上照样能点中、能拖（不然被压住的框就选不中了）。">
-          <input class="f-check" data-prop="clickThrough" type="checkbox" ${ct ? 'checked' : ''}>
-        </label></div>
+    <div class="prop-group"${ct ? '' : ' data-fold-default'}>
+      <button type="button" class="prop-group-title">点击穿透</button>
+      <label class="f-row prop-check" title="勾选后，运行时点击此控件也会触发叠在下面的控件">
+        <span class="f-label">穿透</span>
+        <input class="f-check" data-prop="clickThrough" type="checkbox" ${ct ? 'checked' : ''}>
+      </label>
     </div>`;
 
   // 类型属性（schema 驱动）
@@ -388,7 +657,6 @@ function renderWidgetProps(body, w) {
     const bindForType = w.bindings?.variable
       ? project.variables().find(x => x.name === w.bindings.variable) : null;
     const dtypeLocked = !!bindForType && backend.isOpcua();
-    let dtypeLockMsg = '';      // 「数据类型」被锁住时下面那行说明（说清为什么不能改）
     // 逐条属性的 HTML（下面按 group 分栏时会反复调用它）。
     // ⚠ 里面照旧写 `html += …`：靠外面那层临时清空/还原来"接住"这一条的 HTML，
     //   这样这段又长又密的渲染逻辑一行都不用改（改一处漏一处最容易出 bug）。
@@ -397,15 +665,7 @@ function renderWidgetProps(body, w) {
       // 非默认语言：i18n 文本属性显示译文；字号属性显示这门语言下的生效 px
       const i18nText = langDiff && !!(p.i18n);
       const i18nFont = langDiff && isFontPropKey(p.key);
-      // showVarType='notBool'：仅当绑定的变量存在且类型非 bool 时显示该行
-      // （bool 直接开/关无需比较；未绑定时不显示空转的比较条件）
-      if (p.showVarType === 'notBool') {
-        const vt = project.variables().find(x => x.name === w.bindings?.variable)?.type;
-        if (!vt || vt === 'bool') return;
-      }
-      // showIf：这一行只在某个勾选属性为真时才出现（如数值控件的「下限/上限」只在勾了
-      // 「范围限制」后才有意义）。勾选框变化时外面会重画面板，所以这里直接跳过就行。
-      if (p.showIf && !w.props[p.showIf]) return;
+      if (!widgetPropVisible(p, w, bindForType?.type)) return;
       if (p.type === 'image') {
         // 图片属性自成两行（选图行 + 预览行），不走下方统一外壳，
         // 否则外层已输出一次 label、内层再输出一次，「图片」会显示两遍
@@ -416,11 +676,11 @@ function renderWidgetProps(body, w) {
           <button class="tb-btn sm" data-imgpick="${p.key}">选图</button></div>
           <input type="file" accept="image/*" hidden data-imgfile="${p.key}">
           ${src ? `<div class="f-row"><span class="f-label"></span>
-            <img src="${src}" style="max-width:150px;max-height:70px;border:1px solid var(--border);border-radius:4px">
+            <img src="${esc(src)}" alt="" title="${esc(imgSizeHint(src))}" style="max-width:150px;max-height:70px;border:1px solid var(--border);border-radius:4px">
             <button class="tb-btn sm" data-clear="${p.key}">清除</button></div>` : ''}`;
         return;
       }
-      html += `<div class="f-row"><span class="f-label">${p.label || keyLabel(p.key)}</span>`;
+      html += `<div class="f-row"${p.hint ? ` title="${esc(p.hint)}"` : ''}><span class="f-label">${p.label || keyLabel(p.key)}</span>`;
       if (p.type === 'number') {
         // defVal：控件 props 里没有该键（老工程）时按运行时真实默认值显示，别把 undefined 写进输入框
         // 字号类属性在非默认语言下显示「这门语言下这个控件的生效 px」（有 per-widget 覆盖优先）
@@ -430,19 +690,35 @@ function renderWidgetProps(body, w) {
       } else if (p.type === 'color') {
         // 「透明」= 把颜色清空（全工程一个约定：空 = 透明）。已经是透明时把按钮点亮，
         // 否则色块显示 #ffffff，看着像"白色"，用户会以为透明没生效。
-        const empty = !v;
-        html += `<input class="f-color" data-prop="${p.key}" type="color" value="${v || '#ffffff'}">
+        const empty = isTransparentColor(v);
+        html += `<input class="f-color" data-prop="${p.key}" type="color" value="${colorInputValue(v)}">
           <button class="tb-btn sm clear-color${empty ? ' active' : ''}" data-clear="${p.key}"
             title="${empty ? '当前是透明（点色块可以再选个颜色）' : '设为透明（不填底色）'}">透明</button>`;
+      } else if (p.type === 'alarmLevels') {
+        const levels = [...ALARM_LEVELS, ...project.customAlarmLevels()];
+        const matches = alarmLevelMatcher(v);
+        const selected = levels.filter(matches);
+        const summary = selected.length === levels.length ? '全部级别'
+          : selected.length === 0 ? '未选择' : selected.length === 1 ? selected[0].t : `已选 ${selected.length} 个级别`;
+        html += `<details class="alarm-level-picker" data-widget="${esc(w.id)}" data-key="${esc(p.key)}"${levelsOpen ? ' open' : ''}>
+          <summary class="f-select" data-level-focus="summary">${esc(summary)}</summary>
+          <div class="alarm-level-choices" role="group" aria-label="显示级别">
+            <div class="alarm-level-bulk">
+              <button type="button" class="tb-btn sm" data-level-bulk="all" data-level-focus="all">全选</button>
+              <button type="button" class="tb-btn sm" data-level-bulk="none" data-level-focus="none">清空</button>
+            </div>
+            ${levels.map(l => `<label class="alarm-level-choice">
+              <input class="f-check" type="checkbox" value="${esc(l.v)}" data-level-choice data-level-focus="level:${esc(l.v)}"${matches(l) ? ' checked' : ''}>
+              <span class="al-level-swatch" aria-hidden="true" style="--level-color:${l.color}"></span>
+              <span title="${esc(l.t)}">${esc(l.t)}</span>
+            </label>`).join('')}
+          </div></details>`;
       } else if (p.type === 'select') {
         // 字符串变量的比较符只保留等值判断（> < 等对字符串无意义，compareVal 亦不响应）
-        let opts = p.options;
-        if (p.key === 'op') {
-          const vt = project.variables().find(x => x.name === w.bindings?.variable)?.type;
-          if (vt === 'string') opts = opts.filter(o => o.v === '==' || o.v === '!=');
-        }
-        html += `<select class="f-select" data-prop="${p.key}">${
-          opts.map(o => `<option value="${o.v}" ${String(v) === String(o.v) ? 'selected' : ''}>${o.t}</option>`).join('')
+        const opts = widgetPropOptions(p, bindForType?.type);
+        // title：悬停说明（与 check 一致，写进属性定义里，不占面板地方）
+        html += `<select class="f-select" data-prop="${p.key}"${p.title ? ` title="${esc(p.title)}"` : ''}>${
+          opts.map(o => `<option value="${o.v}" ${String(v ?? p.defVal) === String(o.v) ? 'selected' : ''}>${o.t}</option>`).join('')
         }</select>`;
       } else if (p.type === 'check') {
         // defVal：控件 props 里没有该键（旧工程）时，按运行时的真实默认值显示勾选态
@@ -476,10 +752,7 @@ function renderWidgetProps(body, w) {
         //   时按 0 显示 —— 否则会把浮点默认的 decimals=1 / fmt=%.1f 当成"1 位缩放"，
         //   现场一打开面板就看到默认 1，还以为是整数默认带小数位。
         const isIntType = isIntDtype(t);
-        const intConfigured = isIntDtype(w.props.dispType);
-        const dec = isIntType
-          ? (intConfigured ? intDecimalsOf(w.props) : 0)
-          : (w.props.decimals ?? decimalsFromFmt(w.props.fmt));
+        const dec = widgetDecimals(w, t);
         const isInt = t === 'int' || t === 'uint';
         const isFloat = t === 'float' || t === 'real' || t === 'lreal' || !['int', 'uint', 'dint', 'udint', 'string'].includes(t);
         // ⚠ 这两句必须**先判 bindVar 再取字段**：没绑变量时 bindVar 是 null，
@@ -508,11 +781,7 @@ function renderWidgetProps(body, w) {
           value="${dec}" placeholder="小数位" title="${isIntType
             ? '小数位：0=无小数点（按整数显示）；1~6=定点缩放，PLC 里 123 + 小数位 2 → 屏上 1.23（读、写都按这个倍率换算）'
             : '小数位：0=无小数点，1~6=保留几位小数'}" style="width:76px;flex:none">` : ''}`;
-        if (typeLocked) {
-          dtypeLockMsg = dtypeLocked
-            ? '🔒 OPC UA 变量是导入的：类型以 PLC 为准，这里只看不改（要换类型去 PLC 改完重新导入）'
-            : `🔒 变量「${esc(bindVar.name)}」是 <b>${esc(typeCn)}</b>：没有对应的数值格式，按 0/1 显示，这里固定 int（类型以变量为准，要改去「变量」面板改）`;
-        }
+        if (typeLocked) html += `<span class="f-lock" title="${esc(lockTip)}">已锁定</span>`;
       } else if (p.type === 'stateColors') {
         // 下拉框：每个状态一个颜色块。颜色**不另存一张表**，写回的就是「选项」里那一行末尾的
         // `=#颜色`（单一数据源）—— 两处各存一份，早晚有一天对不上，现场就成了"颜色没跟着改"。
@@ -530,8 +799,10 @@ function renderWidgetProps(body, w) {
         // 非默认语言下显示当前语言译文（编辑时写 dict，不改编原文）
         const shownRaw = v ?? (p.defFrom ? w.props[p.defFrom] : undefined) ?? '';
         const shown = i18nText ? textOf(shownRaw) : shownRaw;
-        html += `<textarea class="f-input f-area"${i18nText ? ` data-i18ntext="${p.key}"` : ''} data-prop="${p.key}" rows="${p.rows || 5}"
-          placeholder="${esc(p.placeholder || '')}">${esc(shown)}</textarea>`;
+        const rows = p.rows || 5;
+        html += `<textarea class="f-input f-area${rows <= 3 ? ' f-area-compact' : ''}"${i18nText ? ` data-i18ntext="${p.key}"` : ''} data-prop="${p.key}" rows="${rows}"
+          placeholder="${esc(p.placeholder || '')}">
+${esc(shown)}</textarea>`;
       } else if (p.type === 'varOrValue') {
         /* 「固定值 / 变量」二选一的一格（数值控件的输入范围上下限用）。
            两种模式的输入框**都画出来**，切模式只切显隐 —— 不整面板重建，
@@ -565,15 +836,7 @@ function renderWidgetProps(body, w) {
         html += `<input class="f-input"${i18nText ? ` data-i18ntext="${p.key}"` : ''} data-prop="${p.key}" value="${esc(shown)}">`;
       }
       html += `</div>`;
-      if (p.hint) {
-        html += `<div class="f-row"><span class="f-label"></span>
-          <span style="color:var(--text-2);font-size:11px;line-height:1.5">${esc(p.hint)}</span></div>`;
-      }
-      // 锁住的那一行要把「为什么不能改」明说出来 —— disabled 控件的 title 不一定有人去悬停
-      if (p.type === 'dtype' && dtypeLockMsg) {
-        html += `<div class="f-row"><span class="f-label"></span>
-          <span style="color:var(--text-2);font-size:11px;line-height:1.5">${dtypeLockMsg}</span></div>`;
-      }
+
     };
     /** 渲染一条属性并把它单独取出来（见 renderProp 上面那段说明） */
     const propRow = (p) => {
@@ -598,11 +861,11 @@ function renderWidgetProps(body, w) {
       g.list.push(p);
     });
     if (mainProps.length) {
-      html += `<div class="prop-group"><div class="prop-group-title">${def.title} 属性</div>`
+      html += `<div class="prop-group"><button type="button" class="prop-group-title">${def.title} 属性</button>`
         + mainProps.map(propRow).join('') + '</div>';
     }
     groups.forEach(g => {
-      html += `<div class="prop-group"><div class="prop-group-title">${g.name}</div>`
+      html += `<div class="prop-group"><button type="button" class="prop-group-title">${g.name}</button>`
         + g.list.map(propRow).join('') + '</div>';
     });
   }
@@ -614,7 +877,7 @@ function renderWidgetProps(body, w) {
     const issue = varIssueOf({ value: cur, dataset: { bind: 'variable' } }, w);
     html += `
     <div class="prop-group">
-      <div class="prop-group-title">数据绑定</div>
+      <button type="button" class="prop-group-title">数据绑定</button>
       <div class="f-row"><span class="f-label">${b.label || '绑定变量'}</span>
         ${varInputHtml({ value: cur, kind: 'bind', bind: 'variable', issue,
           placeholder: '输入变量名（可搜，或点开下拉选）', clearTitle: '清空（不绑定变量）' })}</div>
@@ -632,7 +895,7 @@ function renderWidgetProps(body, w) {
     if (b.simple || def.bindPanel === 'simple') {
       html += `
     <div class="prop-group">
-      <div class="prop-group-title">${b.label || '变量'}（${used.length}/${max}）</div>
+      <button type="button" class="prop-group-title">${b.label || '变量'}（${used.length}/${max}）</button>
       <div class="chan-list">
         ${Array.from({ length: max }, (_, slot) => {
           const name = raw[slot] || '';
@@ -650,7 +913,7 @@ function renderWidgetProps(body, w) {
     } else {
       html += `
     <div class="prop-group">
-      <div class="prop-group-title">${b.label || '数据通道'}（${used.length}/${max}）</div>
+      <button type="button" class="prop-group-title">${b.label || '数据通道'}（${used.length}/${max}）</button>
       <div class="chan-list">
         ${Array.from({ length: max }, (_, slot) => {
           const name = raw[slot] || '';
@@ -668,7 +931,7 @@ function renderWidgetProps(body, w) {
         }).join('')}
       </div>
       ${used.length ? `<div class="scale-list">
-        <div class="scale-head">通道量程：显示值 = 原值 × 倍率 + 偏置（多路信号量级差很多时用它对齐，如 ×0.001）</div>
+        <div class="scale-head" title="显示值 = 原值 × 倍率 + 偏置">通道量程</div>
         ${used.map(name => {
           const s = w.props.scales?.[name] || {};
           return `<div class="scale-row">
@@ -693,7 +956,7 @@ function renderWidgetProps(body, w) {
     const title = extras[0][1].group || '控制变量';
     html += `
     <div class="prop-group">
-      <div class="prop-group-title">${esc(title)}</div>
+      <button type="button" class="prop-group-title">${esc(title)}</button>
       ${extras.map(([k, b]) => {
         const cur = w.bindings?.[k] || '';
         const issue = varIssueOf({ value: cur, dataset: { bind: k } }, w);
@@ -712,17 +975,38 @@ function renderWidgetProps(body, w) {
     const canFollow = !!def.binding?.variable;
     html += `
     <div class="prop-group">
-      <div class="prop-group-title">动作（点击触发）</div>
+      <button type="button" class="prop-group-title">动作（点击触发）</button>
       ${canFollow ? `<label class="act-follow" title="勾上后动作里的变量跟「状态显示」的变量一致：改显示变量，动作变量跟着改，不用改两处">
         <input type="checkbox" class="f-check" id="actFollow" ${w.followBind ? 'checked' : ''}>
         <span>变量与「状态显示」的变量一致</span></label>` : ''}
       <div id="actList"></div>
-      ${(w.followBind && !w.bindings?.variable) ? `<div class="act-follow-tip">已勾选「变量与显示的变量一致」，但上面「数据绑定」里还没选显示变量 —— 选一个，动作变量就跟着它。</div>` : ''}
+      ${(w.followBind && !w.bindings?.variable) ? `<div class="act-follow-tip">还没选显示变量，请先绑定。</div>` : ''}
       <button class="act-add" id="actAdd">＋ 添加动作</button>
     </div>`;
   }
 
   body.innerHTML = html;
+
+  const levelPicker = body.querySelector('.alarm-level-picker');
+  if (levelPicker) {
+    levelPicker.querySelector('.alarm-level-choices').scrollTop = levelScroll;
+    const saveLevels = levels => {
+      project.updateWidgetProp(w.id, levelPicker.dataset.key, levels);
+      commitLater();
+    };
+    levelPicker.addEventListener('change', () => {
+      saveLevels(Array.from(levelPicker.querySelectorAll('[data-level-choice]:checked'), input => input.value));
+    });
+    levelPicker.addEventListener('click', e => {
+      const bulk = e.target.closest('[data-level-bulk]')?.dataset.levelBulk;
+      if (bulk) saveLevels(bulk === 'all' ? 'all' : []);
+    });
+    if (levelFocus) {
+      const target = Array.from(levelPicker.querySelectorAll('[data-level-focus]'))
+        .find(el => el.dataset.levelFocus === levelFocus);
+      target?.focus({ preventScroll: true });
+    }
+  }
 
   // 「在组合里」那条提示上的「选中整组」按钮
   document.getElementById('pickWholeGroup')?.addEventListener('click', () => {
@@ -797,6 +1081,16 @@ function renderWidgetProps(body, w) {
       if (inp.dataset.prop === 'showState'
         || (def.props || []).some(pp => pp.showIf === inp.dataset.prop)) render();
     };
+    if (inp.type === 'color') {
+      let original;
+      inp.addEventListener('hmi:color-open', () => { original = w.props[inp.dataset.prop]; });
+      inp.addEventListener('hmi:color-cancel', e => {
+        e.preventDefault();
+        cancelSoon(inp);
+        project.updateWidgetProp(w.id, inp.dataset.prop, original);
+        commitLater();
+      });
+    }
     // 图片地址不跟着每个字符变（会一路闪裂图），等 change
     if (!isCheck && !isSelect && inp.dataset.prop !== 'src') inp.addEventListener('input', () => applySoon(inp, () => apply(false)));
     // 改完（失焦/回车/松开色板）立刻落地，不用再等那 300ms
@@ -855,11 +1149,8 @@ function renderWidgetProps(body, w) {
       if (bv && !dtypeOfVarType(bv.type)) return;   // bool/认不出的变量：面板上这格本来就不显示
       // 有效类型：绑了变量以变量为准，否则控件自己的 dispType（老工程回落 fmt 反推）
       const t = (bv ? dtypeOfVarType(bv.type) : '') || cur?.props?.dispType || dtypeFromFmt(cur?.props?.fmt);
-      project.updateWidgetProp(w.id, 'decimals', n);
-      project.updateWidgetProp(w.id, 'fmt', fmtOfDecimals(t, n));
-      // 绑 int 变量时控件可能还挂着出厂默认的 float（fmt=%.1f）：一改小数位就跟生效类型对齐，
-      // 否则点了小数位看着没反应（显示仍按浮点走，整数缩放没开）
-      if (t && cur?.props?.dispType !== t) project.updateWidgetProp(w.id, 'dispType', t);
+      setWidgetDecimals(cur, t, n);
+      project.touch();
       commitLater();
     });
   });
@@ -890,30 +1181,35 @@ function renderWidgetProps(body, w) {
 
   body.querySelectorAll('[data-clear]').forEach(btn => {
     btn.addEventListener('click', () => {
-      project.updateWidgetProp(w.id, btn.dataset.clear, '');
+      project.updateWidgetProp(w.id, btn.dataset.clear, batchColorClear(w, btn.dataset.clear));
       commitLater();
       render();
     });
   });
-  // 图片选择：本地文件读为 base64 内嵌进工程
+  // 图片选择：本地文件读为 base64 内嵌进工程（先缩到最长边 1280 并重编码，别让工程撑爆）
   body.querySelectorAll('[data-imgpick]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const key = btn.dataset.imgpick;
-      const fi = body.querySelector(`[data-imgfile="${key}"]`);
-      if (!fi) return;
-      fi.onchange = () => {
-        const file = fi.files[0];
-        if (!file) return;
-        const fr = new FileReader();
-        fr.onload = () => {
-          project.updateWidgetProp(w.id, key, fr.result);   // dataURL 存入工程 JSON
-          commitLater();
-          render();   // 刷新预览
-        };
-        fr.readAsDataURL(file);
-      };
-      fi.click();
-    });
+    const key = btn.dataset.imgpick;
+    const fi = body.querySelector(`[data-imgfile="${key}"]`);
+    if (!fi) return;
+    // change 挂在 input 上（不是按钮点开时才挂）：这样拖文件进来、或用脚本直接喂文件都能走同一条链路
+    fi.onchange = async () => {
+      const file = fi.files[0];
+      fi.value = '';                       // 清空，同一个文件可以再选一次
+      if (!file) return;
+      btn.disabled = true;
+      try {
+        const raw = await readFileAsDataURL(file);
+        const url = await fitImageDataUrl(raw);
+        project.updateWidgetProp(w.id, key, url);   // dataURL 存入工程 JSON
+        commitLater();
+        render();   // 刷新预览
+      } catch (err) {
+        console.warn('[图片] 导入失败', err);
+      } finally {
+        btn.disabled = false;
+      }
+    };
+    btn.addEventListener('click', () => fi.click());
   });
   body.querySelectorAll('[data-bind]').forEach(sel => {
     const key = sel.dataset.bind || 'variable';            // 一般是 variable；波形还有 startVar / clearVar
@@ -1119,7 +1415,7 @@ function syncFollowBind(w, name) {
 function renderActions(box, w) {
   const def = registry.get(w.type);
   const acts = w.actions || [];
-  box.innerHTML = acts.length ? '' : '<div style="color:var(--text-2);font-size:11px;margin-bottom:6px">暂无动作。</div>';
+  box.replaceChildren();
 
   /** 结构变化后立即就地重绘动作列表。
    *  ⚠️ 必须显式重绘：点 ✕ / 「添加动作」时焦点还在属性面板里，project:changed 的
@@ -1321,68 +1617,55 @@ function gateGroupHtml(w) {
     const val = c?.val === undefined || c?.val === null ? '' : String(c.val);
     return `
       <div class="gate-cond" data-gi="${i}">
-        <div class="f-row" style="margin-bottom:3px">
-          <span class="f-label">条件${conds.length > 1 ? i + 1 : ''}</span>
-          <input class="f-input mono${miss ? ' bad' : ''}" data-gk="v" data-vpick="gate" value="${esc(name)}"
-                 placeholder="变量" style="flex:1;min-width:60px"
-                 title="${miss ? `变量表里没有「${esc(name)}」—— 运行时不生效（改名了就在这里重选一个）` : '判定用的变量（可搜，或点开下拉选）'}">
-          <button type="button" class="tb-btn sm" data-gdel="${i}" title="删掉这一条"
-                  style="flex:none;padding:1px 6px">✕</button>
+        <div class="gate-cond-row">
+          <label class="f-label" for="gateVar${i}">条件${conds.length > 1 ? i + 1 : ''}</label>
+          <input class="f-input mono${miss ? ' bad' : ''}" id="gateVar${i}" data-gk="v" data-vpick="gate" value="${esc(name)}"
+                 placeholder="变量" title="${miss ? `变量表里没有「${esc(name)}」` : '输入或选择条件变量'}">
+          <button type="button" class="tb-btn sm gate-cond-delete" data-gdel="${i}" title="删除条件" aria-label="删除条件${i + 1}">✕</button>
         </div>
-        <div class="f-row" style="margin-bottom:6px">
-          <span class="f-label"></span>
-          <select class="f-select" data-gk="op" style="width:62px;flex:none">${ops.map(o =>
+        <div class="gate-cond-row">
+          <select class="f-select" data-gk="op" aria-label="比较运算符">${ops.map(o =>
             `<option value="${o.v}" ${op === o.v ? 'selected' : ''}>${esc(o.t)}</option>`).join('')}</select>
-          <span style="flex:1;min-width:70px;display:flex">
-            ${isBool
-        ? `<select class="f-select" data-gk="val" style="flex:1" title="bool 变量按真假比（TRUE / FALSE）">
-                 <option value="true" ${val === '' || val === 'true' || val === '1' ? 'selected' : ''}>真</option>
-                 <option value="false" ${val === 'false' || val === '0' ? 'selected' : ''}>假</option>
-               </select>`
-        : `<input class="f-input" data-gk="val" value="${esc(val)}" placeholder="值" style="flex:1;min-width:50px">`}
-          </span>
-          <label style="display:flex;align-items:center;gap:3px;cursor:pointer;flex:none"
-                 title="非（取反）：这一条反过来说 —— 勾上表示「不满足才算成立」">
-            <input type="checkbox" data-gk="not" ${c?.not ? 'checked' : ''}><span style="font-size:11.5px;color:var(--text-2)">非</span></label>
+          ${isBool
+        ? `<select class="f-select" data-gk="val" aria-label="比较值">
+               <option value="true" ${val === '' || val === 'true' || val === '1' ? 'selected' : ''}>真</option>
+               <option value="false" ${val === 'false' || val === '0' ? 'selected' : ''}>假</option>
+             </select>`
+        : `<input class="f-input" data-gk="val" value="${esc(val)}" placeholder="比较值" aria-label="比较值">`}
+          <label class="prop-check" title="取反，条件不满足时判为成立">
+            <input class="f-check" type="checkbox" data-gk="not" ${c?.not ? 'checked' : ''}>非</label>
         </div>
       </div>`;
   };
   return `
-    <div class="prop-group">
-      <div class="prop-group-title">按条件启用</div>
-      <div class="f-row"><span class="f-label">启用</span>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"
-          title="勾上：只有下面这些条件满足时，这个控件才能操作（也能按条件藏起来）。
-不勾（默认）：和以前完全一样，这个控件不受条件影响。">
-          <input class="f-check" data-prop="gateOn" type="checkbox" ${on ? 'checked' : ''}></label></div>
-      <div class="f-row"><span class="f-label">不满足时</span>
-        <select class="f-select" data-prop="gateMode" style="flex:1"
-          title="「看不见，也点不了」= 条件不满足时这个控件整个不显示（那块位置没有它，也点不动它）；
-「看得见，但点不了」= 控件还在、值照常显示（灯/数值还能看），只是**动作不执行**、角上挂个 🔒 并说明原因。
-两个都是**运行态**的行为：组态画布上照常能选中、能拖。">
-          <option value="hide" ${mode === 'hide' ? 'selected' : ''}>看不见，也点不了</option>
-          <option value="lock" ${mode === 'lock' ? 'selected' : ''}>看得见，但点不了</option>
+    <div class="prop-group"${on || conds.length ? '' : ' data-fold-default'}>
+      <button type="button" class="prop-group-title">按条件启用</button>
+      <label class="f-row prop-check" title="启用后，运行时根据设置的变量条件决定是否显示或允许操作">
+        <span class="f-label">启用</span>
+        <input class="f-check" data-prop="gateOn" type="checkbox" ${on ? 'checked' : ''}>
+      </label>
+      <div class="f-row"><label class="f-label" for="propGateMode">不满足时</label>
+        <select class="f-select" id="propGateMode" data-prop="gateMode" title="条件不满足时隐藏控件，或保留显示但禁止操作">
+          <option value="hide" ${mode === 'hide' ? 'selected' : ''}>隐藏控件</option>
+          <option value="lock" ${mode === 'lock' ? 'selected' : ''}>显示但禁用</option>
         </select></div>
-      <div class="f-row"><span class="f-label">条件之间</span>
-        <select class="f-select" data-prop="gateLogic" style="flex:1"
-          title="多条条件怎么合：全部满足（与）/ 任一满足（或）。每条还能单独勾「非」取反。">
+      <div class="f-row"><label class="f-label" for="propGateLogic">条件之间</label>
+        <select class="f-select" id="propGateLogic" data-prop="gateLogic">
           <option value="and" ${logic === 'and' ? 'selected' : ''}>全部满足（与）</option>
           <option value="or" ${logic === 'or' ? 'selected' : ''}>任一满足（或）</option>
         </select></div>
-      <div class="f-row"><span class="f-label">弹提示</span>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"
-          title="不满足时点了它，要不要在画面底部弹一句「条件不满足（哪个变量 什么运算 什么值）」。
-不勾（默认）= 不弹：点不动就是点不动，画面上干干净净；鼠标停在那把 🔒 上照样看得到原因。
-只有「看得见，但点不了」这一档会弹（藏起来那档根本看不到控件，弹提示没意义）。">
-          <input class="f-check" data-prop="gateHint" type="checkbox" ${hint ? 'checked' : ''}></label></div>
-      <div class="f-row"><span class="f-label">条件锁标记</span>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"
-          title="勾上（默认）：条件不满足、控件被锁住时显示 🔒，尺寸会跟着控件缩放。
-不勾：只隐藏这个标记，条件拦截仍然生效。">
-          <input class="f-check" data-prop="showGateBadge" type="checkbox" ${w.props?.showGateBadge !== false ? 'checked' : ''}></label></div>
-      ${conds.length ? conds.map(rowHtml).join('') : ''}
-      <div class="f-row"><span class="f-label"></span>
-        <button type="button" class="tb-btn sm" id="gateAdd">＋ 添加条件</button></div>
+      <div class="prop-options">
+        <label class="f-row prop-check" title="锁住时点击会弹出提示，不勾选就不弹">
+          <input class="f-check" data-prop="gateHint" type="checkbox" ${hint ? 'checked' : ''}>
+          <span class="f-label">弹提示</span>
+        </label>
+        <label class="f-row prop-check" title="条件不满足且控件被锁住时，显示小锁标记">
+          <input class="f-check" data-prop="showGateBadge" type="checkbox" ${w.props?.showGateBadge !== false ? 'checked' : ''}>
+          <span class="f-label">条件锁标记</span>
+        </label>
+      </div>
+      ${conds.map(rowHtml).join('')}
+      <button type="button" class="tb-btn sm" id="gateAdd">＋ 添加条件</button>
     </div>`;
 }
 

@@ -19,6 +19,7 @@ let items = [];
 let active = -1;
 let isOpen = false;
 let allowNativeInInputs = true;
+let anchor = null;
 
 /** 注册一个菜单来源（先注册的先匹配）
  *  @param {Function} match (target, e) => boolean
@@ -34,11 +35,13 @@ export function isContextMenuOpen() { return isOpen; }
 /**
  * 在指定坐标弹一个菜单（工具栏下拉用同一套样式/键盘操作，别再写一套）。
  * @param {number} x @param {number} y
- * @param {Array} list 同 registerContextMenu 的 items 结构
+ * @param {Array} list 同 registerContextMenu 的 items 结构，可为条目指定图标
+ * @param {{anchor?: HTMLElement, align?: 'start'|'end'}} opts 下拉菜单的触发按钮与对齐方向
  */
-export function openAt(x, y, list) {
+export function openAt(x, y, list, { anchor: trigger = null, align = 'start' } = {}) {
   if (!el || !Array.isArray(list) || !list.length) return;
-  openMenu(x, y, list);
+  if (anchor && anchor === trigger) { closeMenu(true); return; }
+  openMenu(x, y, list, trigger, align);
 }
 
 export function initContextMenu(opts = {}) {
@@ -49,18 +52,21 @@ export function initContextMenu(opts = {}) {
   document.addEventListener('contextmenu', onContextMenu);
   // 点别处/按 Esc/滚动/窗口变化都关掉（capture 阶段先关，菜单内部的点击不受影响）
   document.addEventListener('pointerdown', e => {
-    if (isOpen && !e.target.closest('#ctxMenu')) closeMenu();
+    if (isOpen && !el.contains(e.target) && !anchor?.contains(e.target)) closeMenu();
   }, true);
   document.addEventListener('keydown', e => {
     if (!isOpen) return;
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(true); }
+    else if (e.key === 'Tab') closeMenu(true);
     else if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
-    else if (e.key === 'Enter') { e.preventDefault(); activate(); }
+    else if (e.key === 'Enter' || (anchor && e.key === ' ')) { e.preventDefault(); activate(); }
   }, true);
-  window.addEventListener('blur', closeMenu);
-  window.addEventListener('resize', closeMenu);
-  window.addEventListener('wheel', () => { if (isOpen) closeMenu(); }, { passive: true, capture: true });
+  window.addEventListener('blur', () => closeMenu());
+  window.addEventListener('resize', () => closeMenu());
+  window.addEventListener('wheel', e => {
+    if (isOpen && !e.target.closest?.('#ctxMenu')) closeMenu();
+  }, { passive: true, capture: true });
 }
 
 function onContextMenu(e) {
@@ -80,7 +86,14 @@ function onContextMenu(e) {
   openMenu(e.clientX, e.clientY, list);
 }
 
-function openMenu(x, y, list) {
+function openMenu(x, y, list, trigger = null, align = 'start') {
+  closeMenu();
+  anchor = trigger;
+  el.dataset.kind = anchor ? 'dropdown' : 'context';
+  if (anchor) {
+    anchor.setAttribute('aria-expanded', 'true');
+    el.setAttribute('aria-labelledby', anchor.id);
+  }
   items = list;
   el.innerHTML = '';
   items.forEach((it, i) => {
@@ -103,14 +116,32 @@ function openMenu(x, y, list) {
     b.className = 'ctx-item' + (it.danger ? ' danger' : '') + (it.disabled ? ' disabled' : '');
     b.dataset.idx = i;
     b.disabled = !!it.disabled;
-    const check = document.createElement('span');
-    check.className = 'ctx-check';
-    check.textContent = it.check ? '✓' : '';
+    b.id = `ctxItem${i}`;
+    b.tabIndex = -1;
+    const checkable = typeof it.check === 'boolean';
+    b.setAttribute('role', checkable ? 'menuitemcheckbox' : 'menuitem');
+    if (checkable) b.setAttribute('aria-checked', String(it.check));
+    if (it.description) {
+      b.title = it.description;
+      b.setAttribute('aria-description', it.description);
+    }
     const label = document.createElement('span');
     label.className = 'ctx-label';
     label.textContent = it.label;               // textContent：控件名/变量名都可能是任意字符
-    b.appendChild(check);
+    if (it.icon) {
+      const ns = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(ns, 'svg');
+      const use = document.createElementNS(ns, 'use');
+      svg.setAttribute('class', 'ui-icon ctx-icon');
+      svg.setAttribute('aria-hidden', 'true');
+      use.setAttribute('href', `#ui-${it.icon}`);
+      svg.appendChild(use);
+      b.appendChild(svg);
+    } else {
+      b.appendChild(menuCheck(it.check));
+    }
     b.appendChild(label);
+    if (it.icon && checkable) b.appendChild(menuCheck(it.check));
     if (it.key) {
       const k = document.createElement('span');
       k.className = 'ctx-key';
@@ -122,28 +153,51 @@ function openMenu(x, y, list) {
   });
 
   el.classList.remove('hidden');
-  el.style.left = x + 'px';
-  el.style.top = y + 'px';
-  // 贴边时往里收，别跑出屏幕
-  const r = el.getBoundingClientRect();
+  const edge = 6;
   const vw = window.innerWidth, vh = window.innerHeight;
-  el.style.left = Math.max(6, Math.min(x, vw - r.width - 6)) + 'px';
-  el.style.top = Math.max(6, Math.min(y, vh - r.height - 6)) + 'px';
+  el.style.maxHeight = `${Math.max(0, vh - edge * 2)}px`;
+  if (anchor) {
+    const bounds = anchor.getBoundingClientRect();
+    const above = bounds.top - edge - 4;
+    const below = vh - y - edge;
+    const openDown = el.offsetHeight <= below || below >= above;
+    el.style.maxHeight = `${Math.max(0, openDown ? below : above)}px`;
+    if (!openDown) y = bounds.top - 4 - el.offsetHeight;
+    if (align === 'end') x = bounds.right - el.offsetWidth;
+  }
+  el.style.left = `${Math.max(edge, Math.min(x, vw - el.offsetWidth - edge))}px`;
+  el.style.top = `${Math.max(edge, Math.min(y, vh - el.offsetHeight - edge))}px`;
+  el.scrollTop = 0;
   isOpen = true;
-  active = nextEnabled(-1, 1);
+  active = anchor ? -1 : nextEnabled(-1, 1);
   paintActive();
+  if (anchor) el.focus({ preventScroll: true });
 }
 
-export function closeMenu() {
+function menuCheck(checked) {
+  const mark = document.createElement('span');
+  mark.className = 'ctx-check';
+  mark.setAttribute('aria-hidden', 'true');
+  mark.textContent = checked ? '✓' : '';
+  return mark;
+}
+
+export function closeMenu(restoreFocus = false) {
   if (!el || !isOpen) return;
+  const trigger = anchor;
+  anchor = null;
   isOpen = false;
   active = -1;
+  trigger?.setAttribute('aria-expanded', 'false');
+  el.removeAttribute('aria-labelledby');
+  el.removeAttribute('aria-activedescendant');
   el.classList.add('hidden');
   el.innerHTML = '';
+  if (restoreFocus === true) trigger?.focus({ preventScroll: true });
 }
 
 function runItem(it) {
-  closeMenu();
+  closeMenu(true);
   try { it.onClick?.(); } catch (e) { console.error('[ctx]', e); }
 }
 
@@ -159,13 +213,19 @@ function nextEnabled(from, step) {
   return -1;
 }
 function move(step) {
-  const n = nextEnabled(active, step);
-  if (n >= 0) { active = n; paintActive(); }
+  const start = active === -1 && step < 0 ? items.length : active;
+  const n = nextEnabled(start, step);
+  if (n >= 0) {
+    active = n;
+    paintActive();
+    document.getElementById(`ctxItem${active}`)?.scrollIntoView({ block: 'nearest' });
+  }
 }
 function paintActive() {
   el.querySelectorAll('.ctx-item').forEach(b => {
     b.classList.toggle('active', +b.dataset.idx === active);
   });
+  if (active !== -1) el.setAttribute('aria-activedescendant', `ctxItem${active}`);
 }
 function activate() {
   const it = entryAt(active);

@@ -15,6 +15,11 @@
    ⚠ 数值控件的可绑类型里必须留数组：OPC UA 导进来的数组变量（arrw，int[]）绑上去之后，
      属性面板的下拉会按类型过滤，没有数组类型的话当前绑定会被滤掉、面板显示「（未绑定）」。 */
 export const ARR_TYPES = ['bool[]', 'int[]', 'uint[]', 'dint[]', 'udint[]', 'real[]', 'lreal[]', 'string[]'];
+export const TEXT_ALIGN = [
+  { v: 'left', t: '左对齐' },
+  { v: 'center', t: '居中' },
+  { v: 'right', t: '右对齐' },
+];
 export const SCALAR_NUM = ['int', 'uint', 'dint', 'udint', 'real', 'lreal', 'string'];
 
 /** 表格用：按行/按列拆文本（一行一行写、逗号分列；空行忽略） */

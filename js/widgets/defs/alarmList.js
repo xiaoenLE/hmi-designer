@@ -9,7 +9,7 @@ import { register, rutil } from '../registry.js';
 const { escapeHtml } = rutil;
 import { fmtTime, TIME_PRESETS } from '../../core/utils.js';
 import { levelOf } from '../../runtime/alarms.js';
-import { alarmRuntime, alarmTimeFmt, DEMO_ACTIVE, LIST_MAX, esc, editSampleActive } from './alarmShared.js';
+import { alarmRuntime, alarmTimeFmt, alarmLevelFilterProp, filterByLevel, LIST_MAX, esc, editSampleActive } from './alarmShared.js';
 import { tr } from '../../core/i18n.js';
 
 register({
@@ -19,6 +19,7 @@ register({
   icon: '<svg viewBox="0 0 36 36" width="30" height="30"><rect x="4" y="6" width="28" height="24" rx="2" fill="#fff" stroke="#94a3b8"/><rect x="4" y="6" width="28" height="7" fill="#fee2e2"/><circle cx="9" cy="19" r="2" fill="#ef4444"/><path d="M13 19h14M9 25h14" stroke="#c3cbd6" stroke-width="1.6"/></svg>',
   defaults: {
     w: 420, h: 150,
+    levelFilter: 'all',
     maxRows: 5, showHeader: true, showTime: true, timeFmt: 'hh:mm:ss', timeFmtCustom: 'hh:mm:ss.SSS',
     showAck: true, ackText: '确认', emptyText: '当前无报警',
     sound: false,                  // 有新报警触发时响两声（哪一页放了勾「报警声」的报警控件才响）
@@ -28,6 +29,7 @@ register({
     borderColor: '#c3cbd6', borderWidth: 1, radius: 4,
   },
   props: [
+    alarmLevelFilterProp,
     { key: 'maxRows', label: '显示条数', type: 'number', min: 1, max: 50 },
     { key: 'showHeader', label: '显示表头', type: 'check', defVal: true },
     { key: 'showTime', label: '显示时间列', type: 'check', defVal: true },
@@ -47,14 +49,15 @@ register({
     { key: 'headerColor', label: '表头文字', type: 'color' },
     { key: 'borderColor', label: '线色', type: 'color' },
     { key: 'borderWidth', label: '边框宽', type: 'number', min: 0, max: 8 },
-    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 30 },
+    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 100 },
   ],
   binding: {}, actions: [],
   render(w, mode) {
     const p = w.props;
     const rt = alarmRuntime();
     const list = rt.active();
-    const rows = (mode === 'edit' && !list.length) ? editSampleActive() : list;
+    const rows = mode === 'edit' && !list.length
+      ? editSampleActive(p.levelFilter) : filterByLevel(list, p.levelFilter);
     const fmt = alarmTimeFmt(p);
     const cellH = Math.max(16, +p.rowH || 26);
     const jumpRef = String(p.jumpPage || '').trim();   // 点一行跳到哪页（留空 = 行不可点）

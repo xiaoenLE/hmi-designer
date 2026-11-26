@@ -35,6 +35,7 @@ import re
 import xml.etree.ElementTree as ET
 
 import poll_gate          # 同目录：「有没有人在看运行画面」——没人看就不跟设备通讯
+from core.sourcebase import FreshReads
 
 # ── 兼容补丁：必须在 import asyncua 之前 ──────────────────────────────
 # Python 3.10.0b1（本机 py -3）没有 types.UnionType（正式版 3.10 才有），
@@ -913,10 +914,12 @@ class OpcUaSource:
         # 传 None（直接构造的测试）也能跑，只是不落盘。
         self.retain = retain
         self._lock = threading.RLock()
+        self._fresh_reads = FreshReads(self._lock)
         self._vars = {}                 # name -> {type, address, nodeid, node, value, vt, addr_error}
         self._active = None             # 本页要采集的变量名集合（None = 全部）
         self._blocks = 0
         self._cli = None
+        self._read_client = None
         self._loop = None
         self._stop = threading.Event()
         self._thread = None
@@ -1035,6 +1038,10 @@ class OpcUaSource:
             v = self._vars.get(name)
             return None if v is None else v.get("value")
 
+    def read_fresh(self, names):
+        with self._lock:
+            return self._fresh_reads.collect(self._vars, names, "nodeid")
+
     def reset(self, clear=False):
         """**只重置内部变量**（地址留空的那些）：服务器上的节点一个都不碰。
         和 Modbus 侧同一口径 —— 接不接设备，"内部变量：恢复初值"这个入口都在。"""
@@ -1090,12 +1097,15 @@ class OpcUaSource:
             raise ValueError(f"变量 {base_name} 未在变量表声明")
         if not v.get("nodeid"):
             raise ValueError(f"变量 {base_name} 的 NodeId {v.get('address')!r} 无效：{v.get('addr_error') or '未填写'}")
-        if not self._loop or not self.online:
+        loop, client = self._loop, self._cli
+        if not loop or client is None:
             raise ValueError(f"OPC UA 未连接：{self.last_error or '尚未连上'}")
-        fut = asyncio.run_coroutine_threadsafe(self._write_async(base_name, v, value, elem_idx), self._loop)
+        self._require_read(client)
+        fut = asyncio.run_coroutine_threadsafe(self._write_async(client, v, value, elem_idx), loop)
         try:
             fut.result(timeout=self.timeout + 4)
         except Exception as e:                       # noqa: BLE001
+            fut.cancel()
             msg = _ua_err(e)
             # BadOutOfRange 写在 string 上：CODESYS 的 STRING(n) 是**按字节**算的单字节字符串，
             # 中文这种多字节字符塞不进一个字节 → 服务器直接拒（实测）。放中文要用 WSTRING。
@@ -1120,27 +1130,39 @@ class OpcUaSource:
         self._verify.add(base_name)
         self.writes += 1
 
-    async def _write_async(self, name, v, value, elem_idx=None):
-        node = v.get("node") or self._cli.get_node(v["nodeid"])
+    def _require_read(self, client):
+        if (self._stop.is_set() or client is not self._cli or client is not self._read_client
+                or not self.online or time.time() - self.last_ok > self._stale_after()):
+            raise ValueError("OPC UA 尚未读到本次连接的设备数据，未下发，请读取成功后重新操作")
+
+    async def _write_async(self, client, v, value, elem_idx=None):
+        self._require_read(client)
+        node = v.get("node") or client.get_node(v["nodeid"])
         v["node"] = node
-        vt = v.get("vt") or ""
-        if not vt:
-            vt = ua_variant_name(await node.read_data_type_as_variant_type())
-            v["vt"] = vt
-        hmi = v.get("type", "")
-        if elem_idx is not None:
-            # 读改写：UA 没有「写第 i 个元素」这种服务，只能整段读回来改一个再写回
-            cur = await node.read_value()
-            arr = list(cur) if isinstance(cur, (list, tuple)) else ([cur] if cur is not None else [])
-            elem_hmi = hmi[:-2] if str(hmi).endswith("[]") else "dint"
-            while len(arr) <= elem_idx:
-                arr.append(coerce_write(0, vt, elem_hmi))
-            arr[elem_idx] = coerce_write(value, vt, elem_hmi)
-            await node.write_value(ua.Variant(arr, getattr(ua.VariantType, vt, None)))
-            self.last_error = ""
-            return
-        cast = coerce_write(value, vt, hmi)
-        await node.write_value(ua.Variant(cast, getattr(ua.VariantType, vt, None)))
+        try:
+            vt = v.get("vt") or ""
+            if not vt:
+                vt = ua_variant_name(await node.read_data_type_as_variant_type())
+                v["vt"] = vt
+            hmi = v.get("type", "")
+            if elem_idx is not None:
+                # UA 只能整段写节点：读当前数组、替换指定元素，再写整段。
+                cur = await node.read_value()
+                cast = list(cur) if isinstance(cur, (list, tuple)) else ([cur] if cur is not None else [])
+                elem_hmi = hmi[:-2] if str(hmi).endswith("[]") else "dint"
+                while len(cast) <= elem_idx:
+                    cast.append(coerce_write(0, vt, elem_hmi))
+                cast[elem_idx] = coerce_write(value, vt, elem_hmi)
+            else:
+                cast = coerce_write(value, vt, hmi)
+            # 读取类型或数组时可能发生重连，不能把在旧会话上准备的写入交给新会话。
+            self._require_read(client)
+            await node.write_value(ua.Variant(cast, getattr(ua.VariantType, vt, None)))
+        except Exception as e:
+            if client is self._cli and _is_conn_error(e):
+                self._read_client = None
+                self.online = False
+            raise
         self.last_error = ""
 
     # ── 线程 / 事件循环 ──
@@ -1225,8 +1247,14 @@ class OpcUaSource:
         if self.security not in ("none", "", "无"):
             raise ValueError(f"暂时只支持安全策略 None（当前配的是 {self.security}）")
         await cli.connect()
+        self._read_client = None
+        self.online = False
+        with self._lock:
+            for var in self._vars.values():
+                # Node 对象和类型缓存属于创建它的会话，重连后由新会话重新解析。
+                var["node"] = None
+                var["vt"] = ""
         self._cli = cli
-        self.online = True
         self.last_error = ""
         try:
             self.namespaces = list(await cli.get_namespace_array())
@@ -1238,6 +1266,8 @@ class OpcUaSource:
               + (f"　命名空间：{ns_txt}" if ns_txt else ""))
 
     async def _disconnect_async(self):
+        self._read_client = None
+        self.online = False
         cli, self._cli = self._cli, None
         if cli:
             try:
@@ -1307,10 +1337,17 @@ class OpcUaSource:
             if not poll_gate.wanted():
                 await asyncio.sleep(0.2)
                 continue
+            client = self._cli
             with self._lock:
                 active = self._active
                 names = [n for n, v in self._vars.items()
-                         if v.get("nodeid") and (active is None or n in active or n in self._verify)]
+                         if v.get("nodeid") and (active is None or n in active or n in self._verify
+                                                  or n in self._fresh_reads.pending)]
+                if not names and client is not self._read_client:
+                    # 只有配方控件的页面也要先读真实变量，ServerStatus 只用于保活。
+                    first = next((n for n, v in self._vars.items() if v.get("nodeid")), None)
+                    if first is not None:
+                        names.append(first)
                 # ⚠ 写入过的变量**一直留在采集范围里**（不清空）：现场就是"HMI 按了按钮把 bool 置 true，
                 #   PLC 那边又变回 false，界面还一直显示 true"——原因是那个变量不在本页采集范围内，
                 #   后端根本不读它。HMI 写过的变量就是操作员关心的变量，必须持续读回来对账。
@@ -1329,6 +1366,7 @@ class OpcUaSource:
                         if n in self._vars:
                             self._vars[n]["addr_error"] = str(e)
             blocks = 0
+            read_value = False
             if not names:
                 # 本页没用到任何变量（采集范围是空的）时也要**保活探一下**：
                 # 否则这一轮"什么都没做"也算成功，服务器断了永远发现不了 ——
@@ -1340,17 +1378,19 @@ class OpcUaSource:
                     return
                 chunk = names[i:i + BATCH_NODES]
                 with self._lock:
-                    nodes = [self._vars[n]["node"] for n in chunk if self._vars.get(n, {}).get("node")]
-                if not nodes:
+                    pairs = [(n, self._vars[n]["node"]) for n in chunk if self._vars.get(n, {}).get("node")]
+                if not pairs:
                     continue
+                chunk, nodes = map(list, zip(*pairs))
                 dvs = await self._read_chunk(chunk, nodes)
                 blocks += 1
                 self.reads += 1
                 changed = []
                 with self._lock:
-                    for name, dv in zip(chunk, dvs):
+                    sampling = bool(self._fresh_reads.pending)
+                    for (name, node), dv in zip(pairs, dvs):
                         v = self._vars.get(name)
-                        if not v:
+                        if not v or v.get("node") is not node:
                             continue
                         code = getattr(dv, "StatusCode", None)
                         if code is not None and not code.is_good():
@@ -1363,6 +1403,10 @@ class OpcUaSource:
                         if not v.get("vt"):
                             v["vt"] = ua_variant_name(dv.Value.VariantType)
                         val = coerce_read(dv.Value.Value, v.get("type"))
+                        if val is not None:
+                            read_value = True
+                        if sampling:
+                            self._fresh_reads.sampled(name, val)
                         if v.get("value") != val and not (isinstance(val, float)
                                                           and isinstance(v.get("value"), float)
                                                           and abs(val - v["value"]) < 1e-9):
@@ -1380,6 +1424,8 @@ class OpcUaSource:
             self._blocks = blocks
             self.last_ok = time.time()
             self.online = True
+            if read_value:
+                self._read_client = client
             # 低频心跳（60 秒一条）：让日志里能看出轮询**一直在跑**。
             # 没有它，日志里只有「连上 / 写入」几条，看着像"读了一次就不读了"，
             # 其实是轮询太安静 —— 现场排查时最容易被这个误导。

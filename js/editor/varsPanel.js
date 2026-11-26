@@ -13,7 +13,7 @@ import { isOpcAddr, normNodeId, describeNodeId, isArrayType, elemTypeOf, parseAr
 import { createVList } from '../core/vlist.js';
 import { initColResize } from './colResize.js';
 import { showDialog } from './toolbar.js';
-import { attachAddrInput, prefixSelectHtml } from '../core/addrInput.js';
+import { addressHelpFor, attachAddrInput, prefixSelectHtml } from '../core/addrInput.js';
 
 // 只要 9 种标量（BOOL/INT/UINT/DINT/UDINT/REAL/LREAL/STRING/WSTRING）；数组不在这里：
 // **不再提供数组类型**：数组走「导入 OPC UA 时自动展开成单个元素变量」——
@@ -174,6 +174,11 @@ export function initVarsPanel() {
   });
   document.getElementById('btnDelVars')?.addEventListener('click', () => deleteVars([...selVars]));
   document.getElementById('btnExpandArr')?.addEventListener('click', () => expandSelectedArrays());
+  document.getElementById('btnOpcImport')?.addEventListener('click', () => {
+    import('./opcuaImport.js')
+      .then(m => m.openOpcuaImport({}))
+      .catch(e => alert('打开导入对话框失败：' + (e?.message || e)));
+  });
   // 查找/替换（在哪用到）：动态 import，别让变量面板的启动路径依赖这个对话框
   document.getElementById('btnFindVar')?.addEventListener('click', () => {
     import('./varSearch.js').then(m => m.openVarSearch()).catch(e => alert('打开查找失败：' + (e?.message || e)));
@@ -517,7 +522,7 @@ function render() {
   [...selVars].forEach(n => { if (!names.has(n)) selVars.delete(n); });
   if (!vl) buildTable(box);
   syncSortHead(box);              // 表头 ▲/▼ 跟当前排序状态对齐
-  renderTip(box);                 // 协议换了提示要跟着换（表格本身不重建）
+  syncAddressHelp(box);
   updateSelAll(vars);
   updateDelBtn();
   // 搜索时**把折叠组都摊开**：不然搜到的变量藏在收起来的组里，看着像"没搜到"
@@ -543,15 +548,12 @@ function buildTable(box) {
         <th class="vt-sel"><input type="checkbox" id="varSelAll" title="全选 / 全不选"></th>
         <th class="vt-sort" data-sort="name" title="点一下按名称升序排；再点一下降序；第三下取消排序（回到工程原始顺序）">名称</th>
         <th class="vt-sort" data-sort="type" title="点一下按类型排序：bool → int → uint → dint → … → wstring；再点降序；第三下取消">类型</th>
-        <th class="vt-sort" data-sort="addr" title="PLC 地址（留空 = 内部变量）。右边那个灰字是「这个地址占几个字」。
-点一下按地址排序：先按区域（线圈 / 离散输入 / 保持寄存器 / 输入寄存器），再按寄存器号；空地址排最后。再点降序；第三下取消">地址</th>
+        <th class="vt-sort" data-sort="addr">地址</th>
         <th class="vt-keep" title="掉电保持（HMI 内部）：值存在跑后端那台机器上，后端重启 / 整机断电后还在。
 只有**地址留空**的内部变量能勾（有 PLC 地址的变量，保持是 PLC 的事）。">保持</th>
       </tr></thead>
       <tbody id="varRows"></tbody>
-    </table>
-    <div class="vt-tip" id="varTip"></div>`;
-  renderTip(box);
+    </table>`;
   box.querySelector('#varSelAll').addEventListener('change', e => {
     // 全选/全不选只管**当前搜出来的这些**（搜索框里有词时，选上被藏起来的变量最让人意外）
     const all = currentVars();
@@ -597,40 +599,12 @@ function buildTable(box) {
   syncSortHead(box);
 }
 
-/** 表下方的写法提示：跟着**当前选的协议**走。
- *  Modbus TCP → 讲 INVT 寄存器写法；TS600 TCP → 讲元件写法（**不推荐 %MX**：TS600 没有字内取位）；
- *  OPC UA → 讲 NodeId + 「从 OPC UA 导入…」按钮。
- *  协议换了要重画（bus 上的 plc:protocol 事件会叫它）。 */
-function renderTip(box) {
-  const tip = box.querySelector('#varTip');
-  if (!tip) return;
+/** 协议切换时更新地址列的帮助和 OPC UA 导入入口。 */
+function syncAddressHelp(box) {
   const proto = panelProto();
-  if (proto === 'opcua') {
-    tip.innerHTML = `<b>OPC UA：</b>地址列填<b>完整 NodeId</b>（<code>ns=4;s=|var|设备.应用.POU.符号</code>）——
-       手敲不现实，用右边这个：
-       <button class="tb-btn sm" id="btnOpcImport" style="margin-left:4px"
-        title="从 CODESYS 导出的「符号配置」XML 离线导入（不用连服务器），或连上服务器浏览节点树勾选。
-名称/类型/NodeId 一次带进来，数组/结构体会列出来但不勾。">从 OPC UA 导入…</button>`;
-  } else if (proto === 'ts600') {
-    tip.innerHTML = `<b>TS600 TCP：</b>bool 用<b>元件位地址</b> <code>M10</code>／<code>X17</code>／<code>Y10</code>
-       （<code>T5</code>／<code>C200</code> 配 bool 也行），数值/字符串用 <code>D100</code>／<code>R100</code>／<code>C200</code>
-       （C200~C255 是 32 位双字）；<code>%MW100</code>、数字 <code>100</code> 也认。<br>
-       <b>TS600 没有 %MX 字内取位 / 位打包</b>：<code>%MX0.0</code>、<code>%QX0.0</code>、<code>%M100</code> 这类写法
-       会被当<b>内部变量</b>（不采集、不下发，也不报错）。<br>
-       <b>地址留空 = 内部变量</b>；勾「<b>保持</b>」= <b>掉电保持</b>。`;
-  } else {
-    tip.innerHTML = `<b>bool 用位地址</b> <code title="位地址都带位号：%MX0.0 内存位 / %QX0.0 线圈 / %IX0.0 只读输入；位号往后排就是 %IX0.1、%QX2.3">%MX0.0</code> / <code>%IX0.0</code>，
-       <b>字类型用</b> <code>%MW100</code>／<code>%MD50</code>；数字 <code>100</code> = <code>%MW100</code>，<code>HR</code> 写法自动转，
-       <b>百分号可以省</b>（<code>MX100.0</code> = <code>%MX100.0</code>、<code>MW200</code> = <code>%MW200</code>）。<br>
-       写成 TS600 元件写法（<code>D100</code>／<code>M10</code>）会被当<b>内部变量</b>（不采集、不下发，也不报错）——
-       要连 TS600 就在「🔌 PLC」里换协议。<br>
-       <b>地址留空 = 内部变量</b>；勾「<b>保持</b>」= <b>掉电保持</b>。`;
-  }
-  tip.querySelector('#btnOpcImport')?.addEventListener('click', () => {
-    import('./opcuaImport.js')
-      .then(m => m.openOpcuaImport({}))
-      .catch(e => alert('打开导入对话框失败：' + (e?.message || e)));
-  });
+  box.querySelector('[data-sort="addr"]').title = addressHelpFor(proto) + '\n点击表头可切换地址排序。';
+  const importer = document.getElementById('btnOpcImport');
+  if (importer) importer.hidden = proto !== 'opcua';
 }
 
 /** 滚到某个变量那一行，并把它的**名称格聚焦 + 全选**（新建变量后直接用，见 initVarsPanel）。
@@ -849,7 +823,7 @@ function buildRow(v, depth = 0) {
         // 归一化：Modbus 的 HR100 / 100 统一成 %MW100；OPC UA 只补 ns=，绝不动 NodeId 里的空格。
         // ⚠ 判断依据是「**打进来的内容长不像 NodeId**」，**不是「当前连的是不是 OPC UA」**——
         //   按协议判的话，OPC UA 模式下顺手打 HR100 会被加成 ns=4;s=HR100（实测踩过）。
-        //   提示/占位符那几处才看协议（见 buildRow / renderTip），归一化只认内容。
+        //   提示/占位符那几处才看协议（见 buildRow / syncAddressHelp），归一化只认内容。
         const uaCell = isOpcAddr(val);
         val = uaCell ? normNodeId(String(val || '').trim(), backend.plcInfo?.default_ns || 4)
           : normAddr(String(val || '').trim());

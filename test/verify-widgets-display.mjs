@@ -20,7 +20,7 @@ const req = createRequire('C:/Users/Administrator/.workbuddy/binaries/node/works
 const { chromium } = req('playwright-core');
 const EXE = 'C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
 const PY = 'C:/Users/Administrator/AppData/Local/Programs/Python/Python310/python.exe';
-const ROOT = 'C:/Users/Administrator/Desktop/hmi/hmi-designer-v2';
+const ROOT = path.resolve(import.meta.dirname, '..');
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const results = [];
@@ -296,18 +296,66 @@ ok('注册顺序里 5 个控件连续，且顺序 = 仪表盘→多状态图片�
 const toolbox = await page.evaluate(() => {
   const items = [...document.querySelectorAll('#toolboxList .tb-item')];
   return {
-    names: items.map(e => e.querySelector('.sub')?.previousElementSibling?.textContent || ''),
+    names: items.map(e => e.querySelector('.tb-item-name')?.textContent || ''),
     svgs: items.map(e => !!e.querySelector('svg')),
-    subs: items.map(e => e.querySelector('.sub')?.textContent || ''),
+    tips: items.map(e => e.title),
+    groups: items.map(e => e.dataset.group || ''),
+    heads: [...document.querySelectorAll('#toolboxList .tb-group-head')].map(e => e.dataset.group),
   };
 });
 const idx = TITLES.map(t => toolbox.names.findIndex(n => n === t));
-ok('工具箱里 5 个条目都在（副标题+图标齐全）',
-  idx.every(i => i >= 0) && idx.every(i => toolbox.svgs[i] && (toolbox.subs[i] || '').length > 0),
+ok('工具箱里 5 个条目都在（名称和图标齐全，说明在悬停提示里）',
+  idx.every(i => i >= 0) && idx.every(i => toolbox.svgs[i] && (toolbox.tips[i] || '').length > 0),
   JSON.stringify(idx));
-ok('工具箱里 5 个条目挨在一起、顺序 = 仪表盘→多状态图片→计时→管道→箭头',
-  idx.every((v, i) => i === 0 || v === idx[i - 1] + 1),
-  idx.map((i, k) => TITLES[k] + '@' + i).join(' '));
+const density = await page.evaluate(() => {
+  const list = document.getElementById('toolboxList');
+  const group = list.querySelector('.tb-group-body[data-group="input"]');
+  const oldWidth = list.style.width;
+  const columns = [];
+  for (const width of ['178px', '280px']) {
+    list.style.width = width;
+    columns.push(getComputedStyle(group).gridTemplateColumns.split(' ').length);
+  }
+  const height = group.querySelector('.tb-item').getBoundingClientRect().height;
+  list.style.width = oldWidth;
+  return { columns, height, inputItems: group.querySelectorAll('.tb-item').length, subtitles: list.querySelectorAll('.tb-item .sub').length };
+});
+ok('窄栏单列，常用宽度双列，卡片无常显说明',
+  density.columns.join() === '1,2' && density.height <= 32 && density.subtitles === 0,
+  JSON.stringify(density));
+// 工具箱按用途分组了（2.1.20）：不再要求这几条挨在一起，改按"落在哪个组"验。
+// 显示类的在 display 组，管道/箭头是装饰件，在 deco 组。
+const groupOfTitle = t => toolbox.groups[toolbox.names.indexOf(t)];
+ok('工具箱分组正确：仪表盘/多状态图片/计时 →「显示」，管道/箭头 →「装饰」',
+  JSON.stringify(TITLES.map(groupOfTitle)) === JSON.stringify(['display', 'display', 'display', 'deco', 'deco'])
+    && toolbox.heads.includes('display') && toolbox.heads.includes('deco'),
+  TITLES.map(t => `${t}@${groupOfTitle(t)}`).join(' '));
+
+// 组头点一下收起、再点展开，状态记本机（localStorage['hmi-toolbox-collapsed']）
+const collapse = await page.evaluate(() => {
+  const head = document.querySelector('#toolboxList .tb-group-head[data-group="input"]');
+  const body = document.querySelector('#toolboxList .tb-group-body[data-group="input"]');
+  head.click();
+  return {
+    hidden: body.hidden,
+    caret: head.querySelector('.tb-group-caret')?.textContent,
+    saved: localStorage.getItem('hmi-toolbox-collapsed') || '',
+    expanded: head.getAttribute('aria-expanded'),
+  };
+});
+ok('工具箱组头点一下收起：条目藏起来、箭头变 ▸、状态记进 localStorage',
+  collapse.hidden === true && collapse.caret === '▸' && /"input"/.test(collapse.saved) && collapse.expanded === 'false',
+  JSON.stringify(collapse));
+const expand = await page.evaluate(() => {
+  const head = document.querySelector('#toolboxList .tb-group-head[data-group="input"]');
+  const body = document.querySelector('#toolboxList .tb-group-body[data-group="input"]');
+  head.click();
+  return { hidden: body.hidden, expanded: head.getAttribute('aria-expanded'),
+    saved: localStorage.getItem('hmi-toolbox-collapsed') || '', items: body.querySelectorAll('.tb-item').length };
+});
+ok('再点一下展开：条目回来、localStorage 里不再记着它',
+  expand.hidden === false && expand.expanded === 'true' && !/"input"/.test(expand.saved) && expand.items === density.inputItems,
+  JSON.stringify(expand));
 
 /* ═══════════ 2. 属性面板：能选中、schema 长对了、改一下真的生效 ═══════════ */
 const schemaCases = [

@@ -17,7 +17,7 @@ const { chromium } = req('playwright-core');
 
 const EXE = 'C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
 const PY = 'C:/Users/Administrator/AppData/Local/Programs/Python/Python310/python.exe';
-const ROOT = 'C:/Users/Administrator/Desktop/hmi/hmi-designer-v2';
+const ROOT = path.resolve(import.meta.dirname, '..');
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const results = [];
 const ok = (name, cond, extra = '') => results.push(`${cond ? 'PASS' : 'FAIL'}  ${name}${extra ? '  [' + extra + ']' : ''}`);
@@ -89,10 +89,9 @@ const setProto = (p) => page.evaluate(async (p) => {
 }, p);
 const panel = () => page.evaluate(() => {
   const s = document.querySelector('#propBody [data-dtype="dispType"]');
-  // 锁住时行下面会挂一句可见说明（🔒 …）—— 不靠悬停就能看到"为什么不能改"
-  const note = [...document.querySelectorAll('#propBody .f-row')]
-    .map(r => r.textContent).find(t => t.includes('🔒') && t.includes('类型')) || '';
-  return { exists: !!s, value: s?.value, disabled: !!s?.disabled, title: s?.title || '', note };
+  const lock = s?.parentElement.querySelector('.f-lock');
+  return { exists: !!s, value: s?.value, disabled: !!s?.disabled,
+    title: s?.title || '', note: lock?.title || '', badge: lock?.textContent || '' };
 });
 const typeOf = (n) => page.evaluate(async (n) => {
   const m = (await import('/js/core/project.js')).project;
@@ -126,7 +125,7 @@ ok('切到 OPC UA（面板开着）→ 下拉立刻变只读（不用重新选�
 ok('OPC UA 下：下拉仍显示绑定的类型（int），不是空白', p2.value === 'int', String(p2.value));
 ok('OPC UA 下：title 写明「以 PLC 为准，这里不能改」',
   /PLC 为准/.test(p2.title) && /导入/.test(p2.title), p2.title);
-ok('OPC UA 下：行下面有一句可见说明（不靠悬停）', /OPC UA 变量是导入的/.test(p2.note), p2.note);
+ok('OPC UA 下：同行显示已锁定，悬停查看原因', p2.badge === '已锁定' && /OPC UA/.test(p2.note), p2.note);
 
 /* ── 3. 硬绕过 disabled 也改不动变量（代码里那道保险） ── */
 const before = await typeOf('rSpd');
@@ -161,8 +160,8 @@ await page.waitForTimeout(300);
 const p6 = await panel();
 ok('绑 bool 变量：这一格显示 int（不再掉回控件自己那份 dint/float）', p6.value === 'int', JSON.stringify(p6));
 ok('绑 bool 变量：下拉锁住 —— Modbus 下也不许在这一格改', p6.disabled === true, JSON.stringify(p6));
-ok('绑 bool 变量：行下面有一句可见说明（写明变量是 bool）',
-  /bool/.test(p6.note) && /0\/1/.test(p6.note), p6.note);
+ok('绑 bool 变量：锁定状态可见，悬停说明 0/1 显示规则',
+  p6.badge === '已锁定' && /bool/.test(p6.note) && /0\/1/.test(p6.note), p6.note);
 const boolBefore = await typeOf('bRunX');
 await forceChange('float');
 await page.waitForTimeout(400);

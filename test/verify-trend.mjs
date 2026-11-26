@@ -15,7 +15,7 @@ const { chromium } = req('playwright-core');
 
 const EXE = 'C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
 const PY = 'C:/Users/Administrator/AppData/Local/Programs/Python/Python310/python.exe';
-const ROOT = 'C:/Users/Administrator/Desktop/hmi/hmi-designer-v2';
+const ROOT = path.resolve(import.meta.dirname, '..');
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const freePort = () => new Promise(res => {
   const s = net.createServer();
@@ -88,11 +88,10 @@ const inkRatio = sel => page.evaluate(s => {
   if (!cv) return -1;
   const ctx = cv.getContext('2d');
   const d = ctx.getImageData(0, 0, cv.width, cv.height).data;
-  const bg = [d[0], d[1], d[2]];
   let diff = 0, total = 0;
   for (let i = 0; i < d.length; i += 4 * 37) {          // 抽样即可
     total++;
-    if (Math.abs(d[i] - bg[0]) + Math.abs(d[i + 1] - bg[1]) + Math.abs(d[i + 2] - bg[2]) > 24) diff++;
+    if (d[i + 3] > 24) diff++;
   }
   return diff / total;
 }, sel);
@@ -531,7 +530,7 @@ ok('★ 导出按钮文字仍声明 i18n:text（会进翻译表）',
 ok('★ 保留属性的默认值：纵轴自动 / 单 Y 轴 / 显示导出按钮默认**不勾**（现场口径）',
   schema.defaults.autoY === true && schema.defaults.dualAxis === false && schema.defaults.showCsvBtn === false,
   JSON.stringify({ autoY: schema.defaults.autoY, dualAxis: schema.defaults.dualAxis, csv: schema.defaults.showCsvBtn }));
-// 属性面板只剩「双 Y 轴 / 导出 CSV」两栏；不再有「XY 曲线」栏
+// 属性面板包含「双 Y 轴」「导出 CSV」；原「XY 曲线」栏已移除
 await page.evaluate(i => {
   const el = document.querySelector(`#canvas .wd[data-id="${i}"]`);
   el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: 1, clientY: 1 }));
@@ -551,7 +550,7 @@ const panel = await page.evaluate(() => {
     dual: info(/双 Y 轴/), csv: info(/导出 CSV/),
   };
 });
-ok('★ 属性面板分栏：只有「双 Y 轴」「导出 CSV」两栏（XY 曲线栏已消失）',
+ok('★ 属性面板包含「双 Y 轴」「导出 CSV」（XY 曲线栏已消失）',
   panel.dual.props.join(',') === 'dualAxis,rightChannels,autoY2,y2Min,y2Max'
   && panel.csv.props.join(',') === 'showCsvBtn,csvBtnText'
   && !panel.titles.some(t => /XY/.test(t))
@@ -741,19 +740,18 @@ const rightBandRows = i => page.evaluate(id => {
   const ctx = cv.getContext('2d');
   const dpr = cv.width / Math.max(1, cv.clientWidth);
   const cssW = cv.clientWidth;
-  const padT = 20;                                  // 默认显示图例 → 上边距 20
+  const padT = 8;                                   // 图例在 canvas 上方
   const x0 = Math.max(0, Math.round((cssW - 44) * dpr));
   const x1 = Math.min(cv.width, Math.round((cssW - 10) * dpr));
   const y0 = Math.max(0, Math.round((padT - 6) * dpr));
   const y1 = Math.min(cv.height, Math.round((padT + 6) * dpr));
   const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
   const d = ctx.getImageData(x0, y0, w, h).data;
-  const bg = [15, 23, 42];                          // 默认背景 #0f172a
   const rows = new Set();
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const k = (y * w + x) * 4;
-      if (Math.abs(d[k] - bg[0]) + Math.abs(d[k + 1] - bg[1]) + Math.abs(d[k + 2] - bg[2]) > 24) { rows.add(y); break; }
+      if (d[k + 3] > 24) { rows.add(y); break; }
     }
   }
   return { ok: true, rows: rows.size, w, h };
@@ -843,6 +841,181 @@ const compatExit = await page.evaluate(async i => {
 }, enh.id);
 ok('★ 退出运行态：时间轴采样缓冲清空（XY 缓冲已随功能一起删除）',
   compatExit.series === 0, JSON.stringify(compatExit));
+
+/* ══════ 16. 画面抓取按钮和外部变量可分别选择 ══════ */
+const [manualId, autoId, xyGridId] = await page.evaluate(async () => {
+  const { project: m, varStore } = window.app;
+  m.addPage('page');
+  m.variables().push(
+    { name: 'trendLocalA', type: 'real', address: '', value: 10 },
+    { name: 'trendLocalB', type: 'real', address: '', value: 20 },
+    { name: 'trendExtStart', type: 'bool', address: '', value: false },
+    { name: 'trendExtClear', type: 'bool', address: '', value: false },
+  );
+  const manual = m.addWidget('trend', 20, 20);
+  const auto = m.addWidget('trend', 430, 20);
+  const xy = m.addWidget('xyplot', 20, 240);
+  Object.assign(xy.props, { xTicks: 7, yTicks: 3, gridColor: '#ff00ff', showClearBtn: true });
+  manual.props.gridColor = '#ff00ff';
+  manual.bindings.variables = ['trendLocalA'];
+  auto.bindings.variables = ['trendLocalB'];
+  for (const w of [manual, auto]) {
+    w.props.windowSec = 20;
+    w.props.sampleMs = 50;
+  }
+  varStore.resetFrom(m.variables());
+  m.commit('测试波形画面按钮');
+  const { select } = await import('/js/editor/canvas.js');
+  select([manual.id]);
+  return [manual.id, auto.id, xy.id];
+});
+await page.locator('#propBody [data-prop="showCaptureBtn"]').check();
+await page.locator('#propBody [data-prop="showClearBtn"]').check();
+for (const [key, value] of [['xTicks', '8'], ['yTicks', '4']]) {
+  const field = page.locator(`#propBody [data-prop="${key}"]`);
+  await field.fill(value);
+  await field.press('Tab');
+}
+const editTrend = page.locator(`#canvas .wd[data-id="${manualId}"]`);
+const sameHeaderRow = widget => widget.locator('.w-plot-header').evaluate(el => {
+  const label = el.querySelector('.w-plot-legend').getBoundingClientRect();
+  const tools = el.querySelector('.w-plot-tools').getBoundingClientRect();
+  return Math.abs((label.top + label.height / 2) - (tools.top + tools.height / 2)) < 1
+    && label.right <= tools.left;
+});
+ok('★ 编辑态预览按钮与变量图例同一行，按钮不可执行',
+  (await editTrend.locator('.w-plot-legend').textContent()).includes('trendLocalA')
+  && await editTrend.getByRole('button', { name: '开始抓取' }).isDisabled()
+  && await editTrend.getByRole('button', { name: '清除数据' }).isDisabled()
+  && await sameHeaderRow(editTrend));
+const enterTrendRun = () => page.evaluate(async () => {
+  window.app.enterRun();
+  window.app.backend.stopEvents();
+  (await import('/js/runtime/runtime.js')).hideRuntimeHint();
+});
+const manualRun = page.locator(`#rtPage .wd[data-id="${manualId}"]`);
+const autoRun = page.locator(`#rtPage .wd[data-id="${autoId}"]`);
+const captureButton = manualRun.locator('.w-plot-capture');
+const clearButton = manualRun.locator('.w-plot-clear');
+const countSamples = id => page.evaluate(i => {
+  const points = window.app.trend.seriesOf(i).values().next().value;
+  return points?.length ?? 0;
+}, id);
+const waitForSamples = id => page.waitForFunction(i => {
+  const points = window.app.trend.seriesOf(i).values().next().value;
+  return points?.length >= 3;
+}, id, { timeout: 3000 });
+const samplesManualChannel = () => page.evaluate(async () =>
+  (await import('/js/runtime/runtime.js')).pageVarScope().includes('trendLocalA'));
+
+await enterTrendRun();
+await waitForSamples(autoId);
+ok('★ 从属性面板勾选按钮：手动波形初始停抓，默认波形继续自动抓取',
+  await captureButton.textContent() === '开始抓取' && await clearButton.isVisible()
+  && await countSamples(manualId) === 0 && !(await samplesManualChannel())
+  && await autoRun.locator('.w-plot-tools').count() === 0);
+const toolbarBottom = await manualRun.locator('.w-plot-tools').evaluate(e => e.getBoundingClientRect().bottom);
+const plotTop = await manualRun.locator('canvas').evaluate(e => e.getBoundingClientRect().top);
+ok('★ 运行态按钮和图例同一行，位于绘图区上方',
+  await sameHeaderRow(manualRun) && toolbarBottom <= plotTop + 0.5);
+
+// 分数缩放时，图例与 canvas 接缝处不能露出页面底色。
+const uniformHeaderJoin = async id => {
+  const chart = page.locator(`#rtPage .wd[data-id="${id}"] .w-plot-header`);
+  await chart.evaluate(el => {
+    el.parentElement.style.transformOrigin = 'top left';
+    el.parentElement.style.transform = 'translateY(0.47px) scaleY(1.07)';
+  });
+  try {
+    const header = await chart.boundingBox();
+    const png = await page.screenshot({ clip: {
+      x: Math.floor(header.x + header.width / 2), y: Math.floor(header.y + header.height) - 2,
+      width: 20, height: 5,
+    } });
+    return await page.evaluate(async base64 => {
+      const bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+      const ctx = new OffscreenCanvas(bitmap.width, bitmap.height).getContext('2d');
+      ctx.drawImage(bitmap, 0, 0);
+      const pixels = ctx.getImageData(0, 0, bitmap.width, bitmap.height).data;
+      return pixels.every((value, i) => value === [15, 23, 42, 255][i % 4]);
+    }, png.toString('base64'));
+  } finally {
+    await chart.evaluate(el => {
+      el.parentElement.style.removeProperty('transform');
+      el.parentElement.style.removeProperty('transform-origin');
+    });
+  }
+};
+ok('★ 时间波形和 XY 波形在分数缩放下无图例接缝',
+  await uniformHeaderJoin(manualId) && await uniformHeaderJoin(xyGridId));
+
+const gridCounts = id => page.evaluate(i => {
+  const cv = document.querySelector(`#rtPage .wd[data-id="${i}"] canvas`);
+  const { width, height } = cv;
+  const pixels = cv.getContext('2d').getImageData(0, 0, width, height).data;
+  const cols = new Array(width).fill(0), rows = new Array(height).fill(0);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const px = (y * width + x) * 4;
+      if (pixels[px + 3] > 40 && pixels[px] > 95 && pixels[px + 1] < 40 && pixels[px + 2] > 95) {
+        cols[x]++;
+        rows[y]++;
+      }
+    }
+  }
+  // 半像素抗锯齿可能让一根网格线占两列或两行，连续像素算同一条。
+  const lines = (counts, threshold) => counts.filter((value, i) =>
+    value > threshold && (i === 0 || counts[i - 1] <= threshold)).length;
+  return [lines(cols, height / 2), lines(rows, width / 2)];
+}, id);
+const timeTicks = await gridCounts(manualId);
+const xyTicks = await gridCounts(xyGridId);
+ok('★ 时间波形与 XY 波形分别按设置绘制 X/Y 网格线（含两端）',
+  timeTicks.join() === '8,4' && xyTicks.join() === '7,3',
+  JSON.stringify({ timeTicks, xyTicks }));
+
+await captureButton.click();
+await waitForSamples(manualId);
+ok('★ 点击开始抓取：缓冲开始积累，通道加入采集范围',
+  await captureButton.textContent() === '停止抓取' && await samplesManualChannel());
+await captureButton.click();
+const stoppedCount = await countSamples(manualId);
+const autoBeforeClear = await countSamples(autoId);
+await page.waitForTimeout(250);
+ok('★ 点击停止抓取：保留记录并从采集范围移出通道',
+  stoppedCount >= 3 && await countSamples(manualId) === stoppedCount
+  && await captureButton.textContent() === '开始抓取' && !(await samplesManualChannel()));
+await clearButton.click();
+ok('★ 停止时仍可清除，只清本控件且不影响另一波形',
+  await countSamples(manualId) === 0 && await countSamples(autoId) > autoBeforeClear);
+
+await captureButton.click();
+await page.evaluate(() => window.app.exitRun());
+await enterTrendRun();
+ok('★ 重新进入运行态时，手动抓取回到等待开始状态',
+  await captureButton.textContent() === '开始抓取' && await countSamples(manualId) === 0);
+await page.evaluate(i => {
+  window.app.exitRun();
+  const w = window.app.project.getWidget(i);
+  w.bindings.startVar = 'trendExtStart';
+  window.app.project.commit('外部抓取，画面清除');
+}, manualId);
+await enterTrendRun();
+ok('★ 可混合使用：绑定启动变量时只隐藏画面抓取按钮',
+  await captureButton.count() === 0 && await clearButton.isVisible());
+await page.evaluate(() => window.app.varStore.set('trendExtStart', true, 'local'));
+await waitForSamples(manualId);
+await page.evaluate(i => {
+  window.app.exitRun();
+  const w = window.app.project.getWidget(i);
+  w.bindings.clearVar = 'trendExtClear';
+  window.app.project.commit('改用两个外部控制变量');
+}, manualId);
+await enterTrendRun();
+ok('★ 两项均绑定变量时，两个画面按钮均隐藏',
+  await manualRun.isVisible() && await manualRun.locator('.w-plot-tools').count() === 0);
+await page.evaluate(() => window.app.exitRun());
 
 ok('全程无未捕获 JS 异常', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '));
 

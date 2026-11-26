@@ -24,6 +24,7 @@ hmi_desktop.py — 现场客户端：**一个原生窗口 + 内置后端，关�
 """
 import argparse
 import atexit
+import ctypes
 import json
 import os
 import re
@@ -114,6 +115,7 @@ class DesktopApi:
         self.host = ""
         self.port = 0
         self._last_dir = ""            # 上次导出选的目录（下次弹框默认停这儿）
+        self._picker = ScreenPicker()  # 屏幕吸管（同样挂在下划线属性上，别被当成命名空间）
 
     def where(self):
         """让页面问一句「这是原生窗口吗、开的是哪个页」"""
@@ -210,6 +212,142 @@ class DesktopApi:
         self._last_dir = os.path.dirname(path) or self._last_dir
         print("[desktop] 已导出 %s" % path)
         return {"ok": True, "path": path}
+
+    # ── 屏幕吸管：页面轮询这三条 ──────────────────────────────────────
+    def pick_color_start(self):
+        """开始采屏（后台线程）。页面拿 state=active 后每 ~70ms 轮询 pick_color_read()"""
+        if not sys.platform.startswith("win"):
+            return {"ok": False, "error": "当前系统不支持屏幕取色"}
+        try:
+            return {"ok": True, **self._picker.start()}
+        except Exception as e:                              # noqa: BLE001
+            return {"ok": False, "error": "屏幕取色启动失败：%s" % e}
+
+    def pick_color_read(self):
+        """读实时颜色：{state: active|done|cancelled|idle, hex, x, y}"""
+        return {"ok": True, **self._picker.snapshot()}
+
+    def pick_color_stop(self):
+        """取消采屏（页面点「停止」或对话框关掉）"""
+        return {"ok": True, **self._picker.stop()}
+
+
+# ── 屏幕取色（吸管）：桌面版自己采屏 ────────────────────────────────────
+# ⚠ WebView2 里的 `EyeDropper` 是「有构造函数、吸不到色」：2.1.17 打包版实测
+#   `typeof EyeDropper === "function"`、`open()` 也能进取色态，但**取不到任何像素**
+#   （浏览器那套吸管界面在 Chrome 里是浏览器层实现的，WebView2 没有）。
+#   页面因此只看到"点了没反应"。所以桌面版走 Win32 采屏：
+#     GetDC(NULL) + GetPixel 连续读光标下的像素，**左键单击 = 确认、Esc = 取消**。
+#   采屏在后台线程里跑，页面用 pick_color_read() 轮询实时颜色：
+#   每次调用都是瞬时的，不会像在 js_api 里死等取色那样把页面卡住（见 DesktopApi 注释）。
+VK_LBUTTON = 0x01
+VK_ESCAPE = 0x1B
+PICK_IDLE = "idle"
+PICK_ACTIVE = "active"
+PICK_DONE = "done"
+PICK_CANCELLED = "cancelled"
+PICK_TIMEOUT = 120.0          # 最长采屏 2 分钟：超时按取消处理，线程不会一直挂着
+
+
+class _POINT(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+
+def _cursor_pos(user32):
+    """光标位置，**物理像素**（跟屏幕 DC 的坐标才是一套；GetCursorPos 在高 DPI 下会被虚拟化）"""
+    pt = _POINT()
+    getter = getattr(user32, "GetPhysicalCursorPos", None) or user32.GetCursorPos
+    return (pt.x, pt.y) if getter(ctypes.byref(pt)) else None
+
+
+def _screen_pixel_hex(x: int, y: int) -> str:
+    """屏幕上 (x, y) 那一点的颜色（`#rrggbb`）；取不到返回空串"""
+    user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
+    user32.GetDC.argtypes = [ctypes.c_void_p]
+    user32.GetDC.restype = ctypes.c_void_p
+    user32.ReleaseDC.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    hdc = user32.GetDC(None)
+    if not hdc:
+        return ""
+    try:
+        gdi32.GetPixel.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+        gdi32.GetPixel.restype = ctypes.c_uint32
+        color = gdi32.GetPixel(hdc, int(x), int(y))
+    finally:
+        user32.ReleaseDC(None, hdc)
+    if color == 0xFFFFFFFF:                      # CLR_INVALID
+        return ""
+    return "#%02x%02x%02x" % (color & 0xFF, (color >> 8) & 0xFF, (color >> 16) & 0xFF)
+
+
+class ScreenPicker:
+    """后台线程采屏：左键单击 = 确认，Esc = 取消。状态用 snapshot() 只读取走。"""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._state = PICK_IDLE
+        self._hex = ""
+        self._pos = (0, 0)
+        self._session = 0
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            return {"state": self._state, "hex": self._hex, "x": self._pos[0], "y": self._pos[1]}
+
+    def start(self) -> dict:
+        with self._lock:
+            start = self._state != PICK_ACTIVE
+            if start:
+                self._session += 1
+                session = self._session
+                self._state, self._hex = PICK_ACTIVE, ""
+        if start:
+            threading.Thread(target=self._loop, args=(session,), name="hmi-screen-picker", daemon=True).start()
+        return self.snapshot()
+
+    def stop(self) -> dict:
+        """页面取消（点「停止」/ 关对话框）"""
+        with self._lock:
+            if self._state == PICK_ACTIVE:
+                self._state = PICK_CANCELLED
+        return self.snapshot()
+
+    def _loop(self, session) -> None:
+        user32 = ctypes.windll.user32
+        # 采屏线程的 DC 和鼠标使用同一套物理像素坐标，适配多屏不同缩放。
+        set_dpi = getattr(user32, "SetThreadDpiAwarenessContext", None)
+        if set_dpi:
+            set_dpi.argtypes = [ctypes.c_void_p]
+            set_dpi.restype = ctypes.c_void_p
+            set_dpi(ctypes.c_void_p(-4))          # PER_MONITOR_AWARE_V2
+        key_state = user32.GetAsyncKeyState
+        key_state.argtypes = [ctypes.c_int]
+        key_state.restype = ctypes.c_short
+        armed = False
+        end = time.monotonic() + PICK_TIMEOUT
+        while time.monotonic() < end:
+            pressed = bool(key_state(VK_LBUTTON) & 0x8000)
+            cancel = bool(key_state(VK_ESCAPE) & 0x8000)
+            confirm = armed and pressed
+            armed = armed or not pressed
+            pos = _cursor_pos(user32)
+            color = _screen_pixel_hex(*pos) if pos and not cancel else ""
+            with self._lock:
+                if session != self._session or self._state != PICK_ACTIVE:
+                    return
+                if cancel:
+                    self._state = PICK_CANCELLED
+                    return
+                if pos:
+                    self._pos = pos
+                self._hex = color
+                if confirm:
+                    self._state = PICK_DONE
+                    return
+            time.sleep(0.01)
+        with self._lock:
+            if session == self._session and self._state == PICK_ACTIVE:
+                self._state = PICK_CANCELLED
 
 
 def _safe_filename(name: str) -> str:
@@ -337,6 +475,95 @@ def _ready_expr() -> str:
             ")")
 
 
+def _bind_editor_shortcuts(window):
+    """从 Windows 顶层窗口切换编辑器，覆盖网页未获得按键的情况。"""
+    if sys.platform != "win32":
+        return
+    form = getattr(window, "native", None)
+    if form is None or not hasattr(form, "BeginInvoke"):
+        return
+
+    from System import Action
+
+    def install():
+        from ctypes import wintypes as wt
+
+        hwnd = int(form.Handle.ToInt64())
+        user32, controls = ctypes.windll.user32, ctypes.windll.comctl32
+        intptr, uintptr = ctypes.c_ssize_t, ctypes.c_size_t
+        proc_type = ctypes.WINFUNCTYPE(intptr, wt.HWND, wt.UINT, uintptr, intptr, uintptr, uintptr)
+        controls.SetWindowSubclass.argtypes = [wt.HWND, proc_type, uintptr, uintptr]
+        controls.RemoveWindowSubclass.argtypes = [wt.HWND, proc_type, uintptr]
+        controls.DefSubclassProc.argtypes = [wt.HWND, wt.UINT, uintptr, intptr]
+        controls.DefSubclassProc.restype = intptr
+        user32.RegisterHotKey.argtypes = [wt.HWND, ctypes.c_int, wt.UINT, wt.UINT]
+        user32.UnregisterHotKey.argtypes = [wt.HWND, ctypes.c_int]
+        user32.GetForegroundWindow.restype = wt.HWND
+        user32.GetSystemMenu.argtypes = [wt.HWND, wt.BOOL]
+        user32.GetSystemMenu.restype = wt.HMENU
+        user32.InsertMenuW.argtypes = [wt.HMENU, wt.UINT, wt.UINT, uintptr, wt.LPCWSTR]
+
+        wm_hotkey, wm_syscommand, wm_ncdestroy = 0x0312, 0x0112, 0x0082
+        menu_command, subclass_id = 0x1ED0, 1
+        # MOD_NOREPEAT | MOD_CONTROL | MOD_SHIFT, VK_E；另提供 F8。
+        hotkeys = {0x5201: (0x4006, ord("E")), 0x5202: (0x4000, 0x77)}
+        registered = set()
+
+        def activate(*_):
+            for key_id, (modifiers, key) in hotkeys.items():
+                if key_id not in registered and user32.RegisterHotKey(hwnd, key_id, modifiers, key):
+                    registered.add(key_id)
+
+        def deactivate(*_):
+            for key_id in registered:
+                user32.UnregisterHotKey(hwnd, key_id)
+            registered.clear()
+
+        def open_editor():
+            try:
+                window.run_js("window.app?.enterEditorFromRuntime?.()")
+            except Exception as exc:
+                print(f"[desktop] 进入编辑器失败：{exc}")
+
+        @proc_type
+        def subclass(handle, msg, param, data, _id, _ref):
+            shortcut = (msg == wm_hotkey and param in registered
+                        and user32.GetForegroundWindow() == handle)
+            menu_selected = msg == wm_syscommand and (param & 0xFFF0) == menu_command
+            if shortcut or menu_selected:
+                threading.Thread(target=open_editor, daemon=True).start()
+                return 0
+            if msg == wm_ncdestroy:
+                deactivate()
+                controls.RemoveWindowSubclass(handle, subclass, subclass_id)
+            return controls.DefSubclassProc(handle, msg, param, data)
+
+        if not controls.SetWindowSubclass(hwnd, subclass, subclass_id, 0):
+            print("[desktop] 无法接入窗口快捷键，继续使用网页快捷键")
+            return
+        # Win32 持有的是函数指针，Python 对象必须活到窗口销毁。
+        window._editor_shortcut_proc = subclass
+        form.Activated += activate
+        form.Deactivate += deactivate
+        if user32.GetForegroundWindow() == hwnd:
+            activate()
+
+        menu = user32.GetSystemMenu(hwnd, False)
+        if menu:
+            user32.InsertMenuW(menu, 0, 0x0400, menu_command, "进入编辑器(&E)\tF8")
+
+    def install_on_ui_thread():
+        try:
+            install()
+        except Exception as exc:
+            print(f"[desktop] 窗口快捷键初始化失败：{exc}")
+
+    try:
+        form.BeginInvoke(Action(install_on_ui_thread))
+    except Exception as exc:
+        print(f"[desktop] 窗口快捷键初始化失败：{exc}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="WebHMI_设计器（原生窗口 + 内置后端，关窗口即停服务）")
     ap.add_argument("--port", type=int, default=8866, help="端口（占用时自动换空闲端口）")
@@ -408,7 +635,7 @@ def main():
     print(f"  数据   : {hmi.DATA_DIR}")
     print(f"  设备   : 启动时按上次保存的配置自动连接（{'OPC UA' if hmi._protocol_of() == 'opcua' else 'Modbus'}）")
     print("  ⚠ 关掉窗口 = 停服务：端口、轮询、推送一起停（不留后台进程）")
-    print("  进编辑器: 运行页里按 Ctrl+Shift+E（没登录会先弹登录页）；编辑器里「工程 ▾ → 去运行画面」切回")
+    print("  进编辑器: 按 Ctrl+Shift+E 或 F8，也可从窗口标题栏菜单进入（需要管理员权限）")
     print("=" * 56)
 
     if not args.no_window or args.self_test:
@@ -455,6 +682,7 @@ def main():
                                 min_size=(900, 600), fullscreen=args.fullscreen,
                                 text_select=False, js_api=api)
     api._win = win      # ⚠ 必须挂在**下划线**属性上，见 DesktopApi.__init__ 里的说明（不然开窗会卡死）
+    win.events.shown += lambda: _bind_editor_shortcuts(win)
 
     result = {}
 
@@ -481,6 +709,24 @@ def main():
             # 顺手报一下这个 WebView2 有没有 File System Access 的保存框（实测：没有 → 桌面版只能走 Python）
             result["saveApi"] = bool(w.evaluate_js("!!(window.pywebview && window.pywebview.api && window.pywebview.api.save_text)"))
             result["picker"] = str(w.evaluate_js("typeof window.showSaveFilePicker"))
+            # 屏幕吸管（属性面板取色的「吸管」）走的是 pywebview 的 js_api → Win32 采屏。
+            # WebView2 里 EyeDropper 是个空壳（有构造函数、吸不到色），所以自检直接验这条桥：
+            # start → read → stop 打一轮，把每次的返回都记下来（现场一眼能看出是接口没进包/被拦，还是采屏失败）
+            result["sampleApi"] = bool(w.evaluate_js(
+                "!!(window.pywebview && window.pywebview.api && window.pywebview.api.pick_color_start)"))
+            if result["sampleApi"]:
+                w.evaluate_js(
+                    "window.__pick=[];(async()=>{try{"
+                    "window.__pick.push(['start',await window.pywebview.api.pick_color_start()]);"
+                    "await new Promise(r=>setTimeout(r,150));"
+                    "window.__pick.push(['read',await window.pywebview.api.pick_color_read()]);"
+                    "window.__pick.push(['stop',await window.pywebview.api.pick_color_stop()]);"
+                    "}catch(e){window.__pick.push(['error',String(e)])}})();1")
+                time.sleep(0.6)
+                try:
+                    result["sample"] = json.loads(w.evaluate_js("JSON.stringify(window.__pick)") or "[]")
+                except Exception:                            # noqa: BLE001
+                    result["sample"] = "?"
             # 「是不是编辑器」不能看 #canvas 存不存在 —— index.html 里两种页面都有这个元素，
             # 运行页只是把它藏起来（display:none → offsetParent 为 null）
             result["editor"] = bool(w.evaluate_js(

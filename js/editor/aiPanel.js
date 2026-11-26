@@ -2,7 +2,7 @@
  * aiPanel.js — AI 助手（窗口最右边的固定侧栏 #aiSide > #panel-ai）
  *
  * ⚠ 它不是停靠面板：不参与拖拽 / 停靠 / 分屏（dock.js 里没有 ai）。
- *   开：工具栏 🤖 AI（或 工程 ▾ →「AI 助手…」）；关：标题栏 ✕（openAiSide/closeAiSide）。
+ *   开：工程菜单 →「AI 助手…」；关：标题栏 ✕（openAiSide/closeAiSide）。
  *
  * 这个文件只干"看得见"的活：
  *   ① 把 aiTools.runAssistant() 的多轮回调画成聊天气泡（正文流式 / 思考过程 / 工具卡片）；
@@ -20,9 +20,11 @@ import { project } from '../core/project.js';
 import { escapeHtml, statusNote } from '../core/utils.js';
 import { aiClient, AI_DEFAULTS } from '../api/ai.js';
 import {
-  runAssistant, resetConversation, conversationLength,
+  runAssistant, restoreConversation, conversationLength, assistantMode,
   setAllowDestructive, getAllowDestructive,
 } from './aiTools.js';
+import { ATTACHMENT_ACCEPT, ATTACHMENT_LIMIT, readAttachment } from './aiAttachments.js';
+import { deleteSession, listSessions, newHistoryId, readSession, saveTurn } from './aiHistory.js';
 import {
   runTranslate, pendingStats, defaultTargetLang, langName, commonLangs,
 } from './aiTranslate.js';
@@ -33,6 +35,15 @@ const els = {};
 let _inited = false;
 let _busy = false;          // 正在对话（含工具执行）
 let _ctl = null;            // 当前对话 {cancel}
+let _mode = 'auto';
+let runningScope = '';
+let draftFiles = [];
+let readingFiles = false;
+let attachmentRevision = 0;
+let followLog = true;
+let currentSession = null;
+let historyWrites = Promise.resolve();
+let historyRequest = 0;
 let _trCtl = null;          // 当前翻译 {cancel}
 
 /* ─────────────────────────── 小工具 ─────────────────────────── */
@@ -49,9 +60,7 @@ function el(tag, cls, text) {
 function scrollLog() {
   const box = els.log;
   if (!box) return;
-  // 只有用户本来就贴着底部时才自动滚（往上翻历史的时候别抢他的位置）
-  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
-  if (nearBottom) box.scrollTop = box.scrollHeight;
+  if (followLog) box.scrollTop = box.scrollHeight;
 }
 
 function clearEmptyHint() {
@@ -136,11 +145,16 @@ function renderMarkdown(container, text) {
 
 /* ───────────────────────── 消息骨架 ───────────────────────── */
 
-function addUserMessage(text) {
+function addUserMessage(text, attachments) {
   clearEmptyHint();
   const wrap = el('div', 'ai-msg user');
   const bubble = el('div', 'ai-bubble');
   bubble.textContent = String(text);
+  if (attachments.length) {
+    const list = el('ul', 'ai-message-files');
+    for (const file of attachments) list.appendChild(el('li', '', '附件 · ' + file.name));
+    bubble.appendChild(list);
+  }
   wrap.appendChild(bubble);
   els.log.appendChild(wrap);
   scrollLog();
@@ -221,8 +235,7 @@ function startRoundLine(msg, round) {
   msg.roundTimer = setInterval(() => {
     if (!line.isConnected) { clearRoundTimer(msg); return; }
     line.textContent = '第 ' + round + ' 轮 · 用时 ' + fmtSec(Date.now() - t0);
-    msg.bubble.appendChild(line);   // 一直停在气泡末尾：流式正文在它上面，计时行跟着往下走
-    scrollLog();
+
   }, 200);
   scrollLog();
 }
@@ -396,71 +409,137 @@ function addErrorNote(msg, text) {
 
 /* ───────────────────────── 状态点 ───────────────────────── */
 
+
 function refreshStatus() {
   if (!els.dot) return;
-  let cls = 'off';
-  let title = 'AI 状态未知';
-  try {
-    const st = aiClient.status || {};
-    if (!st.available) {
-      cls = 'bad';
-      title = '当前后端不支持 AI（升级到带 AI 的后端版本即可）';
-    } else if (!st.online) {
-      cls = 'off';
-      title = '正在连接后端…';
-    } else if (st.enabled === false) {
-      cls = 'bad';
-      title = 'AI 已在后端关闭（server/data/ai.json 里 enabled=false）';
-    } else if (!st.has_key) {
-      cls = 'wait';
-      title = '还没填 API Key —— 点右边「设置」填一下';
-    } else {
-      cls = 'ok';
-      title = 'AI 就绪：' + (st.model || '') ;
-    }
-    els.dot.className = 'ai-dot ' + cls;
-    els.dot.title = title;
-  } catch {
-    els.dot.className = 'ai-dot off';
+  const st = aiClient.status;
+  let cls = 'ok';
+  let label = '就绪';
+  let title = st.model;
+  if (!st.online) {
+    cls = 'off';
+    label = '连接中';
+    title = '正在连接设计器后端';
+  } else if (!st.enabled || !st.available) {
+    cls = 'bad';
+    label = st.enabled ? '后端不支持' : '已停用';
+    title = st.enabled ? '当前后端不支持 AI' : '在设置中启用 AI 助手';
+  } else if (!st.has_key) {
+    cls = 'wait';
+    label = '待配置';
+    title = '在设置中填写 API Key';
   }
-  setBusyUI(_busy);
+  els.dot.className = 'ai-dot ' + cls;
+  els.dot.title = title;
+  els.statusText.textContent = label;
+  els.statusText.title = title;
 }
 
-/* ───────────────────────── 发送 / 停止 ───────────────────────── */
+function refreshScope() {
+  if (!els.scope) return;
+  const draft = els.input.value.trim();
+  const scope = runningScope || (_mode === 'auto' && !draft ? 'auto' : assistantMode(draft, _mode));
+  const page = project.currentPage();
+  els.scope.dataset.scope = scope;
+  els.scopeTag.textContent = { auto: '自动', chat: '聊天', project: '工程' }[scope];
+  const label = scope === 'project'
+    ? (page ? '当前页 · ' + page.name : '当前工程')
+    : (scope === 'chat' ? '仅发送聊天消息和本条附件' : '按提问选择聊天或工程');
+  els.scopeText.textContent = label;
+  els.scopeText.title = label;
+}
 
 function setBusyUI(busy) {
-  _busy = !!busy;
-  if (els.send) els.send.disabled = _busy;
-  if (els.stop) els.stop.classList.toggle('hidden', !_busy);
-  if (els.input) els.input.disabled = false;   // 忙的时候也让用户先打字，发不出去而已
+  _busy = busy;
+  if (!busy) runningScope = '';
+  els.send.disabled = busy || readingFiles;
+  els.historyBtn.disabled = busy;
+  els.attach.disabled = readingFiles;
+  els.send.classList.toggle('hidden', busy);
+  els.stop.classList.toggle('hidden', !busy);
+  els.mode.forEach(button => { button.disabled = busy; });
+  refreshScope();
+}
+
+function taskStatus(text = '', state = '') {
+  els.taskStatus.dataset.state = state;
+  els.taskStatus.textContent = text;
+}
+
+function finishStatus(info) {
+  if (info?.budget_limit) return '已停止 · 输入预算用完';
+  if (info?.batch_limit) return '已停止 · 达到工具批次上限';
+  if (info?.truncated) return '已停止 · 任务未完成';
+  if (info?.finish_reason === 'length') return '已停止 · 达到回复长度上限';
+  return '已完成';
 }
 
 function configMissingHint() {
-  const st = aiClient.status || {};
-  if (!st.available) return '后端不支持 AI：请确认用的是带 AI 的后端（2.2+）。';
-  if (st.enabled === false) return 'AI 已关闭：到 AI 设置里勾上「启用 AI 助手」。';
-  if (!st.has_key) return '还没填 API Key：点面板上的「设置」填一下。';
+  const st = aiClient.status;
+  if (!st.online) return '设计器后端未连接，连接后可重新发送。';
+  if (st.enabled === false) return '在 AI 设置中启用助手后再发送。';
+  if (!st.available) return '当前设计器后端不支持 AI。';
+  if (!st.has_key) return '在 AI 设置中填写 API Key 后再发送。';
   return '';
 }
 
-function send(text) {
-  const msgText = String(text ?? '').trim();
-  if (!msgText || _busy) return;
+function send(text, attachments = []) {
+  const msgText = String(text ?? '').trim() || (attachments.length ? '请概述附件内容。' : '');
+  if (!msgText || _busy) return false;
   const hint = configMissingHint();
   if (hint) {
-    addUserMessage(msgText);
-    const msg = newAssistantMessage();
-    addErrorNote(msg, hint);
-    openSettingsDialog();
-    return;
+    statusNote(hint, 6000);
+    if (aiClient.status.online && aiClient.status.available) openSettingsDialog();
+    return false;
   }
+  setHistoryVisible(false);
+  runningScope = assistantMode(msgText, _mode);
   setBusyUI(true);
+  taskStatus('正在处理…', 'running');
+  const at = Date.now();
+  const create = !currentSession;
+  if (create) {
+    currentSession = {
+      id: newHistoryId(),
+      title: msgText.replace(/\s+/g, ' ').slice(0, 55),
+      projectName: String(project.data?.meta?.name || '').slice(0, 80),
+      updatedAt: at,
+    };
+  }
+  const session = currentSession;
+  const turn = {
+    id: newHistoryId(), at, text: msgText, pending: true, reasoning: '',
+    attachments: attachments.map(file => ({ name: file.name })),
+    rounds: [], notes: [],
+    context: { mode: runningScope, text: msgText.slice(0, 1350), intent: msgText.slice(0, 900) },
+  };
+  persistTurn(session, turn, create);
   let msg = null;
+  let round = null;
+  const note = (kind, text) => {
+    turn.notes.push({ kind, text });
+    if (kind === 'ai-err') addErrorNote(msg, text);
+    else msg.bubble.appendChild(el('div', kind, text));
+  };
+  const finish = (status, state) => {
+    taskStatus(status, state);
+    statusNote('AI 助手：' + status, 6500);
+    turn.pending = false;
+    persistTurn(session, turn);
+    _ctl = null;
+    setBusyUI(false);
+    refreshStatus();
+  };
   _ctl = runAssistant({
     text: msgText,
+    mode: _mode,
+    attachments,
     handlers: {
-      onUser: (tx) => { addUserMessage(tx); msg = newAssistantMessage(); },
+      onUser: (tx) => { followLog = true; addUserMessage(tx, turn.attachments); msg = newAssistantMessage(); },
+      onTurn: context => { turn.context = context; },
       onRound: (n) => {
+        round = { text: '' };
+        turn.rounds.push(round);
         if (!msg) msg = newAssistantMessage();
         // 每轮单独用一个文本容器：这样上一轮的工具卡片不会被下一轮的正文顶到后面去
         msg.textBox = null;
@@ -469,12 +548,19 @@ function send(text) {
       },
       onRoundEnd: (info) => {
         if (!msg || !info) return;
+        round.info = info;
         endRoundLine(msg, info.round, info.elapsed_ms, info.usage);
       },
       onDelta: (d) => {
         if (!msg) msg = newAssistantMessage();
-        if (d && d.reasoning) appendThinking(msg, d.reasoning);
-        if (d && d.text) appendLiveText(msg, d.text);
+        if (d?.reasoning) {
+          turn.reasoning += d.reasoning;
+          appendThinking(msg, d.reasoning);
+        }
+        if (d?.text) {
+          round.text += d.text;
+          appendLiveText(msg, d.text);
+        }
       },
       onToolStart: (calls) => {
         if (!msg) msg = newAssistantMessage();
@@ -492,53 +578,67 @@ function send(text) {
       },
       onToolEnd: (results) => {
         if (!msg) return;
+        round.tools = (results || []).map(r => ({
+          name: r.name, ok: !!r.result?.ok,
+          summary: r.result?.summary || r.result?.error || (r.result?.ok ? '完成' : '失败'),
+        }));
         (results || []).forEach(r => finishToolCard(msg, r));
+        persistTurn(session, turn);
+      },
+      onCompact: () => {
+        taskStatus('上下文已压缩，正在继续…', 'running');
+        note('ai-note', '模型上下文超限，已压缩历史并重新请求。');
       },
       onContent: (content) => {
         if (!msg) msg = newAssistantMessage();
+        round.text = content;
         setFinalText(msg, content);
       },
       onDone: (info) => {
         if (msg) {
           clearRoundTimer(msg);
-          const content = String(info?.content || '');
-          if (content) setFinalText(msg, content);
           if (info?.truncated) {
             const lim = Number(info?.batch_limit) || 0;
             const bud = Number(info?.budget_limit) || 0;
-            msg.bubble.appendChild(el('div', 'ai-note', bud > 0
+            note('ai-note', bud > 0
               ? '（本次提问的输入已到预算上限 ' + fmtTok(bud) + ' token，我先停下 —— 再发一句「继续」会重新给一份预算）'
               : (lim > 0
                 ? '（工具调用批次到你设的上限 ' + lim + ' 了，我先停下 —— 再发一句「继续」就能接着做）'
-                : '（这次没做完 —— 可以再发一句「继续」让我接着做）')));
+                : '（这次没做完 —— 可以再发一句「继续」让我接着做）'));
+          }
+          if (info?.finish_reason === 'length') {
+            note('ai-note', '已达到回复长度上限。可发「继续」接着回答。');
           }
           if (Number(info?.rounds) > 1) {
             const u = info?.usage || null;
             const tok = usageSuffix(u) || (msg.tokIn || msg.tokOut
               ? ' · ↑' + fmtTok(msg.tokIn) + (msg.tokHit > 0 ? '(缓存 ' + fmtTok(msg.tokHit) + ')' : '') + ' ↓' + fmtTok(msg.tokOut) + ' tok'
               : '');
-            msg.bubble.appendChild(el('div', 'ai-round-total', '⏱ 共 ' + info.rounds + ' 轮 · 总用时 ' + fmtSec(info.elapsed_ms) + tok));
+            note('ai-round-total', '⏱ 共 ' + info.rounds + ' 轮 · 总用时 ' + fmtSec(info.elapsed_ms) + tok);
             scrollLog();
           }
         }
-        _ctl = null;
-        setBusyUI(false);
-        refreshStatus();
+        const status = finishStatus(info);
+        finish(status, status === '已完成' ? 'done' : 'stopped');
       },
       onError: (message, code) => {
         if (msg) clearRoundTimer(msg);
+        if (!msg) msg = newAssistantMessage();
         if (code === 'cancel') {
-          if (msg) msg.bubble.appendChild(el('div', 'ai-note', '（已停止）'));
-        } else {
-          if (!msg) msg = newAssistantMessage();
-          addErrorNote(msg, message);
+          note('ai-note', '（已停止）');
+          finish('已停止', 'stopped');
+          return;
         }
-        _ctl = null;
-        setBusyUI(false);
-        refreshStatus();
+        note('ai-err', message);
+        const reason = {
+          context_limit: '模型上下文超限', timeout: '请求超时', network: '连接中断',
+          offline: '连接中断', tool: '工具任务中断',
+        }[code] || '请求失败';
+        finish('已停止 · ' + reason, 'error');
       },
     },
   });
+  return true;
 }
 
 function stop() {
@@ -601,11 +701,11 @@ async function openSettingsDialog() {
     ${row('模型', `<input id="aiCfgModel" style="${inputCss}" value="${escapeHtml(cfg.model || '')}" placeholder="mimo-v2.6-flash">`)}
     ${row('API Key', `<input id="aiCfgKey" type="password" style="${inputCss}" value="" placeholder="${cfg.has_key ? '已保存（' + escapeHtml(cfg.api_key_masked || '') + '），留空不改' : '在这里填 API Key'}">`)}
     ${row('温度', `<input id="aiCfgTemp" type="number" step="0.1" min="0" max="2" style="${inputCss};width:90px" value="${Number(cfg.temperature ?? 0.2)}">`)}
-    ${row('最大 tokens', `<span style="display:inline-flex;align-items:center;gap:6px"><input id="aiCfgTokens" type="number" step="1" min="0.1" max="200" style="${inputCss};width:90px" value="${Math.round(Number(cfg.max_tokens ?? 4000) / 100) / 10}"><span style="color:var(--text-2)">k token（1k = 1000 token，上限 200k）</span></span>`)}
+    ${row('最大 tokens', `<span style="display:inline-flex;align-items:center;gap:6px"><input id="aiCfgTokens" type="number" step="1" min="0.1" max="200" style="${inputCss};width:90px" value="${Math.round(Number(cfg.max_tokens ?? 4000) / 100) / 10}"><span style="color:var(--text-2)">k token</span></span>`)}
     ${row('思考过程', `<select id="aiCfgThinking" style="${inputCss}">${thinkingSel(cfg.thinking)}</select>`)}
     ${row('单次超时', `<span style="display:inline-flex;align-items:center;gap:6px"><input id="aiCfgTimeout" type="number" step="5" min="10" max="3600" style="${inputCss};width:90px" value="${Number(cfg.timeout ?? 90)}"><span style="color:var(--text-2)">秒</span></span>`)}
-    ${row('工具批次上限', `<span style="display:inline-flex;align-items:center;gap:6px"><input id="aiCfgRounds" type="number" step="1" min="0" max="9999" style="${inputCss};width:80px" value="${Number(cfg.max_rounds ?? 0)}"><span style="color:var(--text-2)">批（<b>0 = 不限制</b>；对话轮次本来就不限，这里只是防工具反复折腾的保险）</span></span>`)}
-    ${row('输入预算', `<span style="display:inline-flex;align-items:center;gap:6px"><input id="aiCfgBudget" type="number" step="5" min="0" max="2000" style="${inputCss};width:90px" value="${Math.round(Number(cfg.budget_tokens ?? 60000) / 1000)}"><span style="color:var(--text-2)">k token（<b>0 = 不限制</b>；一次提问累计输入的预算，到量就停，防长任务烧钱）</span></span>`)}
+    ${row('工具批次上限', `<span style="display:inline-flex;align-items:center;gap:6px"><input id="aiCfgRounds" type="number" step="1" min="0" max="9999" style="${inputCss};width:80px" value="${Number(cfg.max_rounds ?? 0)}"><span style="color:var(--text-2)">批（<b>0 = 不限制</b>）</span></span>`)}
+    ${row('输入预算', `<span style="display:inline-flex;align-items:center;gap:6px"><input id="aiCfgBudget" type="number" step="5" min="0" max="2000" style="${inputCss};width:90px" value="${Math.round(Number(cfg.budget_tokens ?? 60000) / 1000)}"><span style="color:var(--text-2)">k token（<b>0 = 不限制</b>）</span></span>`)}
     <div class="ai-cfg-foot">
       <button type="button" class="tb-btn sm" id="aiCfgTest">测试连接</button>
       <div id="aiTestOut" class="ai-test-out"></div>
@@ -868,12 +968,14 @@ async function openTranslateDialog() {
               out.textContent = parts.join('；') + (filled > 0 ? '。已切到目标语言预览，Ctrl+Z 可整体撤销。' : '');
             }
             refreshLangSelect(lang);
-            statusNote('AI 翻译完成：' + parts.join('；'), 6000);
+            const status = info?.error || info?.cancelled ? 'AI 翻译已停止' : 'AI 翻译完成';
+            statusNote(status + '：' + parts.join('；'), 6000);
           },
           onError: (message) => {
             _trCtl = null;
             startBtn.disabled = false;
             if (out) { out.className = 'ai-tr-out bad'; out.textContent = '翻译失败：' + message; }
+            statusNote('AI 翻译已停止 · 翻译失败', 6500);
           },
         },
       });
@@ -883,56 +985,238 @@ async function openTranslateDialog() {
 
 /* ───────────────────────── 入口 ───────────────────────── */
 
-/** 快捷指令 → 直接发一句话（翻译那条走对话框） */
-const QUICK = {
-  '翻译整个工程': () => openTranslateDialog(),
-  '新建一个页面': () => send('新建一个页面'),
-  '给当前页加一个按钮': () => send('在当前页面加一个按钮'),
-  '检查我的脚本': () => send('检查我的脚本有没有语法或变量问题'),
-};
 
-function clearConversation() {
-  resetConversation();
-  if (els.log) {
-    els.log.innerHTML = '<div class="ai-empty"><b>让 AI 直接改工程。</b>例如：<br>'
-      + '· 新建一个「配方管理」页面，放 3 个按钮<br>'
-      + '· 给当前页加一个启动按钮，绑定 <code>start</code><br>'
-      + '· 检查我的脚本有没有语法/变量问题<br>'
-      + '改动都可 <b>Ctrl+Z</b> 撤销。</div>';
+
+function renderAttachments(message = '') {
+  els.files.replaceChildren();
+  els.files.hidden = !draftFiles.length;
+  draftFiles.forEach((file, index) => {
+    const chip = el('div', 'ai-file-chip');
+    if (file.dataUrl) {
+      const image = el('img');
+      image.src = file.dataUrl;
+      image.alt = '';
+      chip.appendChild(image);
+    }
+    const label = el('span', '', file.name + (file.truncated ? '（前 ' + file.text.length + ' 字符）' : ''));
+    label.title = label.textContent;
+    const remove = el('button', 'ai-file-remove', '×');
+    remove.type = 'button';
+    remove.setAttribute('aria-label', '移除附件 ' + file.name);
+    remove.onclick = () => {
+      draftFiles.splice(index, 1);
+      renderAttachments();
+      els.attach.focus();
+    };
+    chip.append(label, remove);
+    els.files.appendChild(chip);
+  });
+  const hint = draftFiles.some(file => file.dataUrl) ? '图片需要模型支持识图' : '';
+  els.fileInfo.textContent = message || (readingFiles ? '正在读取附件…' : hint);
+  els.fileInfo.hidden = !els.fileInfo.textContent;
+  setBusyUI(_busy);
+}
+
+function clearAttachments() {
+  attachmentRevision++;
+  readingFiles = false;
+  draftFiles = [];
+  renderAttachments();
+}
+
+async function attachFiles(files) {
+  if (!files.length || readingFiles) return;
+  const remaining = ATTACHMENT_LIMIT - draftFiles.length;
+  if (!remaining) {
+    renderAttachments('每条消息最多附加 ' + ATTACHMENT_LIMIT + ' 个文件。');
+    return;
   }
-  setBusyUI(false);
-  statusNote('AI 会话已清空（工程内容没动）', 4000);
+  const revision = ++attachmentRevision;
+  readingFiles = true;
+  renderAttachments();
+  const notes = [];
+  for (const file of files.slice(0, remaining)) {
+    if (revision !== attachmentRevision) return;
+    try {
+      const result = await readAttachment(file);
+      if (revision === attachmentRevision) draftFiles.push(result);
+    } catch (error) {
+      notes.push(file.name + '：' + error.message);
+    }
+  }
+  if (revision !== attachmentRevision) return;
+  if (files.length > remaining) notes.push('每条消息最多附加 ' + ATTACHMENT_LIMIT + ' 个文件。');
+  readingFiles = false;
+  renderAttachments(notes.join('\n'));
+}
+
+
+/* ───────────────────────── 会话记录 ───────────────────────── */
+
+function persistTurn(session, turn, create = false) {
+  const entry = structuredClone(turn);
+  historyWrites = historyWrites.then(async () => {
+    if (!await saveTurn(session, entry, create)) {
+      statusNote('这条会话已被删除，请新建会话后继续。', 6000);
+    }
+  }).catch(() => statusNote('浏览器未能保存这条会话。', 8000));
+}
+
+function historyStatus(message = '') {
+  els.historyStatus.textContent = message;
+  els.historyStatus.hidden = !message;
+}
+
+function setHistoryVisible(open) {
+  historyRequest++;
+  els.history.hidden = !open;
+  els.scope.hidden = open;
+  els.log.hidden = open;
+  els.form.hidden = open;
+  els.historyBtn.setAttribute('aria-expanded', String(open));
+}
+
+async function showHistory() {
+  setHistoryVisible(true);
+  const request = historyRequest;
+  els.historyBack.focus();
+  els.historyList.replaceChildren();
+  historyStatus('正在读取会话…');
+  try {
+    await historyWrites;
+    const sessions = await listSessions();
+    if (request !== historyRequest) return;
+    historyStatus(sessions.length ? '' : '还没有历史会话。');
+    for (const session of sessions) {
+      const row = el('li', 'ai-history-row');
+      const open = el('button', 'ai-history-open');
+      open.type = 'button';
+      open.title = session.title;
+      if (session.id === currentSession?.id) open.setAttribute('aria-current', 'true');
+      open.append(el('strong', '', session.title));
+      const date = new Date(session.updatedAt).toLocaleString();
+      open.append(el('small', '', session.projectName ? session.projectName + ' · ' + date : date));
+      open.onclick = () => void openHistorySession(session.id);
+      const remove = el('button', 'ai-history-remove', '删除');
+      remove.type = 'button';
+      remove.setAttribute('aria-label', '删除会话 ' + session.title);
+      remove.onclick = () => confirmDeleteSession(session);
+      row.append(open, remove);
+      els.historyList.appendChild(row);
+    }
+  } catch {
+    if (request === historyRequest) historyStatus('无法读取浏览器中的历史会话。');
+  }
+}
+
+async function openHistorySession(id) {
+  const request = ++historyRequest;
+  historyStatus('正在打开会话…');
+  try {
+    await historyWrites;
+    const stored = await readSession(id);
+    if (request !== historyRequest) return;
+    if (!stored) { await showHistory(); return; }
+    switchConversation(stored.session, stored.turns);
+    els.input.focus();
+  } catch {
+    if (request === historyRequest) historyStatus('无法打开这条会话。');
+  }
+}
+
+function confirmDeleteSession(session) {
+  showDialog({
+    title: '删除历史会话',
+    body: '<p>确定删除「' + escapeHtml(session.title) + '」？</p><p id="aiDeleteError" role="alert"></p>',
+    okText: '删除',
+    onOk: async () => {
+      try {
+        await historyWrites;
+        await deleteSession(session.id);
+        if (currentSession?.id === session.id) switchConversation();
+        await showHistory();
+        return true;
+      } catch {
+        document.getElementById('aiDeleteError').textContent = '无法删除这条会话，请重试。';
+        return false;
+      }
+    },
+  });
+}
+
+function renderSavedTurn(turn) {
+  addUserMessage(turn.text, turn.attachments);
+  const msg = newAssistantMessage();
+  if (turn.reasoning) appendThinking(msg, turn.reasoning);
+  for (const round of turn.rounds) {
+    msg.textBox = null;
+    if (round.text) setFinalText(msg, round.text);
+    if (round.info) endRoundLine(msg, round.info.round, round.info.elapsed_ms, round.info.usage);
+    if (round.tools?.length) {
+      const details = el('details', 'ai-history-tools');
+      details.append(el('summary', '', '执行记录 · ' + round.tools.length + ' 项'));
+      const list = el('ul', '');
+      for (const tool of round.tools) {
+        const line = el('li', '', tool.name + ' · ' + tool.summary);
+        if (!tool.ok) line.className = 'failed';
+        list.appendChild(line);
+      }
+      details.appendChild(list);
+      msg.bubble.appendChild(details);
+    }
+  }
+  for (const note of turn.notes) {
+    if (note.kind === 'ai-err') addErrorNote(msg, note.text);
+    else msg.bubble.appendChild(el('div', note.kind, note.text));
+  }
+  if (turn.pending) msg.bubble.appendChild(el('div', 'ai-note', '这条回复未保存完整。'));
+}
+
+function switchConversation(session = null, savedTurns = []) {
+  restoreConversation(savedTurns.map(turn => turn.context).filter(Boolean));
+  currentSession = session;
+  setHistoryVisible(false);
+  taskStatus();
+  els.input.value = '';
+  clearAttachments();
+  autoGrow();
+  followLog = false;
+  if (savedTurns.length) {
+    els.log.replaceChildren();
+    for (const turn of savedTurns) renderSavedTurn(turn);
+  } else {
+    els.log.replaceChildren(els.welcome.content.cloneNode(true));
+  }
+  followLog = true;
+  scrollLog();
 }
 
 function autoGrow() {
   const box = els.input;
-  if (!box) return;
   box.style.height = 'auto';
-  box.style.height = Math.min(140, Math.max(34, box.scrollHeight)) + 'px';
+  box.style.height = Math.min(128, Math.max(54, box.scrollHeight)) + 'px';
+  refreshScope();
+}
+
+function submitMessage() {
+  if (readingFiles || !send(els.input.value, draftFiles.slice())) return;
+  els.input.value = '';
+  clearAttachments();
+  autoGrow();
 }
 
 /* ─────────── 固定侧栏：开 / 关（窗口最右边那块，不参与拖拽）───────────
    位置：index.html 的 #aiSide（#dockRow 里 #rightPanel 之后）→ 不归 dock.js 管。
-   开：工具栏 🤖 AI / 工程 ▾ →「AI 助手…」；关：面板标题栏 ✕。
+   开：工程菜单 →「AI 助手…」；关：面板标题栏 ✕。
    开/关状态记在 localStorage['hmi-ai-open']（跟工程无关，换工程也保持）。 */
 const AI_OPEN_KEY = 'hmi-ai-open';
 
 function sideEl() { return document.getElementById('aiSide'); }
 
-/** 面板此刻是不是开着（默认关：第一次用要点一下 🤖 AI） */
+/** 面板当前是否打开。 */
 export function aiSideOpen() {
   const side = sideEl();
   return !!side && !side.classList.contains('hidden');
-}
-
-/** 同步工具栏 🤖 AI 按钮的按下态 */
-function syncAiBtn() {
-  const btn = document.getElementById('btnAi');
-  if (!btn) return;
-  btn.classList.toggle('active', aiSideOpen());
-  btn.title = aiSideOpen()
-    ? 'AI 助手已打开（点这里收起；随时 Ctrl+Z 撤销 AI 的改动）'
-    : 'AI 助手：对话式改工程（建页面 / 画控件 / 写脚本 / 翻译，可 Ctrl+Z 撤销）';
 }
 
 /** 打开固定侧栏（可选 focus：打开后把光标放进输入框） */
@@ -942,9 +1226,9 @@ export function openAiSide(focus = true) {
   if (!side) { statusNote('AI 面板没找到（页面可能是旧缓存，Ctrl+F5 刷新一下）', 6000); return false; }
   side.classList.remove('hidden');
   try { localStorage.setItem(AI_OPEN_KEY, '1'); } catch { /* 无痕模式等不让写，忽略 */ }
-  syncAiBtn();
   refreshStatus();
-  if (focus && els.input) requestAnimationFrame(() => els.input.focus());
+  aiClient.getConfig().then(refreshStatus).catch(() => {});
+  if (focus) requestAnimationFrame(() => (els.history.hidden ? els.input : els.historyBack).focus());
   return true;
 }
 
@@ -955,7 +1239,6 @@ export function closeAiSide() {
   if (_busy) stop();
   side.classList.add('hidden');
   try { localStorage.setItem(AI_OPEN_KEY, '0'); } catch { /* 忽略 */ }
-  syncAiBtn();
   return true;
 }
 
@@ -972,15 +1255,29 @@ export function initAiPanel() {
   els.send = document.getElementById('aiSendBtn');
   els.stop = document.getElementById('aiStopBtn');
   els.allow = document.getElementById('aiAllowDestructive');
-  els.quick = document.getElementById('aiQuick');
+  els.statusText = document.getElementById('aiStatusText');
+  els.scope = document.getElementById('aiScope');
+  els.scopeTag = document.getElementById('aiScopeTag');
+  els.scopeText = document.getElementById('aiScopeText');
+  els.mode = Array.from(document.querySelectorAll('#aiSide [data-mode]'));
+  els.form = document.getElementById('aiComposer');
+  els.taskStatus = document.getElementById('aiTaskStatus');
+  els.welcome = document.getElementById('aiWelcome');
+  els.files = document.getElementById('aiAttachments');
+  els.fileInfo = document.getElementById('aiAttachmentInfo');
+  els.picker = document.getElementById('aiAttachmentPicker');
+  els.attach = document.getElementById('aiAttachBtn');
+  els.history = document.getElementById('aiHistory');
+  els.historyBtn = document.getElementById('aiHistoryBtn');
+  els.historyBack = document.getElementById('aiHistoryBack');
+  els.historyList = document.getElementById('aiHistoryList');
+  els.historyStatus = document.getElementById('aiHistoryStatus');
+  switchConversation();
   els.translate = document.getElementById('aiTranslateBtn');
   els.settings = document.getElementById('aiSettingsBtn');
   els.clear = document.getElementById('aiClearBtn');
-  // 固定侧栏：✕ 关闭 + 工具栏 🤖 AI 开关
   els.closeBtn = document.getElementById('aiCloseBtn');
   if (els.closeBtn) els.closeBtn.onclick = () => closeAiSide();
-  const toolBtn = document.getElementById('btnAi');
-  if (toolBtn) toolBtn.onclick = () => toggleAiSide();
 
   // 破坏性操作开关：默认关（AI 想删东西时会被工具层拒绝，并提示用户来勾）
   if (els.allow) {
@@ -992,50 +1289,80 @@ export function initAiPanel() {
   }
   setAllowDestructive(!!getAllowDestructive());
 
-  if (els.send) els.send.onclick = () => { send(els.input?.value || ''); if (els.input) { els.input.value = ''; autoGrow(); } };
+
+  els.picker.accept = ATTACHMENT_ACCEPT;
+  els.attach.onclick = () => els.picker.click();
+  els.picker.onchange = () => {
+    const files = [...els.picker.files];
+    els.picker.value = '';
+    void attachFiles(files);
+  };
+  els.input.addEventListener('paste', ev => {
+    const images = [...(ev.clipboardData?.files || [])].filter(file => file.type.startsWith('image/'));
+    if (!images.length) return;
+    ev.preventDefault();
+    void attachFiles(images);
+  });
+
+  els.form.addEventListener('submit', ev => { ev.preventDefault(); submitMessage(); });
   if (els.stop) els.stop.onclick = () => stop();
   if (els.translate) els.translate.onclick = () => openTranslateDialog();
   if (els.settings) els.settings.onclick = () => openSettingsDialog();
-  if (els.clear) els.clear.onclick = () => clearConversation();
+  if (els.clear) els.clear.onclick = () => { switchConversation(); els.input.focus(); };
+  els.historyBtn.onclick = () => {
+    if (els.history.hidden) void showHistory();
+    else { setHistoryVisible(false); els.input.focus(); }
+  };
+  els.historyBack.onclick = () => { setHistoryVisible(false); els.historyBtn.focus(); };
 
-  if (els.quick) {
-    els.quick.addEventListener('click', (ev) => {
-      const chip = ev.target instanceof Element ? ev.target.closest('.ai-chip') : null;
-      if (!chip) return;
-      const cmd = String(chip.getAttribute('data-cmd') || '').trim();
-      const fn = QUICK[cmd];
-      if (fn) { ev.preventDefault(); fn(); }
+
+  for (const button of els.mode) {
+    button.addEventListener('click', () => {
+      _mode = button.dataset.mode;
+      els.mode.forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+      refreshScope();
     });
   }
+  els.log.addEventListener('scroll', () => {
+    const box = els.log;
+    followLog = box.scrollHeight - box.scrollTop - box.clientHeight < 48;
+  });
+  els.log.addEventListener('click', ev => {
+    const example = ev.target.closest('[data-prompt]');
+    if (!example) return;
+    els.input.value = example.dataset.prompt;
+    autoGrow();
+    els.input.focus();
+  });
+  els.input.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing && ev.keyCode !== 229) {
+      ev.preventDefault();
+      submitMessage();
+    }
+  });
+  els.input.addEventListener('input', autoGrow);
 
-  if (els.input) {
-    els.input.addEventListener('keydown', (ev) => {
-      // 输入法选字时的回车不能当"发送"
-      if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) {
-        ev.preventDefault();
-        const txt = els.input.value;
-        els.input.value = '';
-        autoGrow();
-        send(txt);
-      }
-    });
-    els.input.addEventListener('input', autoGrow);
-  }
   autoGrow();
 
   // 状态点随连接/配置变化刷新
   bus.on('ai:config', () => refreshStatus());
   bus.on('backend:status', () => refreshStatus());
-  bus.on('backend:reconnect', () => refreshStatus());
-  bus.on('project:replaced', () => { if (!_busy) refreshStatus(); });
-
+  bus.on('backend:reconnect', () => {
+    refreshStatus();
+    if (aiSideOpen()) aiClient.getConfig().then(refreshStatus).catch(() => {});
+  });
+  bus.on('page:current', refreshScope);
+  bus.on('project:changed', refreshScope);
+  bus.on('project:replaced', event => {
+    if (!event?.fromHistory) switchConversation();
+    else if (_busy) stop();
+  });
   refreshStatus();
-  aiClient.getConfig().then(() => refreshStatus()).catch(() => { /* 老后端没有这个接口 */ });
 
   // 上次关着就继续保持关着（默认关）；开着就恢复（焦点不抢 —— 启动时别打断用户）
   let savedOpen = false;
   try { savedOpen = localStorage.getItem(AI_OPEN_KEY) === '1'; } catch { /* 忽略 */ }
-  if (savedOpen) openAiSide(false); else syncAiBtn();
+  if (savedOpen) openAiSide(false);
 }
 
 /** 供别处（工具菜单/测试）叫出对话框 */

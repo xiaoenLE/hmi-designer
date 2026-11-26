@@ -70,7 +70,7 @@ register({
     { key: 'inactiveText', label: '未选文字色', type: 'color' },
     { key: 'fontSize', label: '字号', type: 'number', min: 8, max: 48 },
     { key: 'borderColor', label: '边框色', type: 'color' },
-    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 30 },
+    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 100 },
   ],
   binding: { variable: { types: ['int', 'uint', 'dint', 'udint', 'real', 'lreal', 'string'], label: '绑定变量' } },
   actions: [],
@@ -79,7 +79,7 @@ register({
     // 选项表先整段翻（trOptions 只翻 = 前面的显示文字，值和颜色原样），再按老规矩解析
     const opts = parseOptions(trOptions(p.items || ''));
     const vertical = p.orientation === 'v';
-    const radius = clamp(Math.round(numOr(p.radius, 6)), 0, 30);
+    const radius = clamp(Math.round(numOr(p.radius, 6)), 0, 100);
     const optH = clamp(Math.round(numOr(p.optionH, 36)), 16, 120);
     const borderColor = p.borderColor || '#c3cbd6';
     const fs = clamp(Math.round(numOr(p.fontSize, 14)), 8, 48);

@@ -31,8 +31,8 @@ register({
   },
   props: [
     // 开/关文字是"给人看的文字" → 声明 i18n，render 里用 tr() 包
-    { key: 'onText', label: '开时文字', type: 'text', i18n: 'text' },
-    { key: 'offText', label: '关时文字', type: 'text', i18n: 'text' },
+    { key: 'onText', label: '开时文字', type: 'textarea', rows: 2, i18n: 'text' },
+    { key: 'offText', label: '关时文字', type: 'textarea', rows: 2, i18n: 'text' },
     { key: 'showText', label: '显示文字', type: 'check', defVal: true },
     { key: 'onColor', label: '开时底色', type: 'color' },
     { key: 'offColor', label: '关时底色', type: 'color' },
@@ -60,7 +60,7 @@ register({
       : `padding-left:${knobW + 6}px;padding-right:${Math.round(fs * 0.9)}px;justify-content:flex-end;`;
     const text = on ? tr(p.onText || '') : tr(p.offText || '');
     const txtEl = p.showText === false ? ''
-      : `<span class="wsw-text" style="position:absolute;inset:0;display:flex;align-items:center;box-sizing:border-box;${textPad}font-size:${fs}px;color:${p.textColor || '#ffffff'};font-weight:600;white-space:nowrap;overflow:hidden;pointer-events:none">${escapeHtml(text)}</span>`;
+      : `<span class="wsw-text" style="position:absolute;inset:0;display:flex;align-items:center;box-sizing:border-box;${textPad}font-size:${fs}px;color:${p.textColor || '#ffffff'};font-weight:600;white-space:pre-wrap;overflow-wrap:anywhere;overflow:hidden;pointer-events:none">${escapeHtml(text)}</span>`;
     const knobEl = `<div class="wsw-knob" style="position:absolute;top:${pad}px;${on ? 'right' : 'left'}:${pad}px;width:${knobW}px;height:${knobW}px;border-radius:50%;background:${p.knobColor || '#ffffff'};box-shadow:0 1px 3px rgba(0,0,0,.3);transition:left .15s,right .15s"></div>`;
     return `<div class="w-switch" data-on="${on ? 1 : 0}"
       style="position:relative;width:100%;height:100%;box-sizing:border-box;cursor:pointer;user-select:none;overflow:hidden;

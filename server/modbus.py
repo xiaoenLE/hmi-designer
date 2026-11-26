@@ -395,6 +395,9 @@ class ModbusTcpClient:
                 head = self._recv_exact(7)                     # MBAP
                 tid, pid, length, unit = struct.unpack(">HHHB", head)
                 body = self._recv_exact(max(0, length - 1))
+            except ModbusError:
+                self._close_locked()                           # 收到 EOF 时也立即废弃本次连接
+                raise
             except (OSError, socket.timeout) as e:
                 self._close_locked()                           # 出错就断开，下次重连
                 raise ModbusError(f"通信失败：{e}") from e
@@ -414,7 +417,7 @@ class ModbusTcpClient:
         if count < 1 or count > 125:
             raise ValueError("一次最多读 125 个寄存器")
         body = self._request(struct.pack(">BHH", fc, offset, count))
-        if body[0] != fc or len(body) < 2 + count * 2:
+        if len(body) != 2 + count * 2 or body[0] != fc or body[1] != count * 2:
             raise ModbusError("响应长度不对")
         return list(struct.unpack(">" + "H" * count, body[2:2 + count * 2]))
 
@@ -423,7 +426,7 @@ class ModbusTcpClient:
             raise ValueError("一次最多读 2000 个位")
         body = self._request(struct.pack(">BHH", fc, offset, count))
         nbytes = (count + 7) // 8
-        if body[0] != fc or len(body) < 2 + nbytes:
+        if len(body) != 2 + nbytes or body[0] != fc or body[1] != nbytes:
             raise ModbusError("响应长度不对")
         out = []
         for i in range(count):

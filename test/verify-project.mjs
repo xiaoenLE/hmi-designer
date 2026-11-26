@@ -81,7 +81,7 @@ const clickSave = async () => {
   await sleep(200);
   const hit = await page.evaluate(() => {
     const b = [...document.querySelectorAll('#ctxMenu .ctx-item')]
-      .find(x => x.querySelector('.ctx-label')?.textContent === '保存');
+      .find(x => x.querySelector('.ctx-label')?.textContent === '保存到本地');
     if (!b) return false;
     b.click();
     return true;
@@ -96,12 +96,38 @@ const menuItems = await page.evaluate(() => [...document.querySelectorAll('#ctxM
 await page.keyboard.press('Escape');
 await sleep(150);
 ok('工具栏「工程 ▾」是一个下拉菜单，六件事都在里面（不再是排一长排按钮）',
-  menuItems.includes('新建工程…') && menuItems.some(t => t.startsWith('打开工程')) && menuItems.includes('保存')
-  && menuItems.some(t => t.startsWith('另存为')) && menuItems.includes('存到服务器') && menuItems.some(t => t.startsWith('从服务器读取')),
+  menuItems.includes('新建工程…') && menuItems.includes('打开本地工程…') && menuItems.includes('保存到本地')
+  && menuItems.some(t => t.startsWith('另存为')) && menuItems.includes('保存到服务器') && menuItems.includes('读取服务器工程…'),
   JSON.stringify(menuItems));
 ok('工具栏上**不摆**「保存」按钮了（现场要求：那个位置太挤），保存走 ▾ 菜单 / Ctrl+S',
   !(await page.$('#btnSave')) && !!(await page.$('#btnProjMenu'))
   && !(await page.$('#btnNew')) && !(await page.$('#btnExport')), '');
+
+const originalViewport = page.viewportSize();
+await page.setViewportSize({ width: 800, height: 420 });
+const trigger = page.locator('#btnProjMenu');
+await trigger.press('Enter');
+const dropdown = page.locator('#ctxMenu');
+const headers = await dropdown.locator('.ctx-head').allTextContents();
+const localSave = dropdown.getByRole('menuitem', { name: /保存到本地/ });
+const remoteSave = dropdown.getByRole('menuitem', { name: '保存到服务器' });
+ok('菜单按工程文件、设置和工具分组，并分别说明本地与服务器保存',
+  headers.slice(0, 3).join('/') === '工程文件/设置/工具'
+    && (await localSave.getAttribute('title'))?.includes('当前工程文件')
+    && (await remoteSave.getAttribute('title'))?.includes('供运行画面读取'));
+await page.keyboard.press('ArrowDown');
+ok('键盘下箭头能选中第一条命令', await dropdown.locator('.ctx-item.active .ctx-label').textContent() === '新建工程…');
+await dropdown.hover();
+await page.mouse.wheel(0, 220);
+await page.waitForFunction(() => document.getElementById('ctxMenu').scrollTop > 0, null, { timeout: 5000 });
+ok('窗口较矮时可在下拉菜单内滚动', await dropdown.isVisible());
+await page.keyboard.press('Escape');
+ok('Esc 收起下拉菜单并将焦点还给触发按钮',
+  await trigger.getAttribute('aria-expanded') === 'false' && await trigger.evaluate(el => document.activeElement === el));
+await trigger.click();
+await trigger.click();
+ok('重复点击工程菜单按钮可收起下拉菜单', await trigger.getAttribute('aria-expanded') === 'false');
+await page.setViewportSize(originalViewport);
 
 /* ══════ 1. 按钮动作：切换模式不清变量 + 「和显示变量一致」 ══════ */
 const wid = await page.evaluate(async () => {
@@ -465,7 +491,7 @@ if (PORT === '8866') {
     m.project.commit('改个能认出来的名字');
   });
   await sleep(250);
-  await menuClick('存到服务器');
+  await menuClick('保存到服务器');
   await sleep(700);
   const savedMsg = dialogs.filter(m => /已存到服务器/.test(m)).pop() || '';
   ok('「存到服务器」存的是服务器上的 hmi_project.LE（提示里写清位置 + 只有一个槽位会覆盖）',
@@ -480,7 +506,7 @@ if (PORT === '8866') {
     m.project.commit('换个工程');
   });
   await sleep(400);
-  await menuClick('从服务器读取');
+  await menuClick('读取服务器工程');
   await sleep(900);
   const readBack = await page.evaluate(() => ({
     name: window.app.project.data.meta.name,

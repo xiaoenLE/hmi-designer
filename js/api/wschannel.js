@@ -166,7 +166,7 @@ export class WsChannel {
       if (this._everOpen) this.stats.reconnects++;
       const first = !this._everOpen;
       this._everOpen = true;
-      bus.emit('backend:ws', { state: 'open', first });
+      if (!this.opts.quiet) bus.emit('backend:ws', { state: 'open', first });
       this._resolveOpenWaiters();
       try { this.opts.onOpen?.({ first }); } catch (e) { console.warn('[ws] onOpen 出错', e); }
     };
@@ -187,7 +187,7 @@ export class WsChannel {
       this.ws = null;
       this.state = 'closed';
       this._failPending('长连接断开');
-      if (wasOpen) bus.emit('backend:ws', { state: 'closed' });
+      if (wasOpen && !this.opts.quiet) bus.emit('backend:ws', { state: 'closed' });
       try { this.opts.onClose?.(); } catch { /* 忽略 */ }
       this._retry();
     };

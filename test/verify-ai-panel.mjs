@@ -1,7 +1,7 @@
-﻿/**
+/**
  * verify-ai-panel.mjs —— AI 助手面板 UI 全流程（真浏览器 + 假模型 SSE）
  *
- * 覆盖：面板装配 / 状态点 / 输入发送（Enter）/ 工具卡片 / 清空会话 /
+ * 覆盖：面板装配 / 状态点 / 输入发送（Enter）/ 工具卡片 / 新建会话 /
  *       设置对话框（测试连接）/ 翻译对话框（加语言→翻译）/ markdown 渲染 /
  *       停止按钮（取消） / 控制台无报错。
  *
@@ -14,13 +14,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { installNodeFetchPatch } from './_wsfetch.mjs';
 
 const req = createRequire('C:/Users/Administrator/.workbuddy/binaries/node/workspace/');
 const { chromium } = req('playwright-core');
 const EXE = 'C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
 const PY = 'C:/Users/Administrator/AppData/Local/Programs/Python/Python310/python.exe';
-const ROOT = 'C:/Users/Administrator/Desktop/hmi/hmi-designer-v2';
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const freePort = () => new Promise(res => {
@@ -47,6 +48,13 @@ function fakeModel() {
       try { body = JSON.parse(raw || '{}'); } catch { /* 忽略 */ }
       if (!String(rq.url).includes('/chat/completions')) { rs.writeHead(404); rs.end(); return; }
       fake.calls.push({ url: rq.url, body });
+      const msgs = Array.isArray(body.messages) ? body.messages : [];
+      const mode = fake.mode;
+      const contextCase = mode === 'context' || mode === 'context-stop';
+      if (contextCase && msgs.some(m => m.role === 'tool')) {
+        rs.writeHead(400, { 'Content-Type': 'application/json' });
+        return rs.end(JSON.stringify({ error: { code: 'context_length_exceeded', message: 'Maximum context length exceeded' } }));
+      }
       rs.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache' });
       const chunk = o => rs.write('data: ' + JSON.stringify(o) + '\n\n');
       const delta = d => chunk({ choices: [{ index: 0, delta: d, finish_reason: null }] });
@@ -56,11 +64,21 @@ function fakeModel() {
         rs.write('data: [DONE]\n\n');
         rs.end();
       };
-      const msgs = Array.isArray(body.messages) ? body.messages : [];
       const lastRole = msgs.length ? msgs[msgs.length - 1].role : '';
       const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
       const jsonMode = body.response_format?.type === 'json_object';
-      const mode = fake.mode;
+      if (contextCase && msgs.some(m => m.role === 'assistant' && String(m.content).startsWith('本次任务前面已处理'))) {
+        if (mode === 'context-stop') {
+          chunk({ error: { message: 'Maximum context length exceeded' } });
+          return rs.end();
+        }
+        delta({ content: '已根据压缩后的上下文完成检查。' });
+        return finish('stop', { prompt_tokens: 150, completion_tokens: 12 });
+      }
+      if (mode === 'output-limit') {
+        delta({ content: '回复只生成了一部分。' });
+        return finish('length', { prompt_tokens: 20, completion_tokens: 10 });
+      }
 
       // 慢响应：先吐一点正文，然后挂着不结束 —— 给「停止」按钮留时间
       if (mode === 'slow') {
@@ -182,6 +200,7 @@ function fakeModel() {
             index: i, id: 'call_m' + i, name: 'get_widget_catalog', args: JSON.stringify({ type: t }),
           }))
           : [{ index: 0, id: 'call_fake1', name: 'add_page', args: JSON.stringify({ name: fake.pageName }) }];
+        if (contextCase) calls.push({ index: 1, id: 'call_catalog', name: 'get_widget_catalog', args: '{"type":"button"}' });
         chunk({
           choices: [{
             index: 0,
@@ -241,7 +260,7 @@ const visible = sel => page.$eval(sel, el => {
 try {
   // ── 1. 面板装配 ───────────────────────────────────────────────────────────
   // AI 是**固定在最右边的常驻侧栏**（不是停靠面板）：默认收起，开关控制显示/隐藏，不可拖拽。
-  section('1. 固定侧栏（默认收起 → 工程菜单打开 → ✕ 关 → 工具栏 🤖 AI 开/关）');
+  section('1. 固定侧栏（默认收起 → 工程菜单打开 → ✕ 关 → 工程菜单开/关）');
   ok(!(await visible('#aiSide')), '默认收起（最右边侧栏先不显示）');
   ok(await page.$eval('#aiSide', el => el.classList.contains('hidden')), '#aiSide 默认带 hidden 类');
   // 真从工具栏「工程 ▾」菜单点开（验证入口真的通）
@@ -270,23 +289,30 @@ try {
   ok(await visible('#panel-ai'), '#panel-ai 打开后可见');
   ok(await visible('#aiInput'), '#aiInput 可见');
   ok(await visible('#aiLog'), '#aiLog 可见');
-  // ✕ 关掉 → 工具栏 🤖 AI 再打开 → 再点一次收起（开关语义）
   await page.click('#aiCloseBtn');
   await sleep(150);
   ok(!(await visible('#aiSide')), '点 ✕ 后侧栏隐藏');
-  await page.click('#btnAi');
+  ok(await page.locator('#btnAi').count() === 0, '主工具栏无独立的 AI 按钮');
+  const aiEntry = page.locator('#ctxMenu').getByRole('menuitemcheckbox', { name: 'AI 助手…' });
+  await page.click('#btnProjMenu');
+  ok(await aiEntry.getAttribute('aria-checked') === 'false', '收起时菜单项为未选中');
+  await aiEntry.click();
   await sleep(200);
-  ok(await visible('#aiSide'), '工具栏 🤖 AI 又能打开');
-  ok(await page.$eval('#btnAi', el => el.classList.contains('active')), '打开时工具栏按钮高亮');
-  await page.click('#btnAi');
+  ok(await visible('#aiSide'), '工程菜单能重新打开 AI 侧栏');
+  await page.click('#btnProjMenu');
+  ok(await aiEntry.getAttribute('aria-checked') === 'true', '打开时菜单项显示选中状态');
+  await aiEntry.click();
   await sleep(150);
-  ok(!(await visible('#aiSide')), '再点 🤖 AI 收起');
-  ok(await page.$eval('#btnAi', el => !el.classList.contains('active')), '收起时工具栏按钮不高亮');
-  await page.click('#btnAi');   // 后面的用例都在面板里操作 → 打开
+  ok(!(await visible('#aiSide')), '再次通过菜单项收起侧栏');
+  await page.click('#btnProjMenu');
+  await aiEntry.click();
   await sleep(200);
   ok(await visible('#aiSide'), '为后续用例重新打开侧栏');
-  const chips = await page.$$eval('#aiQuick .ai-chip', els => els.map(e => (e.getAttribute('data-cmd') || '').trim()));
-  ok(chips.length === 4, '4 个快捷指令 chip', chips);
+  const chips = await page.$$eval('#aiQuick .ai-chip', els => els.map(e => e.dataset.prompt));
+  ok(chips.length === 3, '三个快捷示例', chips);
+  await page.locator('#aiQuick .ai-chip').first().click();
+  ok(await page.inputValue('#aiInput') === chips[0], '快捷示例填入草稿，等用户发送');
+  ok(await page.locator('#aiScope').getAttribute('data-scope') === 'chat', '说明类示例进入聊天模式');
   const dot = await page.$eval('#aiStatusDot', el => ({ cls: el.className, title: el.title })).catch(() => null);
   ok(!!dot && /(^|\s)ai-dot(\s|$)/.test(dot.cls) && /(^|\s)ok(\s|$)/.test(dot.cls), '状态点 = 就绪（ok）', dot);
   ok(await page.evaluate(() => !document.getElementById('aiModel')), '面板不显示模型名 / Key 状态（只留状态点）');
@@ -295,7 +321,9 @@ try {
 
   // ── 2. 输入发送（Enter）→ 工具卡片 → 页面进工程 ─────────────────────────
   section('2. 打字 + Enter → add_page 工具卡 → 页面进工程');
+  const projectStart = fake.calls.length;
   await page.fill('#aiInput', '新建一个页面');
+  ok(await page.locator('#aiScope').getAttribute('data-scope') === 'project', '自动识别新建页面任务');
   await page.press('#aiInput', 'Enter');
   await page.waitForSelector('.ai-msg.user', { timeout: 10000 }).catch(() => {});
   ok(await visible('.ai-msg.user'), '用户消息气泡出现');
@@ -313,25 +341,61 @@ try {
   ok(bubble.includes('已建好页面'), '助手流式收尾语渲染出来了', bubble.slice(0, 120));
   const pagesNow = await page.evaluate(() => window.app.project.pages().map(p => p.name));
   ok(pagesNow.includes('AI测试页'), '页面「AI测试页」已进工程', pagesNow);
-  await page.waitForFunction(() => !document.querySelector('#aiStopBtn')?.classList.contains('hidden'), null, { timeout: 1000 }).catch(() => {});
+  await page.waitForFunction(() => document.querySelector('#aiStopBtn')?.classList.contains('hidden'), null, { timeout: 1000 }).catch(() => {});
   ok(await page.$eval('#aiStopBtn', el => el.classList.contains('hidden')), '结束后「停止」按钮已隐藏');
   ok(await page.$eval('#aiSendBtn', el => !el.disabled), '结束后发送按钮恢复');
+  ok(await page.locator('#aiTaskStatus').textContent() === '已完成', '正常完成后输入区显示状态');
   const roundTxt = await page.$eval('.ai-msg.assistant .ai-round', el => el.textContent.trim()).catch(() => '');
   ok(/第 1 轮 · 用时 [\d.]+m?s/.test(roundTxt), '消息里显示本轮用时', roundTxt);
   ok(/↑\d/.test(roundTxt) && /↓\d/.test(roundTxt) && /tok/.test(roundTxt), '本轮显示 token 用量（↑输入 ↓输出）', roundTxt);
   ok(/\(缓存 40\)/.test(roundTxt), '本轮显示缓存命中（↑输入(缓存 40)）', roundTxt);
 
-  // ── 3. 清空会话 ───────────────────────────────────────────────────────────
-  section('3. 清空会话');
+
+  const projectCalls = fake.calls.slice(projectStart);
+  const defs = projectCalls[0]?.body.tools?.map(tool => tool.function.name) || [];
+  ok(projectCalls.length === 2 && defs.length <= 6 && defs.includes('add_page'), '建页走两次模型请求，仅下发页面工具', defs);
+  fake.mode = 'md';
+  const chatStart = fake.calls.length;
+  await page.fill('#aiInput', '你好，怎么选择数值控件？');
+  await page.press('#aiInput', 'Enter');
+  await page.waitForFunction(() => document.querySelector('#aiStopBtn').classList.contains('hidden'));
+  const chatCalls = fake.calls.slice(chatStart);
+  const chatBody = chatCalls[0]?.body || {};
+  ok(chatCalls.length === 1 && !('tools' in chatBody) && !('tool_choice' in chatBody), '普通对话只有一个模型请求且没有工具字段', Object.keys(chatBody));
+  ok(chatBody.messages?.length === 2 && !JSON.stringify(chatBody).includes('AI测试页'), '聊天请求不带工程快照或上一条工程任务', chatBody.messages?.map(m => m.role));
+
+  await page.click('[data-mode="chat"]');
+  await page.fill('#aiInput', '新建一个页面');
+  ok(await page.locator('#aiScope').getAttribute('data-scope') === 'chat', '手动聊天覆盖自动识别');
+  await page.press('#aiInput', 'Enter');
+  await page.waitForFunction(() => document.querySelector('#aiStopBtn').classList.contains('hidden'));
+  const explicit = fake.calls.at(-1).body;
+  ok(!explicit.tools && !explicit.tool_choice && explicit.messages.some(m => m.content.includes('数值控件')), '聊天模式保留最近聊天且仍不带工具');
+  await page.click('[data-mode="auto"]');
+  fake.mode = 'tool';
+
+  await page.click('[data-mode="project"]');
+  await page.fill('#aiInput', '新建一个页面');
+  fake.pageName = '第二个测试页';
+  const nextStart = fake.calls.length;
+  await page.press('#aiInput', 'Enter');
+  await page.waitForFunction(() => document.querySelector('#aiStopBtn').classList.contains('hidden'));
+  const follow = fake.calls[nextStart]?.body;
+  ok(follow?.tools?.some(tool => tool.function.name === 'add_page'), '手动工程模式启用工具');
+  ok(follow && !follow.messages.some(m => m.role === 'tool' || m.tool_calls), '新工程任务只带对话和执行摘要，旧工具调用不会回灌');
+  await page.click('[data-mode="auto"]');
+
+  // ── 3. 新建会话 ───────────────────────────────────────────────────────────
+  section('3. 新建会话');
   const lenBefore = await page.evaluate(async () => (await import('/js/editor/aiPanel.js')).aiConversationLength());
-  ok(lenBefore > 0, '清空前会话有上下文', lenBefore);
+  ok(lenBefore > 0, '新建前会话有上下文', lenBefore);
   await page.click('#aiClearBtn');
   await sleep(400);
-  ok(await visible('.ai-empty'), '清空后回到首屏提示');
+  ok(await visible('.ai-empty'), '新建后回到首屏提示');
   const lenAfter = await page.evaluate(async () => (await import('/js/editor/aiPanel.js')).aiConversationLength());
-  ok(lenAfter === 0, '清空后会话长度 = 0', lenAfter);
+  ok(lenAfter === 0, '新建后会话长度 = 0', lenAfter);
   const pagesAfterClear = await page.evaluate(() => window.app.project.pages().map(p => p.name));
-  ok(pagesAfterClear.includes('AI测试页'), '清空会话不动工程内容', pagesAfterClear);
+  ok(pagesAfterClear.includes('AI测试页'), '新建会话不动工程内容', pagesAfterClear);
 
   // ── 4. 设置对话框：回填 + 测试连接 ────────────────────────────────────────
   section('4. AI 设置对话框（掩码 / 测试连接）');
@@ -443,7 +507,7 @@ try {
   await page.waitForFunction(() => {
     const b = document.querySelectorAll('.ai-msg.assistant .ai-bubble');
     const last = b[b.length - 1];
-    return !!(last && last.querySelector('strong') && last.querySelector('.ai-code'));
+    return !!(last && last.querySelector('strong, b') && last.querySelector('.ai-code'));
   }, null, { timeout: 40000 }).catch(() => {});
   const md = await page.evaluate(() => {
     const list = document.querySelectorAll('.ai-msg.assistant .ai-bubble');
@@ -491,6 +555,8 @@ try {
   await page.waitForFunction(() => document.getElementById('aiStopBtn')?.classList.contains('hidden'), null, { timeout: 10000 }).catch(() => {});
   ok(await page.$eval('#aiStopBtn', el => el.classList.contains('hidden')), '停止后按钮隐藏');
   ok(await page.$eval('#aiSendBtn', el => !el.disabled), '停止后发送按钮恢复');
+  ok(await page.locator('#aiTaskStatus').textContent() === '已停止', '手动停止后输入区显示状态');
+  ok(await page.locator('#stNote').textContent() === 'AI 助手：已停止', '手动停止后状态栏也显示提示');
 
   // ── 8. 破坏性操作开关 ────────────────────────────────────────────────────
   section('8. 「允许破坏性操作」开关');
@@ -539,7 +605,9 @@ try {
   const toolMsgs = (fake.calls[fake.calls.length - 1]?.body?.messages || []).filter(m => m.role === 'tool');
   ok(toolMsgs.length === 5, '第 2 次请求里回灌了 5 条工具结果', toolMsgs.length);
   ok(toolMsgs.every(m => String(m.content).length < 1200), '工具结果进历史前被瘦身（每条 < 1200 字）', toolMsgs.map(m => String(m.content).length));
-  ok(toolMsgs.some(m => /alarmBar/.test(String(m.content)) && /"props":\["joinAll/.test(String(m.content))), '控件目录只留 type/尺寸/属性键名，去掉 label/options', String(toolMsgs[0]?.content || '').slice(0, 160));
+  // 属性键名列表只关心"是数组、里面是键名"，别绑定具体第一个键：2.1.17 起 alarmBar 的第一项
+  // 从 joinAll 变成了 levelFilter（报警等级筛选），写死 joinAll 的话每次加属性都会红。
+  ok(toolMsgs.some(m => /alarmBar/.test(String(m.content)) && /"props":\["/.test(String(m.content))), '控件目录只留 type/尺寸/属性键名，去掉 label/options', String(toolMsgs[0]?.content || '').slice(0, 160));
   ok(!toolMsgs.some(m => /"label"/.test(String(m.content))), '控件目录里冗长的 label/options 没进历史', '');
   fake.mode = 'tool';
   fake.pageName = 'AI测试页2';
@@ -569,6 +637,7 @@ try {
   await page.click('#aiClearBtn');
   await sleep(250);
   fake.mode = 'fail';
+  await page.click('[data-mode="project"]');
   await page.fill('#aiInput', '随便调个工具试试');
   await page.press('#aiInput', 'Enter');
   let gotErr = '';
@@ -578,12 +647,13 @@ try {
     if (/连续 \d+ 次工具调用都失败/.test(gotErr)) break;
   }
   ok(/连续 3 次工具调用都失败了/.test(gotErr), '同类错误连续 3 批后停手并说明原因', gotErr.slice(0, 120));
-  ok(/换个说法|手动改|报错发我/.test(gotErr), '停下时给出可操作的修改建议', gotErr.slice(0, 200));
+  ok(/换个说法|指定要处理/.test(gotErr), '停下时给出可操作的修改建议', gotErr.slice(0, 200));
   const sendEnabled = await page.evaluate(() => !(document.getElementById('aiSendBtn') || {}).disabled);
   ok(sendEnabled, '停手后发送按钮恢复可用（不是卡死状态）', sendEnabled);
   const badCards = await page.$$eval('.ai-tool.bad', els => els.filter(el => el.offsetParent !== null).length);
   ok(badCards >= 3, '失败的工具调用卡片标红可查', badCards);
   fake.mode = 'tool';
+  await page.click('[data-mode="auto"]');
 
   // ── 12. 输入预算：到量自动停手（防长任务无声烧钱） ────────────────────────
   section('12. 输入预算到量自动停手');
@@ -608,6 +678,7 @@ try {
   ok(allNotes.some(t => /再发一句「继续」会重新给一份预算/.test(t)), '预算停下时提示可以继续（新预算）', allNotes.join(' | ').slice(0, 160));
   const sendOk = await page.evaluate(() => !(document.getElementById('aiSendBtn') || {}).disabled);
   ok(sendOk, '预算停手后发送按钮恢复可用');
+  ok(await page.locator('#aiTaskStatus').textContent() === '已停止 · 输入预算用完', '预算停手显示具体原因');
   await page.evaluate(async () => {
     const m = await import('/js/api/ai.js');
     await m.aiClient.saveConfig({ budget_tokens: 60000 });
@@ -615,7 +686,7 @@ try {
   fake.mode = 'tool';
 
   // ── 13. 历史超预算 → 自动压成「前情提要」 ────────────────────────────────
-  section('13. 历史太长 → 自动压缩成前情提要（只保留最近几条原文）');
+  section('13. 长任务滚动保留工具批次');
   await page.click('#aiClearBtn');
   await sleep(250);
   fake.mode = 'many';
@@ -629,19 +700,58 @@ try {
     if (/总用时/.test(totalLine)) break;
   }
   ok(/总用时/.test(totalLine), '长任务跑完（多轮）', totalLine.slice(0, 80));
-  const stats = await page.evaluate(async () => {
-    const T = await import('/js/editor/aiTools.js');
-    return T.conversationStats();
-  }).catch(() => ({}));
-  ok(stats && stats.summarized === true, '会话已触发压缩（标记 summarized）', stats);
-  ok(stats && stats.chars < 13000, '压缩后保留的历史字符数受限', stats && stats.chars);
-  const lastMsgs = (fake.calls[fake.calls.length - 1]?.body?.messages || []);
-  const sumMsg = lastMsgs.filter(m => m.role === 'system' && /前情提要/.test(String(m.content || '')));
-  ok(sumMsg.length >= 1, '最后一次请求里带「前情提要」系统消息', sumMsg.length);
+
+  const lastMsgs = fake.calls.at(-1)?.body.messages || [];
+  ok(lastMsgs.some(m => m.role === 'assistant' && String(m.content).startsWith('本次任务前面已处理')), '旧批次压成简短执行摘要');
+  const unmatched = [];
+  for (const m of lastMsgs) {
+    if (m.tool_calls?.length) unmatched.push(...m.tool_calls.map(c => c.id));
+    if (m.role === 'tool' && unmatched.shift() !== m.tool_call_id) unmatched.push('不匹配');
+  }
   const toolAfter = lastMsgs.filter(m => m.role === 'tool');
-  ok(toolAfter.length <= 8, '更早的工具结果已被折进提要，不再重复回灌', toolAfter.length);
-  const allChars = lastMsgs.reduce((n, m) => n + String(m.content || '').length, 0);
-  ok(allChars < 40000, '单次请求总字符数被压住（不会几百 K）', allChars);
+  ok(toolAfter.length <= 12 && unmatched.length === 0, '裁剪保留最多六批且工具协议完整', { tools: toolAfter.length, unmatched });
+  ok(lastMsgs.some(m => m.role === 'user' && m.content.includes('把这些控件')), '长任务仍保留当前用户指令');
+  const bytes = Buffer.byteLength(JSON.stringify(lastMsgs));
+  ok(bytes < 40000, '模型长任务上下文体积有界', bytes);
+
+  fake.mode = 'tool';
+
+  section('13b. 模型返回上下文超限后压缩重试');
+  for (const mode of ['context', 'context-stop']) {
+    await page.click('#aiClearBtn');
+    fake.mode = mode;
+    fake.pageName = mode === 'context' ? '压缩后继续测试页' : '压缩后停止测试页';
+    const from = fake.calls.length;
+    await page.locator('#aiAttachmentPicker').setInputFiles({
+      name: '设计说明.txt', mimeType: 'text/plain', buffer: Buffer.from('HMI_CONTEXT_RETRY_ATTACHMENT'),
+    });
+    await page.locator('#aiAttachments .ai-file-chip').waitFor();
+    await page.fill('#aiInput', '新建一个页面并检查按钮控件布局');
+    await page.press('#aiInput', 'Enter');
+    await page.locator('#aiStopBtn').waitFor({ state: 'hidden', timeout: 10000 });
+    const requests = fake.calls.slice(from).map(c => c.body.messages);
+    const rejected = requests[1] || [];
+    const compacted = requests[2] || [];
+    ok(requests.length === 3, mode + ' 只压缩重试一次', requests.length);
+    const source = rejected.findLast(m => m.role === 'user')?.content;
+    const retained = compacted.findLast(m => m.role === 'user')?.content;
+    ok(String(source).includes('HMI_CONTEXT_RETRY_ATTACHMENT') && JSON.stringify(retained) === JSON.stringify(source), mode + ' 保留本条指令和附件');
+    ok(JSON.stringify(compacted).length < JSON.stringify(rejected).length && !compacted.some(m => m.role === 'tool'), mode + ' 用更短的摘要替换已执行工具的明细');
+    const pageCount = await page.evaluate(name => window.app.project.pages().filter(p => p.name === name).length, fake.pageName);
+    ok(pageCount === 1, mode + ' 已执行的创建页面只发生一次', pageCount);
+    const taskState = await page.locator('#aiTaskStatus').textContent();
+    const bubble = await page.locator('.ai-msg.assistant .ai-bubble').textContent();
+    ok(bubble.includes('已压缩历史并重新请求'), mode + ' 会话显示压缩重试');
+    ok(mode === 'context'
+      ? taskState === '已完成' && bubble.includes('完成检查')
+      : taskState === '已停止 · 模型上下文超限' && bubble.includes('压缩历史后仍超过模型上下文'), mode + ' 显示最终状态', taskState);
+  }
+  await page.click('#aiClearBtn');
+  fake.mode = 'output-limit';
+  await page.fill('#aiInput', '介绍一下组态助手');
+  await page.press('#aiInput', 'Enter');
+  await page.locator('#aiStopBtn').waitFor({ state: 'hidden', timeout: 10000 });
+  ok(await page.locator('#aiTaskStatus').textContent() === '已停止 · 达到回复长度上限', '模型截断回复时显示长度上限');
   fake.mode = 'tool';
 
   // ── 14. 不思考时原地打转：重复查询被去重、连续 3 轮停手并建议开思考 ───────
@@ -667,8 +777,70 @@ try {
   ok(sendBack, '停手后发送按钮恢复可用');
   fake.mode = 'tool';
 
-  // ── 15. 收尾：控制台 / 网络 ──────────────────────────────────────────────
-  section('15. 收尾检查（控制台 / 网络）');
+
+  // ── 历史保留全部消息，续聊仍使用固定大小的上下文 ──
+  section('15. 新会话、刷新、查看、续聊、删除');
+  const title = '历史记录第1条';
+  fake.mode = 'md';
+  await page.click('#aiClearBtn');
+  await page.locator('#aiAttachmentPicker').setInputFiles({
+    name: '历史附件.txt', mimeType: 'text/plain', buffer: Buffer.from('HMI_RAW_ATTACHMENT_TEST'),
+  });
+  await page.locator('#aiAttachments .ai-file-chip').waitFor();
+  for (let i = 1; i <= 7; i++) {
+    await page.fill('#aiInput', '历史记录第' + i + '条');
+    await page.press('#aiInput', 'Enter');
+    await page.locator('#aiStopBtn').waitFor({ state: 'hidden' });
+  }
+  await page.click('#aiClearBtn');
+  ok(await page.locator('.ai-empty').isVisible(), '新会话显示空白聊天');
+  const history = page.locator('#aiHistory');
+  await page.click('#aiHistoryBtn');
+  const saved = history.locator('.ai-history-open').filter({ has: page.getByText(title, { exact: true }) });
+  await saved.waitFor();
+  ok(await history.locator('.ai-history-row').count() > 1, '旧会话和其它会话都留在历史列表');
+  const stored = await page.evaluate(async title => {
+    const db = await import('/js/editor/aiHistory.js');
+    const session = (await db.listSessions()).find(item => item.title === title);
+    return JSON.stringify(await db.readSession(session.id));
+  }, title);
+  ok(stored.includes('历史附件.txt') && !stored.includes('HMI_RAW_ATTACHMENT_TEST'), '历史只保存附件文件名');
+
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForSelector('.ai-dot.ok');
+  await page.click('#aiHistoryBtn');
+  const queryCount = fake.calls.length;
+  await saved.click();
+  await page.waitForSelector('#aiLog .ai-msg.user');
+  ok(await page.locator('#aiLog .ai-msg.user').count() === 7, '刷新后可打开并查看全部七条历史消息');
+  ok(await page.locator('#aiLog .ai-code').count() === 7 && fake.calls.length === queryCount,
+    '查看历史保留 Markdown，且不调用模型');
+
+  await page.fill('#aiInput', '历史追问');
+  await page.press('#aiInput', 'Enter');
+  await page.locator('#aiStopBtn').waitFor({ state: 'hidden' });
+  const continued = fake.calls.at(-1)?.body?.messages?.map(m => m.content) || [];
+  ok(continued.includes('历史记录第7条') && !continued.includes(title) && !continued.includes('你好，怎么选择数值控件？'),
+    '续聊只发当前会话的近期上下文');
+
+  await page.click('#aiHistoryBtn');
+  const remove = history.getByRole('button', { name: '删除会话 ' + title, exact: true });
+  await remove.click();
+  await page.click('#dlgCancel');
+  ok(await saved.isVisible(), '取消删除后会话仍可打开');
+  await remove.click();
+  await page.click('#dlgOk');
+  await page.locator('#dlgMask').waitFor({ state: 'hidden' });
+  ok(await saved.count() === 0 && await history.locator('.ai-history-row').count() > 0, '删除仅移除选中的会话');
+  await page.click('#aiHistoryBack');
+  ok(await page.locator('.ai-empty').isVisible(), '删除当前会话后回到空白聊天');
+  await page.reload({ waitUntil: 'load' });
+  await page.click('#aiHistoryBtn');
+  await history.locator('.ai-history-row').first().waitFor();
+  ok(await saved.count() === 0, '刷新后已删除的会话没有恢复');
+
+  // ── 16. 收尾：控制台 / 网络 ──────────────────────────────────────────────
+  section('16. 收尾检查（控制台 / 网络）');
   const errs = await page.evaluate(() => (window.__appErrors || []).slice());
   ok(errs.length === 0, 'window.__appErrors 为空', errs);
   const realBad = bad.filter(b => !/favicon|net::ERR_ABORTED|ERR_INCOMPLETE_CHUNKED_ENCODING/.test(b));

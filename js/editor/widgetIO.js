@@ -88,13 +88,11 @@ function confirmCode(defs, filename, data) {
     body: `
       <div class="dlg-hint" style="border-left:3px solid #f59e0b;padding-left:8px">
         这个包里带了 <b>${defs.length} 个自定义控件定义</b>（${esc(defs.map(d => d.type).join('、'))}）。<br>
-        控件的<strong>渲染函数是 JavaScript</strong> —— 导进来就等于在你这台机器上执行它，
-        性质和「脚本」面板一样。<b>只导入你信得过的来源。</b>先看下面的源码，不确定就点「取消」。
+        导入会执行控件的 JavaScript。<b>请选择可信的控件包。</b>
       </div>
       ${rows}
       <div class="dlg-hint">
-        确认后会做三件事：① 注册这些控件类型（跟着工程走，换台机器打开也能渲染）；
-        ② 把 ${(data.widgets || []).length} 个控件放到当前页；③ 缺的变量补进变量表。导错了 Ctrl+Z 一步撤销。
+        将添加 ${(data.widgets || []).length} 个控件至当前页，并补齐变量。Ctrl+Z 可撤销。
       </div>`,
     onOk: () => { doImport(data, filename, { allowCode: true }); return true; },
   });

@@ -53,9 +53,15 @@ if (!RUN_ONLY) {
   try {
     await backend.whenReady(6000);          // 长连接建好（V2 里"连上后端"就是这一件事）
     const s = await backend.session();
-    if (s && s.auth_enabled && !s.logged_in) {
+    const url = new URL(location.href);
+    const editRequested = url.searchParams.get('edit') === '1';
+    if (s?.auth_enabled && !backend.canEdit(s)) {
+      if (editRequested) location.replace('/login');
       RUN_ONLY = true;
       document.body.classList.add('run-only');
+    } else if (editRequested) {
+      url.searchParams.delete('edit');
+      window.history.replaceState(window.history.state, '', url);
     }
   } catch (e) {
     // 后端没开 / 连不上：按编辑器跑（本机开发用得上），状态栏会显示「离线(模拟)」
@@ -100,7 +106,7 @@ history.init({
   set: json => {
     const data = JSON.parse(json);
     data.layout = project.data?.layout;
-    project.replaceData(data);
+    project.replaceData(data, { fromHistory: true });
   },
 });
 history.push('初始状态');
@@ -130,8 +136,16 @@ if (RUN_ONLY) {
   rtMod = await import('./runtime/runtime.js');
   trendMod = await import('./runtime/trend.js');
   clockMod = await import('./widgets/clock.js');
+  const ctx = await import('./core/contextMenu.js');
   MODULES = [
     ['runtime', rtMod.initRuntime],
+    ['contextMenu', () => {
+      ctx.initContextMenu();
+      ctx.registerContextMenu(t => rtMod.isRunning() && !!t.closest('#runtimeRoot'), () => [
+        { label: '配方管理…', key: 'Ctrl+Shift+M', onClick: rtMod.openRuntimeRecipeManager },
+        { label: '进入编辑器…', key: 'F8', onClick: rtMod.enterEditorFromRuntime },
+      ]);
+    }],
     ['trend', trendMod.initTrend],          // 波形抓取（采样 + 逐帧绘制）
     ['clock', clockMod.startClockTicker],   // 时钟控件走时
   ];
@@ -214,6 +228,7 @@ window.app = { project, history, bus, backend, varStore,
   scopeSummary: () => import('./runtime/runtime.js').then(m => m.scopeSummary()),
   enterRun: () => import('./runtime/runtime.js').then(m => m.enterRun()),
   exitRun: () => import('./runtime/runtime.js').then(m => m.exitRun()),
+  enterEditorFromRuntime: () => rtMod.enterEditorFromRuntime(),
   gotoPage: (id) => import('./runtime/runtime.js').then(m => m.gotoPage(id)),
   runOnly: RUN_ONLY };          // true = 这份页面是给现场用的（/run，没有编辑器）
 

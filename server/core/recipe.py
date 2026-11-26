@@ -23,9 +23,11 @@
 不另开一套。写不进去的变量逐个收集成 {ok:false, error}，**不挡住其它变量**。
 """
 from .paths import RECIPE_FILE
+from . import datasource
 from .varapi import var_write
 
 import json
+import hashlib
 import os
 import threading
 import time
@@ -35,6 +37,35 @@ from pathlib import Path
 # 配方名/变量名长度、单配方变量个数的上限：只是防手滑（正常工程远到不了）
 NAME_MAX = 100
 VARS_MAX = 5000
+
+
+class RecipeConflict(ValueError):
+    pass
+
+
+def recipe_value(value, vtype):
+    """配方兼容 BOOL 的 0/1 和 true/false。"""
+    vtype = str(vtype or "").lower()
+    if vtype == "bool[]" and isinstance(value, (tuple, list)):
+        return [recipe_value(item, "bool") for item in value]
+    if vtype != "bool":
+        return value
+    key = value.strip().lower() if isinstance(value, str) else value
+    if key in (0, "0", "false"):
+        return False
+    if key in (1, "1", "true"):
+        return True
+    return value
+
+
+def _revision(variables):
+    encoded = json.dumps(variables, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _check_revision(rec, expected):
+    if expected is not None and (rec is None or _revision(rec["vars"]) != expected):
+        raise RecipeConflict("配方已在其它窗口修改或删除，请重新读取后再操作")
 
 
 class RecipeStore:
@@ -103,6 +134,11 @@ class RecipeStore:
         with self._lock:
             return len(self._recipes)
 
+    def summary(self):
+        with self._lock:
+            return [{"name": name, "count": len(rec["vars"]), "updated": rec["updated"]}
+                    for name, rec in sorted(self._recipes.items())]
+
     def get(self, name):
         """取一个配方 → {"name", "vars", "updated"}；没有返回 None（返回的是副本，改不到存档）"""
         name = str(name or "").strip()
@@ -112,7 +148,8 @@ class RecipeStore:
             rec = self._recipes.get(name)
             if rec is None:
                 return None
-            return {"name": name, "vars": dict(rec["vars"]), "updated": rec["updated"]}
+            return {"name": name, "vars": dict(rec["vars"]), "updated": rec["updated"],
+                    "revision": _revision(rec["vars"])}
 
     def snapshot(self):
         """整表（GET /api/recipes?full=1 用）→ {名称: {"vars": {...}, "updated": "…"}}"""
@@ -121,7 +158,7 @@ class RecipeStore:
                     for name, rec in self._recipes.items()}
 
     # ── 对外：写 ────────────────────────────────────────────────────────
-    def save(self, name, variables):
+    def save(self, name, variables, *, expected=None, create_only=False):
         """保存/覆盖一个配方（同名直接覆盖）。返回 {"name", "vars", "updated"}。
 
         写得进内存不算数：**整表落盘成功才换内存**；盘写不进去抛 OSError，
@@ -139,19 +176,25 @@ class RecipeStore:
         rec = {"vars": {str(k): v for k, v in variables.items()},
                "updated": time.strftime("%Y-%m-%d %H:%M:%S")}
         with self._lock:
+            prev = self._recipes.get(name)
+            if create_only and prev is not None:
+                raise RecipeConflict("已经有同名配方，请改用其它名称")
+            _check_revision(prev, expected)
             new = dict(self._recipes)
             new[name] = rec
             self._write_locked(new)
             self._recipes = new
         print(f"[recipe] 已保存配方「{name}」（{len(rec['vars'])} 个变量）")
-        return {"name": name, "vars": dict(rec["vars"]), "updated": rec["updated"]}
+        return {"name": name, "vars": dict(rec["vars"]), "updated": rec["updated"],
+                "revision": _revision(rec["vars"])}
 
-    def delete(self, name):
+    def delete(self, name, *, expected=None):
         """删一个配方。返回 True=真删了、False=本来就没有（幂等，调用方不用先查）"""
         name = str(name or "").strip()
         if not name:
             raise ValueError("配方名不能为空")
         with self._lock:
+            _check_revision(self._recipes.get(name), expected)
             if name not in self._recipes:
                 return False
             new = dict(self._recipes)
@@ -162,7 +205,7 @@ class RecipeStore:
         return True
 
     # ── 对外：应用 ──────────────────────────────────────────────────────
-    def apply(self, name):
+    def apply(self, name, *, expected=None):
         """把配方里的值逐个写回变量。
 
         → {"ok": bool, "name": 名称,
@@ -178,12 +221,15 @@ class RecipeStore:
         if not name:
             raise ValueError("配方名不能为空")
         rec = self.get(name)                    # 拿副本，写值期间不受其它保存影响
+        if expected is not None and (rec is None or rec["revision"] != expected):
+            raise RecipeConflict("配方已在其它窗口修改或删除，请重新读取后再操作")
         if rec is None:
             return {"ok": False, "name": name, "applied": [], "failed": [],
                     "error": f"没有这个配方：{name}"}
         applied, failed = [], []
+        meta = datasource.get_source().meta()
         for vname, value in rec["vars"].items():
-            ok, extra = var_write(vname, value)
+            ok, extra = var_write(vname, recipe_value(value, meta.get(vname, {}).get("type")))
             if ok:
                 applied.append(vname)
             else:

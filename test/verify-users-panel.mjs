@@ -218,6 +218,13 @@ await page2.click('#go');
 await page2.waitForTimeout(2500);
 const opNav = await page2.evaluate(() => ({ path: location.pathname, hasRun: !!document.getElementById('runtimeRoot') }));
 ok('操作员登录 → 直接进运行画面（不进编辑器）', opNav.path === '/run' || opNav.hasRun, JSON.stringify(opNav));
+await page2.goto(H + '/', { waitUntil: 'domcontentloaded' });
+await page2.waitForFunction(() => window.app?.runOnly === true);
+ok('操作员直接打开根地址仍显示运行页', await page2.locator('#toolbar').isHidden());
+await page2.waitForFunction(() => !document.getElementById('runtimeRoot').classList.contains('hidden'));
+await page2.keyboard.press('Control+Shift+E');
+await page2.waitForURL(u => u.pathname === '/login');
+ok('操作员通过快捷键切换时提示登录管理员账号', await page2.locator('#pw').isVisible());
 
 ok('全程无未捕获 JS 异常', pageErrors.length === 0, pageErrors.slice(0, 2).join(' | '));
 

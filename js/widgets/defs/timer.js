@@ -71,7 +71,7 @@ register({
     { key: 'bgColor', label: '背景色', type: 'color' },
     { key: 'borderColor', label: '边框色', type: 'color' },
     { key: 'borderWidth', label: '边框宽', type: 'number', min: 0, max: 8 },
-    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 30 },
+    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 100 },
   ],
   binding: { variable: { types: ['int', 'uint', 'dint', 'udint', 'real', 'lreal'], label: '绑定变量（秒）' } },
   actions: [],
@@ -86,7 +86,7 @@ register({
     const bw = clamp(numOr(p.borderWidth, 0), 0, 8);
     const bd = bw > 0 ? `border:${bw}px solid ${p.borderColor || '#c3cbd6'};` : '';
     const fs = clamp(numOr(p.fontSize, 20), 8, 96);
-    const radius = clamp(numOr(p.radius, 0), 0, 30);
+    const radius = clamp(numOr(p.radius, 0), 0, 100);
     // 前缀/后缀：先取译文再转义（译文里也可能有尖括号）
     const pre = tr(p.prefix || '');
     const suf = tr(p.suffix || '');

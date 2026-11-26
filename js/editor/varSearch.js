@@ -186,7 +186,9 @@ export function scanVarUsage(query, opt = {}) {
     }
     const pre = scriptVarPropRe();
     while ((m = pre.exec(code))) {
-      const n = m[1] || m[3];
+      const name = m[1] || m[3];
+      const element = m[4] === undefined ? '' : name + '[' + m[4] + ']';
+      const n = element && has(element) ? element : name;
       if (!has(n) || seenApi.has(n)) continue;
       seenApi.add(n);
       add(n, 'scriptCode', `脚本「${s.name}」代码里 hmi.v.${n}（属性写法）`, jump);

@@ -18,6 +18,7 @@
 import { bus } from '../core/eventBus.js';
 import { project } from '../core/project.js';
 import { exportText } from '../core/csv.js';
+import { bindPlotControls, plotCapturing, plotSwitch, plotTickCount, updatePlotLegend } from '../widgets/defs/plotShared.js';
 import { varStore } from './varstore.js';
 import { onTick } from './ticker.js';
 
@@ -42,6 +43,7 @@ const MAX_PTS_CH = 3000;
 
 const buffers = new Map();     // widgetId -> Map(varName -> [{t, at, v}])
 const lastAt = new Map();      // widgetId -> 上次采样时刻
+const localCapture = new Set(); // 本次运行中手动开启的波形 id
 const cursors = new Map();     // widgetId -> { ratio|null, pinned, time } 光标状态
 let running = false;
 let paused = false;
@@ -129,29 +131,42 @@ export function legendLabelOf(w, ch, valueText = '') {
 }
 
 /* ─────────── 抓取控制（两个可选变量：启动抓取 / 清除数据） ───────────
-   现场要的是"设备想让我抓我才抓、设备让我清我才清"：
-     · 两个都不填 = **一直抓**（老行为，一个字不变）；
-     · 「启动抓取」填了 = 它**为真才抓**（电平语义：置 0 就停，曲线停在那儿）；
+     · 「启动抓取」绑定时由变量电平决定；
+     · 未绑定时，开启画面抓取按钮则手动开始，否则连续抓取；
      · 「清除数据」填了 = 它**从 0 变 1 那一刻**清一次（上升沿；一直保持 1 不会反复清，
        否则曲线永远是一张白纸 —— 现场那只手会把位一直按着）。
    两个变量都会自动进本页采集范围（见 runtime.js 的 collectPageVars），不采就永远是 undefined。 */
 const clearPrev = new Map();           // widgetId -> 上一次「清除数据」变量的真假
 
-/** 变量当 bool 用：1/'1'/true 都算真（PLC 那边怎么写都认） */
-const truthy = (v) => v === true || v === 1 || v === '1' || v === 'true' || v === 'TRUE';
-
-/** 现在该抓吗？（没设「启动抓取」= 一直抓） */
+/** 外部变量优先。未启用手动抓取的旧控件继续自动采样。 */
 export function capturing(w) {
-  const name = w?.bindings?.startVar;
-  if (!name) return true;
-  return truthy(varStore.get(name));
+  return plotCapturing(w, name => varStore.get(name), localCapture.has(w?.id));
+}
+
+function viewEnd(w) {
+  const now = performance.now();
+  return running && (paused || !capturing(w)) ? (lastAt.get(w.id) ?? now) : now;
+}
+
+export function attachTrendControls(el, w, api) {
+  bindPlotControls(el, w, api, {
+    toggle() {
+      if (!localCapture.delete(w.id)) localCapture.add(w.id);
+      bus.emit('trend:capture');
+      return capturing(w);
+    },
+    clear() {
+      clearTrend(w.id);
+      cursors.delete(w.id);
+    },
+  });
 }
 
 /** 「清除数据」这一拍是不是上升沿？（没设这个变量 = 永远不是） */
 function clearEdge(w) {
   const name = w?.bindings?.clearVar;
   if (!name) { clearPrev.delete(w.id); return false; }
-  const nowOn = truthy(varStore.get(name));
+  const nowOn = plotSwitch(varStore.get(name));
   const was = clearPrev.get(w.id);
   clearPrev.set(w.id, nowOn);
   // 头一次看到就是 1（比如刚进运行态、PLC 那边本来就置着）→ **不清**：
@@ -176,10 +191,11 @@ export function cursorOf(id) {
   if (!w) return null;
   const buf = seriesOf(id);
   const winMs = Math.max(2, Number(w.props?.windowSec) || 20) * 1000;
-  const tCur = c.pinned ? c.time : performance.now() - winMs + c.ratio * winMs;
+  const end = viewEnd(w);
+  const tCur = c.pinned ? c.time : end - winMs + c.ratio * winMs;
   const values = {};
   channelsOf(w).forEach(ch => { values[ch.name] = valueAt(buf.get(ch.name), tCur, w); });
-  return { pinned: !!c.pinned, time: tCur, offsetSec: (tCur - performance.now()) / 1000, values };
+  return { pinned: !!c.pinned, time: tCur, offsetSec: (tCur - end) / 1000, values };
 }
 
 /** 画布上某时间点的取值：取最近的采样点，离得太远算没数据 */
@@ -251,12 +267,13 @@ export function allTrendWidgets() { return trendWidgets(); }
  *  为什么要有：buffers 是按**控件 id** 存的，控件删了 id 就没人再提，数据却一直挂在内存里
  *  （反复导入/删除页面时越攒越多）。工程一变就核对一次，只留还存在的控件。 */
 function pruneDeadBuffers() {
-  if (!buffers.size && !cursors.size) return;
+  if (!buffers.size && !cursors.size && !clearPrev.size && !localCapture.size) return;
   const alive = new Set(trendWidgets().map(w => w.id));
   [...buffers.keys()].forEach(id => { if (!alive.has(id)) buffers.delete(id); });
   [...lastAt.keys()].forEach(id => { if (!alive.has(id)) lastAt.delete(id); });
   [...cursors.keys()].forEach(id => { if (!alive.has(id)) cursors.delete(id); });
   [...clearPrev.keys()].forEach(id => { if (!alive.has(id)) clearPrev.delete(id); });
+  localCapture.forEach(id => { if (!alive.has(id)) localCapture.delete(id); });
 }
 bus.on('project:changed', () => { trendCache = null; pruneDeadBuffers(); });
 bus.on('page:current', () => { trendCache = null; });
@@ -267,8 +284,8 @@ function sampleOnce() {
   trendWidgets().forEach(w => {
     // 「清除数据」变量：**上升沿**清一次（一直保持 1 不会反复清，不然曲线永远画不出来）。
     // 没设这个变量 = 不清（老行为）。清不清跟"抓不抓"无关：停着也能清。
-    if (clearEdge(w)) { clearTrend(w.id); lastAt.delete(w.id); }
-    // 「启动抓取」变量：没设 = 一直抓；设了 = **它为真才抓**（为假时曲线停在那儿，老数据不丢）
+    if (clearEdge(w)) clearTrend(w.id);
+    // 本地按钮和外部启动变量共用采样与采集范围判定。
     if (!capturing(w)) return;
     // 停止抓取时不枚举通道、更不读取通道值；只保留启动/清除控制变量的处理。
     const chans = channelsOf(w);
@@ -369,9 +386,8 @@ function drawTrend(cv) {
   const wdEl = cv.closest('.wd');
   const w = wdEl && project.findWidget(wdEl.dataset.id);
   if (!w) return;
-  const host = cv.parentElement;
-  const cssW = Math.max(20, host?.clientWidth || w.w);
-  const cssH = Math.max(20, host?.clientHeight || w.h);
+  const cssW = Math.max(20, cv.clientWidth);
+  const cssH = Math.max(20, cv.clientHeight);
   const dpr = window.devicePixelRatio || 1;
   const bw = Math.round(cssW * dpr), bh = Math.round(cssH * dpr);
   if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
@@ -385,18 +401,14 @@ function drawTrend(cv) {
   // 右轴通道（勾了双 Y 轴 + 通道号对得上才算；对不上按单轴画，不画半边空刻度）
   const rightSet = isDualAxis(w) ? rightSlotsOf(w) : new Set();
   const dual = rightSet.size > 0;
-  const padL = PAD_L, padR = dual ? PAD_R_DUAL : PAD_R_SINGLE, padT = p.showLegend === false ? 8 : 20, padB = 16;
+  const padL = PAD_L, padR = dual ? PAD_R_DUAL : PAD_R_SINGLE, padT = 8, padB = 16;
   const plotW = Math.max(10, cssW - padL - padR);
   const plotH = Math.max(10, cssH - padT - padB);
-
-  // 背景
-  ctx.fillStyle = p.bgColor || '#0f172a';
-  ctx.fillRect(0, 0, cssW, cssH);
 
   const winMs = Math.max(2, Number(p.windowSec) || 20) * 1000;
   const runningNow = running;
   const data = seriesOf(w.id);
-  const now = performance.now();
+  const now = viewEnd(w);
   const t0 = now - winMs, t1 = now;
 
   const leftChans = chans.filter(ch => !rightSet.has(ch.slot));
@@ -441,35 +453,37 @@ function drawTrend(cv) {
 
   // 网格 + 刻度
   if (p.showGrid !== false) {
+    const xSteps = plotTickCount(p.xTicks) - 1;
+    const ySteps = plotTickCount(p.yTicks) - 1;
     ctx.strokeStyle = p.gridColor || '#1e3a5f';
     ctx.lineWidth = 1;
     ctx.fillStyle = p.textColor || '#cbd5e1';
     ctx.font = '10px Consolas, monospace';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
-    for (let i = 0; i <= 4; i++) {
-      const y = padT + (plotH * i) / 4;
+    for (let i = 0; i <= ySteps; i++) {
+      const y = padT + (plotH * i) / ySteps;
       ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + plotW, y); ctx.stroke();
-      ctx.fillText(fmt(hi - ((hi - lo) * i) / 4, p.decimals), padL - 5, y);
+      ctx.fillText(fmt(hi - ((hi - lo) * i) / ySteps, p.decimals), padL - 5, y);
     }
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    for (let i = 0; i <= 4; i++) {
-      const x = padL + (plotW * i) / 4;
+    for (let i = 0; i <= xSteps; i++) {
+      const x = padL + (plotW * i) / xSteps;
       ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
-      const secs = Math.round((-winMs + (winMs * i) / 4) / 1000);
-      ctx.fillText(secs === 0 ? 'now' : secs + 's', x, padT + plotH + 3);
+      const secs = Number(((-winMs * (1 - i / xSteps)) / 1000).toFixed(1));
+      ctx.fillText(i === xSteps ? 'now' : secs + 's', x, padT + plotH + 3);
     }
-    /* 右轴刻度：跟左轴**同样 5 档**，只画文字不画网格（网格已经在上面画过一遍，
+    /* 右轴刻度：跟左轴共享水平刻度，只画文字不画网格（网格已经在上面画过一遍，
        再画一遍就是深浅两条线重叠，画面发脏）。 */
     if (dual) {
       ctx.fillStyle = p.textColor || '#cbd5e1';
       ctx.font = '10px Consolas, monospace';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      for (let i = 0; i <= 4; i++) {
-        const y = padT + (plotH * i) / 4;
-        ctx.fillText(fmt(hi2 - ((hi2 - lo2) * i) / 4, p.decimals), padL + plotW + 5, y);
+      for (let i = 0; i <= ySteps; i++) {
+        const y = padT + (plotH * i) / ySteps;
+        ctx.fillText(fmt(hi2 - ((hi2 - lo2) * i) / ySteps, p.decimals), padL + plotW + 5, y);
       }
     }
   }
@@ -524,33 +538,17 @@ function drawTrend(cv) {
     ctx.fillText('未选择数据通道', padL + plotW / 2, padT + plotH / 2);
   }
 
-  // 图例（颜色块 + 变量名 + 当前值）
-  if (p.showLegend !== false && chans.length) {
-    const fs = Math.max(9, Math.min(13, Number(p.fontSize) || 11));
-    ctx.font = fs + 'px Consolas, monospace';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    let x = padL;
-    const y = Math.max(9, padT / 2 + 2);
-    chans.forEach(ch => {
-      const val = runningNow ? varStore.get(ch.name) : null;
-      const num = Number(val);
-      const shown = typeof val === 'boolean' ? (val ? '1' : '0')
+  const legend = cv.previousElementSibling?.querySelector('.w-plot-legend');
+  if (legend && runningNow) {
+    const entries = chans.map(ch => {
+      const val = varStore.get(ch.name);
+      const num = numOf(val);
+      const shown = typeof val === 'boolean' ? String(num)
         : Number.isFinite(num) ? fmt(tf(w, ch.name, num), p.decimals) : '';
-      const txt = legendText(w, ch, rightSet, shown);
-      const tw = ctx.measureText(txt).width;
-      if (x + tw + 16 > cssW - padR) return;      // 放不下就不画（窄控件不硬挤）
-      ctx.fillStyle = ch.color;
-      ctx.fillRect(x, y - 3, 6, 6);
-      ctx.fillStyle = p.textColor || '#cbd5e1';
-      ctx.fillText(txt, x + 10, y);
-      x += tw + 22;
+      return { color: ch.color, label: legendText(w, ch, rightSet, shown) };
     });
-    if (paused) {
-      ctx.fillStyle = '#fbbf24';
-      ctx.textAlign = 'right';
-      ctx.fillText('⏸ 已暂停', cssW - padR, y);
-    }
+    if (paused) entries.push({ color: '#fbbf24', label: '⏸ 已暂停' });
+    updatePlotLegend(legend, entries);
   }
 
   // 光标：悬停跟随 / 点击钉住，线上打点 + 读数框显示各通道该时刻的值
@@ -662,7 +660,7 @@ function bindCursorEvents() {
     const winMs = Math.max(2, Number(w.props?.windowSec) || 20) * 1000;
     c.pinned = true;
     c.ratio = ratio;
-    c.time = performance.now() - winMs + ratio * winMs;
+    c.time = viewEnd(w) - winMs + ratio * winMs;
   });
 }
 
@@ -747,6 +745,7 @@ export function initTrend() {
   bus.on('mode:changed', ({ mode }) => {
     running = mode === 'run';
     cursors.clear();
+    localCapture.clear();
     if (running) startSampling(); else { stopSampling(); clearTrend(); }
   });
   bindCursorEvents();

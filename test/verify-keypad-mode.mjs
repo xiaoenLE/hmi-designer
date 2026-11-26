@@ -79,7 +79,8 @@ await sleep(300);
 
 /* ── 3. 设置入口：工程 ▾ → 软键盘设置…（走真实菜单 + 对话框）── */
 const menuLabels = async () => {
-  await page.click('#btnProjMenu');
+  const trigger = page.locator('#btnProjMenu');
+  if (await trigger.getAttribute('aria-expanded') === 'false') await trigger.click();
   await sleep(200);
   return page.evaluate(() => [...document.querySelectorAll('#ctxMenu .ctx-item')]
     .map(b => b.querySelector('.ctx-label').textContent));
@@ -112,11 +113,14 @@ ok('对话框里是「起手方式」两选一，当前停在 edit（老行为�
   JSON.stringify([dlg1.mode, dlg1.options]));
 ok('还有「标题显示」三选一（变量名 / 控件名 / 都不显示），当前停在变量名',
   dlg1.label === 'var' && dlg1.labelOptions.join(',') === 'var,widget,none', JSON.stringify([dlg1.label, dlg1.labelOptions]));
-ok('对话框里写清两种起手方式各是什么（现场看文字就懂）',
-  /接着原值改/.test(dlg1.hint) && /按键清空重输/.test(dlg1.hint) && /第一个字符键/.test(dlg1.hint),
-  dlg1.hint.slice(0, 60));
-ok('「都不显示」也说明白了（顶上那条只剩 ✕）', /都不显示/.test(dlg1.hint) && /✕/.test(dlg1.hint),
-  dlg1.hint.slice(-40));
+const help = await page.evaluate(() => ({
+  mode: document.getElementById('kpMode').title,
+  title: document.getElementById('kpLabel').title,
+}));
+ok('两种起手方式在对应下拉框悬停说明',
+  /接着原值改/.test(help.mode) && /按键清空重输/.test(help.mode) && /第一个字符键/.test(help.mode), help.mode);
+ok('标题选项悬停可查看关闭按钮的规则',
+  /都不显示/.test(help.title) && /✕/.test(help.title), help.title);
 
 await page.selectOption('#kpMode', 'replace');
 await page.selectOption('#kpLabel', 'widget');

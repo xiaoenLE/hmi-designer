@@ -71,7 +71,8 @@ await rightClick(page.locator(`#canvas .wd[data-id="${info.id}"]`));
 const wItems = await menuItems();
 ok('右键控件 → 自动选中它', await page.evaluate(id => window.app.getZoom && document.querySelector(`#canvas .wd[data-id="${id}"]`).classList.contains('selected'), info.id));
 ok('控件菜单含剪切/复制/粘贴/层级/锁定/删除',
-  ['剪切', '复制', '粘贴', '置于顶层', '置于底层', '锁定', '删除'].every(l => wItems.includes(l)), JSON.stringify(wItems));
+  ['剪切', '复制', '粘贴', '置于顶层', '上移一层', '下移一层', '置于底层', '锁定', '删除']
+    .every(l => wItems.includes(l)), JSON.stringify(wItems));
 ok('剪贴板为空时控件菜单的「粘贴」是禁用态', (await menuDisabled()).includes('粘贴'), JSON.stringify(await menuDisabled()));
 ok('菜单标题显示控件名', (await page.evaluate(() => document.querySelector('#ctxMenu .ctx-head')?.textContent)) === info.name);
 
@@ -81,6 +82,15 @@ const zTop = await page.evaluate(id => window.app.project.getWidget(id).z, info.
 const maxZ = await page.evaluate(() => Math.max(...window.app.project.currentWidgets().map(w => w.z)));
 ok('菜单「置于顶层」生效', zTop === maxZ, `z=${zTop} 最大=${maxZ}`);
 ok('操作后菜单自动关闭', !(await menuOpen()));
+
+await rightClick(page.locator(`#canvas .wd[data-id="${info.id}"]`));
+ok('控件在顶层时，菜单中的上移一层禁用', (await menuDisabled()).includes('上移一层'));
+await clickMenu('下移一层');
+const layersAbove = await page.evaluate(id => {
+  const { project } = window.app;
+  return project.currentWidgets().filter(w => w.z > project.getWidget(id).z).length;
+}, info.id);
+ok('菜单下移一层后，恰好有一个控件在它上方', layersAbove === 1, String(layersAbove));
 
 /* 锁定 */
 await rightClick(page.locator(`#canvas .wd[data-id="${info.id}"]`));

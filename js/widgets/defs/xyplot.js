@@ -4,7 +4,7 @@
  * 现场要的：X 轴自己选变量、至少 2 对 X/Y 两两组合、还要支持**数组描点**
  * （PLC 一次下发一整条轨迹数组时，按 index 配对整条画，不靠逐拍累加，所以不丢帧、不变形）。
  *
- *   · 标量对：每 sampleMs 读一次 api.get(X)/api.get(Y)，把 (x,y) 追加进该对缓冲（只留最近 points 个）画折线；
+ *   · 标量对：抓取开启时每 sampleMs 读一次 api.get(X)/api.get(Y)，把 (x,y) 追加进该对缓冲（只留最近 points 个）画折线；
  *   · 数组对：X、Y 当前值**都是数组**时进数组模式 —— 每帧按 index 配对画整条曲线
  *     （min(lenX,lenY)，超 20000 点按步长抽样），**不累加**（数组一变整条刷新）。
  *   · 自绘控件（selfDrawn）：render 只给 canvas 容器 + 编辑态的静态网格示意；
@@ -13,6 +13,10 @@
  * ⚠ def 里**禁止 `?.`**（MCP 静态提取器会崩）；属性面板**不写 hint**（现场要求）。
  */
 import { register } from '../registry.js';
+import { bus } from '../../core/eventBus.js';
+import { escapeHtml } from '../../core/utils.js';
+import { PLOT_BUTTONS, PLOT_TICKS, bindPlotControls, plotCapturing, plotColor, plotSwitch,
+  plotTickCount, renderPlotHeader, updatePlotLegend } from './plotShared.js';
 
 /** 每对一色（按 pair 序号取） */
 const XY_PALETTE = ['#38bdf8', '#4ade80', '#fbbf24', '#f87171', '#c084fc', '#22d3ee', '#fb7185', '#a3e635'];
@@ -51,7 +55,7 @@ function parsePairs(raw) {
 function scopeVarsOf(w) {
   const p = w && w.props;
   const pairs = parsePairs(p && p.pairs);
-  const names = [];
+  const names = [w.bindings?.startVar, w.bindings?.clearVar].filter(Boolean);
   for (let i = 0; i < pairs.length; i++) { names.push(pairs[i].x, pairs[i].y); }
   return names;
 }
@@ -61,8 +65,140 @@ function newPair(pr) {
     x: pr.x, y: pr.y, kind: 'scalar',
     buf: [],            // 标量模式：最近 points 个 {x, y}
     arrX: [], arrY: [], // 数组模式：当前这一拍的整条数组（不累加）
-    n: 0, lastX: NaN, lastY: NaN,
+    n: 0, lastX: NaN, lastY: NaN, cleared: null,
   };
+}
+
+function legendEntries(pairs) {
+  return pairs.map((pair, i) => ({
+    color: XY_PALETTE[i % XY_PALETTE.length],
+    label: pair.x + '→' + pair.y + (pair.kind === 'array' ? ' 数组' : ''),
+  }));
+}
+
+let sessions = new WeakMap();
+bus.on('mode:changed', () => { sessions = new WeakMap(); });
+
+function xyManualActive(w) { return sessions.get(w)?.manual === true; }
+
+function xyState(w) {
+  const existing = sessions.get(w);
+  if (existing) return existing;
+  const state = {
+    pairs: [], raw: null,
+    xMin: 0, xMax: 1, yMin: 0, yMax: 1,
+    lastAt: 0, manual: false, wasCapturing: false, clearOn: undefined,
+  };
+  if (w.props?.showCaptureBtn || w.props?.showClearBtn || w.bindings?.startVar || w.bindings?.clearVar) {
+    sessions.set(w, state);
+  }
+  return state;
+}
+
+function syncPairs(state, raw) {
+  const text = String(raw ?? '');
+  if (text === state.raw) return;
+  state.raw = text;
+  const key = pair => pair.x + '\u0000' + pair.y;
+  const old = new Map(state.pairs.map(pair => [key(pair), pair]));
+  state.pairs = parsePairs(text).map(pair => old.get(key(pair)) || newPair(pair));
+}
+
+function sameArray(a, b) {
+  return a === b || (a.length === b.length && a.every((value, index) => Object.is(value, b[index])));
+}
+
+function clearXY(state, get) {
+  state.lastAt = performance.now();
+  for (const pair of state.pairs) {
+    const x = get(pair.x), y = get(pair.y);
+    // 清空数组曲线后，相同的数据帧不会立刻把旧曲线画回来。
+    pair.cleared = Array.isArray(x) && Array.isArray(y) ? { x, y } : null;
+    pair.buf.length = 0;
+    pair.arrX = [];
+    pair.arrY = [];
+    pair.n = 0;
+    pair.lastX = NaN;
+    pair.lastY = NaN;
+  }
+}
+
+function capturePair(pair, get, doSample, points) {
+  const vx = get(pair.x), vy = get(pair.y);
+  if (Array.isArray(vx) && Array.isArray(vy)) {
+    pair.kind = 'array';
+    pair.buf.length = 0;
+    if (pair.cleared && sameArray(pair.cleared.x, vx) && sameArray(pair.cleared.y, vy)) {
+      pair.cleared = { x: vx, y: vy };
+      return;
+    }
+    pair.cleared = null;
+    pair.arrX = vx;
+    pair.arrY = vy;
+    const n = Math.min(vx.length, vy.length);
+    pair.lastX = n > 0 ? numOf(vx[n - 1]) : NaN;
+    pair.lastY = n > 0 ? numOf(vy[n - 1]) : NaN;
+    return;
+  }
+  pair.cleared = null;
+  pair.arrX = [];
+  pair.arrY = [];
+  if (pair.kind !== 'scalar') { pair.kind = 'scalar'; pair.buf.length = 0; }
+  const x = numOf(vx), y = numOf(vy);
+  pair.lastX = x;
+  pair.lastY = y;
+  if (doSample && Number.isFinite(x) && Number.isFinite(y)) {
+    pair.buf.push({ x, y });
+    if (pair.buf.length > points) pair.buf.splice(0, pair.buf.length - points);
+  }
+}
+
+function attachXY(el, w, api) {
+  const canvas = el.querySelector('canvas.wxy-cv');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const legend = el.querySelector('.w-plot-legend');
+  const state = xyState(w);
+  const captureOn = () => plotCapturing(w, api.get, state.manual);
+  bindPlotControls(el, w, api, {
+    toggle() {
+      state.manual = !state.manual;
+      return captureOn();
+    },
+    clear() { clearXY(state, api.get); },
+  });
+  el.__xyState = () => ({
+    pairs: state.pairs.map(({ x, y, kind, n, lastX, lastY }) => ({ x, y, kind, n, lastX, lastY })),
+    xMin: state.xMin, xMax: state.xMax, yMin: state.yMin, yMax: state.yMax,
+  });
+
+  const frame = () => {
+    if (!el.isConnected) return;
+    const p = w.props || {};
+    const now = performance.now();
+    syncPairs(state, p.pairs);
+    const active = captureOn();
+    if (active && !state.wasCapturing) {
+      state.pairs.forEach(pair => { pair.cleared = null; });
+    }
+    state.wasCapturing = active;
+
+    const clearName = w.bindings?.clearVar;
+    const clearOn = clearName ? plotSwitch(api.get(clearName)) : undefined;
+    if (state.clearOn === false && clearOn) clearXY(state, api.get);
+    state.clearOn = clearOn;
+    if (active) {
+      const doSample = now - state.lastAt >= clampNum(p.sampleMs, 33, 2000, 100);
+      if (doSample) state.lastAt = now;
+      const points = Math.round(clampNum(p.points, 100, 50000, 2000));
+      state.pairs.forEach(pair => capturePair(pair, api.get, doSample, points));
+    }
+
+    drawPlot(canvas, ctx, w, state);
+    if (legend) updatePlotLegend(legend, legendEntries(state.pairs));
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
 }
 
 /** 所有对在某个轴上的数据 min/max（数组按抽样后算；空 = null） */
@@ -75,7 +211,7 @@ function dataMinMax(state, axis) {
   };
   state.pairs.forEach(function (pair) {
     if (pair.kind === 'array') {
-      const n = pair.n;
+      const n = Math.min(pair.arrX.length, pair.arrY.length);
       if (n <= 0) return;
       const step = n > MAX_ARRAY_POINTS ? Math.ceil(n / MAX_ARRAY_POINTS) : 1;
       for (let i = 0; i < n; i += step) take(numOf(axis === 'x' ? pair.arrX[i] : pair.arrY[i]));
@@ -111,57 +247,22 @@ function fmtNum(v, decimals) {
   if (!Number.isFinite(v)) return '--';
   return v.toFixed(Math.max(0, Math.min(6, decimals)));
 }
-/** 圆角矩形路径（不用 ctx.roundRect，老 Chromium / 控件包里也稳） */
-function roundRectPath(ctx, x, y, w, h, r) {
-  const rr = Math.max(0, Math.min(r, w / 2, h / 2));
-  ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.lineTo(x + w - rr, y);
-  ctx.arcTo(x + w, y, x + w, y + rr, rr);
-  ctx.lineTo(x + w, y + h - rr);
-  ctx.arcTo(x + w, y + h, x + w - rr, y + h, rr);
-  ctx.lineTo(x + rr, y + h);
-  ctx.arcTo(x, y + h, x, y + h - rr, rr);
-  ctx.lineTo(x, y + rr);
-  ctx.arcTo(x, y, x + rr, y, rr);
-  ctx.closePath();
-}
-
 /**
  * 画一帧（canvas 尺寸按 CSS 像素 × dpr 跟着控件走）。
  * 范围算完写回 state（el.__xyState() 每帧拿到最新范围）。
  */
 function drawPlot(canvas, ctx, w, state) {
   const p = w.props || {};
-  const host = canvas.parentElement;
-  let cw = host ? host.clientWidth : 0;
-  let ch = host ? host.clientHeight : 0;
-  if (!cw) cw = w.w;
-  if (!ch) ch = w.h;
-  const cssW = Math.max(20, cw);
-  const cssH = Math.max(20, ch);
+  const cssW = Math.max(20, canvas.clientWidth);
+  const cssH = Math.max(20, canvas.clientHeight);
   const dpr = window.devicePixelRatio || 1;
   const bw = Math.round(cssW * dpr), bh = Math.round(cssH * dpr);
   if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
 
-  const radius = clampNum(p.radius, 0, 60, 6);
-  const bg = p.bgColor || '#0f172a';
-  // 背景（带圆角）
-  roundRectPath(ctx, 0, 0, cssW, cssH, radius);
-  ctx.fillStyle = bg;
-  ctx.fill();
-  const bdW = clampNum(p.borderWidth, 0, 12, 0);
-  if (bdW > 0) {
-    ctx.lineWidth = bdW;
-    ctx.strokeStyle = p.borderColor || '#334155';
-    ctx.stroke();
-  }
-
-  const showLegend = p.showLegend !== false;
   const padL = 46, padR = 12, padB = 18;
-  const padT = showLegend ? 22 : 8;
+  const padT = 8;
   const plotW = Math.max(10, cssW - padL - padR);
   const plotH = Math.max(10, cssH - padT - padB);
 
@@ -173,8 +274,10 @@ function drawPlot(canvas, ctx, w, state) {
   const Y = function (v) { return padT + (1 - (v - yr[0]) / (yr[1] - yr[0])) * plotH; };
   const decimals = clampNum(p.decimals, 0, 6, 1);
 
-  // 网格 + 刻度（左右各 5 档，共用网格线）
+  // 网格与坐标刻度
   if (p.showGrid !== false) {
+    const xSteps = plotTickCount(p.xTicks) - 1;
+    const ySteps = plotTickCount(p.yTicks) - 1;
     const grid = p.gridColor || '#1e3a5f';
     const text = p.textColor || '#cbd5e1';
     ctx.strokeStyle = grid;
@@ -183,17 +286,17 @@ function drawPlot(canvas, ctx, w, state) {
     ctx.font = '10px Consolas, monospace';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
-    for (let i = 0; i <= 4; i++) {
-      const y = padT + (plotH * i) / 4;
+    for (let i = 0; i <= ySteps; i++) {
+      const y = padT + (plotH * i) / ySteps;
       ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + plotW, y); ctx.stroke();
-      ctx.fillText(fmtNum(yr[1] - ((yr[1] - yr[0]) * i) / 4, decimals), padL - 5, y);
+      ctx.fillText(fmtNum(yr[1] - ((yr[1] - yr[0]) * i) / ySteps, decimals), padL - 5, y);
     }
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    for (let i = 0; i <= 4; i++) {
-      const x = padL + (plotW * i) / 4;
+    for (let i = 0; i <= xSteps; i++) {
+      const x = padL + (plotW * i) / xSteps;
       ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
-      ctx.fillText(fmtNum(xr[0] + ((xr[1] - xr[0]) * i) / 4, decimals), x, padT + plotH + 3);
+      ctx.fillText(fmtNum(xr[0] + ((xr[1] - xr[0]) * i) / xSteps, decimals), x, padT + plotH + 3);
     }
   }
 
@@ -206,7 +309,7 @@ function drawPlot(canvas, ctx, w, state) {
     let count = 0;
     const each = function (fn) {
       if (arrMode) {
-        const n = pair.n;
+        const n = Math.min(pair.arrX.length, pair.arrY.length);
         if (n <= 0) return;
         const step = n > MAX_ARRAY_POINTS ? Math.ceil(n / MAX_ARRAY_POINTS) : 1;
         let last = -1;
@@ -253,26 +356,6 @@ function drawPlot(canvas, ctx, w, state) {
     }
     pair.n = count;
   });
-
-  // 图例：X名→Y名，数组对后面标「数组」
-  if (showLegend) {
-    const fs = 11;
-    ctx.font = fs + 'px Consolas, monospace';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    let lx = padL;
-    const ly = Math.max(10, padT / 2 + 1);
-    state.pairs.forEach(function (pair, idx) {
-      const txt = pair.x + '→' + pair.y + (pair.kind === 'array' ? ' 数组' : '');
-      const tw = ctx.measureText(txt).width;
-      if (lx + tw + 18 > cssW - padR) return;
-      ctx.fillStyle = XY_PALETTE[idx % XY_PALETTE.length];
-      ctx.fillRect(lx, ly - 3, 6, 6);
-      ctx.fillStyle = p.textColor || '#cbd5e1';
-      ctx.fillText(txt, lx + 10, ly);
-      lx += tw + 22;
-    });
-  }
 }
 
 register({
@@ -285,6 +368,8 @@ register({
   defaults: {
     w: 420, h: 280,
     pairs: '',
+    showCaptureBtn: false, showClearBtn: false,
+    xTicks: 5, yTicks: 5,
     sampleMs: 100, points: 2000,
     autoX: true, xMin: 0, xMax: 100,
     autoY: true, yMin: 0, yMax: 100,
@@ -306,6 +391,8 @@ register({
     { key: 'autoY', label: 'Y 轴自动', type: 'check', defVal: true, group: '坐标范围' },
     { key: 'yMin', label: 'Y 最小', type: 'number', group: '坐标范围' },
     { key: 'yMax', label: 'Y 最大', type: 'number', group: '坐标范围' },
+    ...PLOT_TICKS,
+    ...PLOT_BUTTONS,
     { key: 'showGrid', label: '显示网格', type: 'check', defVal: true },
     { key: 'showLegend', label: '显示图例', type: 'check', defVal: true },
     { key: 'lineWidth', label: '线宽', type: 'number', min: 1, max: 12 },
@@ -316,10 +403,16 @@ register({
     { key: 'textColor', label: '文字色', type: 'color' },
     { key: 'borderColor', label: '边框色', type: 'color' },
     { key: 'borderWidth', label: '边框宽', type: 'number', min: 0, max: 12 },
-    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 60 },
+    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 100 },
   ],
-  binding: null,
+  binding: {
+    startVar: { types: ['bool'], label: '启动抓取', group: '控制变量', placeholder: '（可选 BOOL 变量）',
+      hint: '绑定时为真才抓。留空且开启画面按钮时手动抓取。' },
+    clearVar: { types: ['bool'], label: '清除数据', group: '控制变量', placeholder: '（可选 BOOL 变量）',
+      hint: '从 0 变 1 时清除一次。留空可启用画面清除按钮。' },
+  },
   actions: [],
+  i18nTexts: ['开始抓取', '停止抓取', '清除数据'],
   /**
    * 运行态「本页采集范围」要收进来的变量（runtime.js 的 collectPageVars 会问每个控件要）。
    * X/Y 变量都写在**文本属性 pairs** 里，不占 bindings —— 不收进来的话接真 PLC 时这些变量
@@ -328,101 +421,25 @@ register({
    *   方法体里的 `try/catch`/多余写法会把后面的 props 整块吃掉（props 变空）。放外面就没事。
    */
   scopeVars: scopeVarsOf,
-  /**
-   * render 只给 canvas 容器；编辑态用**内联 CSS 网格**画个静态示意（不靠 JS，选中/拖动都不影响）。
-   * 运行态由 attach 逐帧画，会把这块 CSS 背景盖掉。
-   */
+  // 编辑态用同一图例和按钮，网格由 CSS 预览，运行态由画布绘制。
   render(w, mode) {
-    const p = (w && w.props) || {};
-    const bg = p.bgColor || '#0f172a';
-    const grid = p.gridColor || '#1e3a5f';
-    const bdColor = p.borderColor || '#334155';
+    const p = w.props || {};
+    const bg = escapeHtml(plotColor(p.bgColor, '#0f172a'));
+    const grid = escapeHtml(plotColor(p.gridColor, '#1e3a5f'));
+    const border = escapeHtml(plotColor(p.borderColor, '#334155'));
     const bdW = clampNum(p.borderWidth, 0, 12, 1);
-    const r = clampNum(p.radius, 0, 60, 6);
-    const canvasStyle = 'display:block;width:100%;height:100%;'
-      + 'background-color:' + bg + ';'
-      + 'background-image:linear-gradient(to right,' + grid + ' 1px,transparent 1px),'
+    const r = clampNum(p.radius, 0, 100, 6);
+    const active = mode === 'run' && xyManualActive(w);
+    const header = renderPlotHeader(w, mode, legendEntries(parsePairs(p.pairs)), active);
+    const xSteps = plotTickCount(p.xTicks) - 1;
+    const ySteps = plotTickCount(p.yTicks) - 1;
+    const gridStyle = mode === 'run' || p.showGrid === false ? ''
+      : 'background-image:linear-gradient(to right,' + grid + ' 1px,transparent 1px),'
       + 'linear-gradient(to bottom,' + grid + ' 1px,transparent 1px);'
-      + 'background-size:32px 32px;';
-    return '<div class="wxy" style="position:relative;width:100%;height:100%;box-sizing:border-box;'
-      + 'border:' + bdW + 'px solid ' + bdColor + ';border-radius:' + r + 'px;overflow:hidden">'
-      + '<canvas class="wxy-cv" style="' + canvasStyle + '"></canvas></div>';
+      + 'background-size:calc((100% - 1px) / ' + xSteps + ') calc((100% - 1px) / ' + ySteps + ');';
+    return '<div class="w-xyplot" style="box-sizing:border-box;border:' + bdW + 'px solid ' + border
+      + ';border-radius:' + r + 'px;background-color:' + bg + '">'
+      + header + '<canvas class="wxy-cv" style="' + gridStyle + '"></canvas></div>';
   },
-  /**
-   * 运行态：rAF 逐帧读值 + 画图。
-   *  · 标量对：每 sampleMs 追加 (x,y)，留最近 points 个；
-   *  · 数组对：每帧按 index 配对画整条（min(lenX,lenY)，>20000 点抽样），不累加；
-   *  · el.__xyState()：给回归套件/现场调试看的快照（每帧更新范围）；
-   *  · 元素不在文档里（退出运行/换页）→ 下一帧自己停。
-   */
-  attach(el, w, api) {
-    const canvas = el.querySelector('canvas.wxy-cv');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const state = {
-      pairs: [], raw: '\u0000',
-      xMin: 0, xMax: 1, yMin: 0, yMax: 1,
-      lastAt: 0,
-    };
-    // 测试/调试钩子：pairs 的 kind/n/lastX/lastY + 当前四边范围
-    el.__xyState = function () {
-      return {
-        pairs: state.pairs.map(function (pair) {
-          return { x: pair.x, y: pair.y, kind: pair.kind, n: pair.n, lastX: pair.lastX, lastY: pair.lastY };
-        }),
-        xMin: state.xMin, xMax: state.xMax, yMin: state.yMin, yMax: state.yMax,
-      };
-    };
-    let raf = 0;
-    const frame = function () {
-      if (!el.isConnected) { raf = 0; return; }          // 退出运行/换页：停掉自己
-      const p = w.props || {};
-      const now = performance.now();
-      // pairs 改了才重解析（同名对复用旧缓冲，改一个名字不会把别的对清空）
-      const raw = String(p.pairs == null ? '' : p.pairs);
-      if (raw !== state.raw) {
-        state.raw = raw;
-        const old = {};
-        state.pairs.forEach(function (pair) { old[pair.x + '\u0000' + pair.y] = pair; });
-        state.pairs = parsePairs(raw).map(function (pr) {
-          const hit = old[pr.x + '\u0000' + pr.y];
-          return hit || newPair(pr);
-        });
-      }
-      const sampleMs = clampNum(p.sampleMs, 33, 2000, 100);
-      const doSample = now - state.lastAt >= sampleMs;
-      if (doSample) state.lastAt = now;
-      const points = Math.round(clampNum(p.points, 100, 50000, 2000));
-      state.pairs.forEach(function (pair) {
-        const vx = api.get(pair.x);
-        const vy = api.get(pair.y);
-        if (Array.isArray(vx) && Array.isArray(vy)) {
-          // 数组描点：整条数组就是当前这一帧的曲线，不累加（数组一变整条刷新，不会丢帧变形）
-          pair.kind = 'array';
-          pair.arrX = vx;
-          pair.arrY = vy;
-          if (pair.buf.length) pair.buf.length = 0;
-          const n = Math.min(vx.length, vy.length);
-          pair.n = n;
-          pair.lastX = n > 0 ? numOf(vx[n - 1]) : NaN;
-          pair.lastY = n > 0 ? numOf(vy[n - 1]) : NaN;
-        } else {
-          pair.arrX = [];
-          pair.arrY = [];
-          if (pair.kind !== 'scalar') { pair.kind = 'scalar'; pair.buf.length = 0; }
-          const x = numOf(vx), y = numOf(vy);
-          pair.lastX = x;
-          pair.lastY = y;
-          if (doSample && Number.isFinite(x) && Number.isFinite(y)) {
-            pair.buf.push({ x: x, y: y });
-            if (pair.buf.length > points) pair.buf.splice(0, pair.buf.length - points);
-          }
-          pair.n = pair.buf.length;
-        }
-      });
-      drawPlot(canvas, ctx, w, state);
-      raf = requestAnimationFrame(frame);
-    };
-    raf = requestAnimationFrame(frame);
-  },
+  attach: attachXY,
 });

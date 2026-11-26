@@ -269,13 +269,12 @@ const ui = await page.evaluate(() => ({
   selCells: document.querySelectorAll('#varTable input[data-k="sel"]').length,
   hasAll: !!document.getElementById('varSelAll'),
   delHidden: document.getElementById('btnDelVars')?.hidden,
-  tipLen: (document.querySelector('#varTable .vt-tip')?.textContent || '').replace(/\s+/g, '').length,
+  inlineTip: !!document.querySelector('#varTable .vt-tip'),
+  addressHelp: document.querySelector('#varTable [data-sort="addr"]')?.title || '',
 }));
 ok('变量表每行都有勾选框 + 表头全选', ui.selCells === 4 && ui.hasAll, JSON.stringify(ui));
 ok('没勾选时「删除选中」按钮是收起来的', ui.delHidden === true);
-// 说明文字保持"三行以内"：① 地址怎么写 ② 留空=内部变量、勾保持=掉电保持 ③ 初值不用填
-// （老版本这里是一大段几百字的解释，现场看着累；现在是三条短句，阈值放在 260 字）
-ok('变量表面板的说明文字收短了（不再是那一大段）', ui.tipLen > 0 && ui.tipLen < 260, `${ui.tipLen} 字`);
+ok('变量表地址写法通过表头提示查看', !ui.inlineTip && /内部变量/.test(ui.addressHelp), ui.addressHelp);
 
 /* 加上勾选框以后，变量表**行尾不再有 ✕**（现场要求）：
    删一条 = 勾上它 + 底部「删除选中 (1)」，或者在这一行右键「删除变量」 */

@@ -66,7 +66,7 @@ ok('bgColor="" → 不再产生非法渐变', !h.includes('linear-gradient(180de
 h = await renderBtn(ids.bTrans, {});
 ok('bgColor="transparent" → background:none', h.includes('background:none'));
 h = await renderBtn(ids.bNormal, {});
-ok('正常色仍走渐变（回归对照）', h.includes('linear-gradient(180deg,#2563ebdd,#2563eb)'), h.match(/background:[^;]+/)?.[0]);
+ok('正常底色保留原始 RGB', h.includes('background:#2563eb'), h.match(/background:[^;]+/)?.[0]);
 h = await renderBtn(ids.bEdge, {});
 ok('透明底+自选边框色 → 边框用 borderColor', h.includes('background:none') && h.includes('border:1px solid #111111'), h.match(/border:[^;]+/)?.[0]);
 h = await renderBtn(ids.bEmpty, {});
@@ -85,7 +85,7 @@ const bState = await page.evaluate(async () => {
 h = await renderBtn(bState, {});                       // 变量无值 → 用静态透明背景
 ok('状态显示但变量无值 → 保持透明', h.includes('background:none'));
 h = await renderBtn(bState, { bRun: true });           // 有值 → onColor
-ok('状态显示变量=true → onColor 渐变', h.includes('linear-gradient(180deg,#22c55edd,#22c55e)'), h.match(/background:[^;]+/)?.[0]);
+ok('状态显示变量=true → 满足底色原样显示', h.includes('background:#22c55e'), h.match(/background:[^;]+/)?.[0]);
 
 /* ── B. 真实 DOM：编辑画布 computed style ── */
 await page.click(`#canvas .wd[data-id="${ids.bEmpty}"]`);
@@ -93,13 +93,14 @@ await page.waitForTimeout(150);
 const dom = await page.evaluate((wid) => {
   const el = document.querySelector(`#canvas .wd[data-id="${wid}"] .w-btn`);
   const cs = getComputedStyle(el);
-  return { bgImg: cs.backgroundImage, bgColor: cs.backgroundColor };
+  return { bgImg: cs.backgroundImage, bgColor: cs.backgroundColor, shadow: cs.boxShadow };
 }, ids.bEmpty);
 ok('编辑画布：透明按钮无渐变背景图', dom.bgImg === 'none', dom.bgImg);
 ok('编辑画布：背景色为全透明 rgba(0,0,0,0)', dom.bgColor === 'rgba(0, 0, 0, 0)', dom.bgColor);
+ok('编辑画布：透明按钮无阴影', dom.shadow === 'none', dom.shadow);
 const domN = await page.evaluate((wid) =>
-  getComputedStyle(document.querySelector(`#canvas .wd[data-id="${wid}"] .w-btn`)).backgroundImage, ids.bNormal);
-ok('编辑画布：正常按钮渐变仍在（回归对照）', domN.includes('linear-gradient'), domN.slice(0, 60));
+  getComputedStyle(document.querySelector(`#canvas .wd[data-id="${wid}"] .w-btn`)).backgroundColor, ids.bNormal);
+ok('编辑画布：按钮保持设定的 RGB', domN === 'rgb(37, 99, 235)', domN);
 
 /* ── C. 旧工程兼容：无 borderColor 键的老按钮 ── */
 const legacy = await page.evaluate(async () => {

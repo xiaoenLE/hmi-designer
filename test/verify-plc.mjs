@@ -129,7 +129,11 @@ except ValueError: print('PASS  非法地址报错')
    表只加不减，跑一晚上几十万条。这里用一个"错误文本每次都变"的假数据源压 60 次，
    断言表里只有 1 条键、而且不会超过上限。 */
 const pyErr = `
-import json, sys, threading, time
+import json, os, sys, tempfile, threading, time
+# ⚠ 这 60 次写失败会走 varapi → operations.record（写审计），默认会落到工程自己的
+#   server/data/operations.jsonl 里，把现场的操作记录刷成一屏「写入变量 wFail 失败」。
+#   在 import server 之前把数据目录指到临时目录，测试就只脏自己的沙盒。
+os.environ['HMI_DATA_DIR'] = tempfile.mkdtemp(prefix='hmi-errseen-')
 sys.path.insert(0, r'${ROOT.replace(/\\/g, '\\\\')}\\server')
 import server as S
 
@@ -271,6 +275,17 @@ await simWrite({ kind: 'w', addr: 104, value: 4321 });
 await sleep(700);
 let vars = (await api('/api/vars')).vars;
 ok('模拟 PLC 改 %MW104=4321 → 后端读回 iCount=4321', vars.iCount === 4321, `iCount=${vars.iCount}`);
+await post('/api/vars/declare', { active: ['rSpeed'] });
+await sleep(450);
+await simWrite({ kind: 'w', addr: 104, value: 4455 });
+await sleep(450);
+const beforeRecipeRead = (await api('/api/vars')).vars.iCount;
+const recipeRead = await post('/api/recipes/current', { names: ['iCount'] });
+const afterRecipeScope = (await api('/api/plc')).status;
+ok('配方读取当前值：临时读取未在画面采集范围内的寄存器，并保持原采集范围',
+  beforeRecipeRead === 4321 && recipeRead.values?.iCount === 4455 && afterRecipeScope.active === 1,
+  JSON.stringify({ beforeRecipeRead, values: recipeRead.values, active: afterRecipeScope.active }));
+await post('/api/vars/declare', { active: Object.keys(vars) });
 await simWrite({ kind: 'w', addr: 100, value: 33.3 });   // 这里故意写整字（%MD50 的低字）
 await sleep(700);
 vars = (await api('/api/vars')).vars;

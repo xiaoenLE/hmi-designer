@@ -50,6 +50,7 @@ const _sessions = new Map();
 let _stopEvents = null;
 /** 后端配置缓存（getConfig 之后才有；UI 也读它显示模型名） */
 let _cfg = null;
+let _getConfig = null;
 
 /** AI 帧的类型（其余帧不归我们管，直接忽略） */
 const AI_FRAMES = new Set(['ai_delta', 'ai_tool', 'ai_done', 'ai_error']);
@@ -149,8 +150,7 @@ export const aiClient = {
   available() {
     if (!backend.supports('ai')) return false;
     const ai = backend._hello?.ai;
-    if (!ai || typeof ai !== 'object') return true;   // 后端支持但没报现状：按开着处理
-    return ai.enabled !== false;
+    return (_cfg?.enabled ?? ai?.enabled) !== false;
   },
 
   /** hello 里那份 AI 现状 {enabled, model, has_key}（可能没有） */
@@ -172,10 +172,10 @@ export const aiClient = {
     return {
       available: this.available(),
       online: backend.isOnline(),
-      enabled: ai.enabled !== false,
-      model: ai.model || _cfg?.model || AI_DEFAULTS.model,
-      has_key: !!(ai.has_key ?? _cfg?.has_key),
-      configured: ai.has_key ?? _cfg?.has_key ? true : false,
+      enabled: (_cfg?.enabled ?? ai.enabled) !== false,
+      model: _cfg?.model || ai.model || AI_DEFAULTS.model,
+      has_key: !!(_cfg?.has_key ?? ai.has_key),
+      configured: !!(_cfg?.has_key ?? ai.has_key),
     };
   },
 
@@ -183,9 +183,13 @@ export const aiClient = {
 
   /** 读后端配置（掩码后的 api_key） */
   async getConfig() {
-    const d = await backend.rpc('/api/ai/config', { method: 'GET' });
-    _cfg = { ...(_cfg || {}), ...((d && d.cfg) || d || {}) };
-    return _cfg;
+    if (!_getConfig) {
+      _getConfig = backend.rpc('/api/ai/config', { method: 'GET' }).then(d => {
+        _cfg = { ..._cfg, ...(d?.cfg || d || {}) };
+        return _cfg;
+      }).finally(() => { _getConfig = null; });
+    }
+    return _getConfig;
   },
 
   /** 写后端配置（patch 里的 api_key 为明文才改；空/`__keep__` = 不改） */

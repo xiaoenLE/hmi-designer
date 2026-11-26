@@ -94,7 +94,7 @@ register({
       { v: 'fwd', t: '正向' }, { v: 'rev', t: '反向' },
     ] },
     { key: 'flowSpeed', label: '流动周期(秒)', type: 'number', min: 0.5, max: 8, step: 0.1, defVal: 2 },
-    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 80 },
+    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 100 },
   ],
   // 方向变量是**可选**的：不绑 = 完全按静态 flowDir（老工程老画面不变）。
   // 绑上之后运行态自动进「变量→控件」索引，变量一变就重画，不需要 attach。
@@ -108,7 +108,7 @@ register({
     const th = clamp(Math.round(numOr(p.thickness, 14)), 4, 80);
     const color = p.color || '#94a3b8';
     const inner = p.innerColor || '#e2e8f0';
-    const radius = clamp(Math.round(numOr(p.radius, 6)), 0, 80);
+    const radius = clamp(Math.round(numOr(p.radius, 6)), 0, 100);
     const flow = p.flow === true;
     const speed = clamp(numOr(p.flowSpeed, 2), 0.5, 8);
     const wall = Math.max(1, Math.round(th * 0.22));        // 内壁相对外壁往里缩多少 = "管壁厚"

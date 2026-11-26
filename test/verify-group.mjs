@@ -51,11 +51,62 @@ async function clickWidget(id, mods = []) {
   await page.waitForTimeout(150);
 }
 
+const ribbon = page.locator('#alignGroup');
+const ribbonOnGridRow = () => ribbon.evaluate(el => {
+  const tools = el.getBoundingClientRect();
+  const group = document.getElementById('btnUngroup').getBoundingClientRect();
+  return tools.left >= group.right && tools.top < group.bottom && tools.bottom > group.top;
+});
+const ribbonHeight = (await ribbon.boundingBox()).height;
+const selectionButtons = page.locator('#alignGroup button, #btnGroup, #btnUngroup');
+const enabledSelectionTools = () => selectionButtons.evaluateAll(buttons =>
+  buttons.filter(btn => !btn.disabled).map(btn => btn.dataset.align || btn.dataset.size || btn.id));
+ok('没有选中控件时仍显示固定工具栏，操作全部禁用',
+  await ribbon.isVisible() && (await enabledSelectionTools()).length === 0);
+ok('组合和取消组合图标紧跟主工具栏的网格按钮',
+  await page.locator('.toolbar-main .tb-cluster:has(#btnGrid) + .tb-cluster #btnGroup + #btnUngroup').isVisible());
+ok('空间足够时对齐和尺寸图标紧跟组合按钮，留在网格所在行', await ribbonOnGridRow());
+const toolbarClusters = page.locator('#toolbar .tb-cluster');
+ok('历史、层级和锁定、画布辅助、编组各有独立方框',
+  JSON.stringify(await toolbarClusters.evaluateAll(groups => groups.slice(0, 4).map(group => group.ariaLabel)))
+    === JSON.stringify(['编辑历史', '控件层级和锁定', '画布辅助', '编组']));
+ok('各操作分组的高度和边框一致', await toolbarClusters.evaluateAll(groups => {
+  const [reference] = groups;
+  const referenceStyle = getComputedStyle(reference);
+  return groups.every(group => {
+    const style = getComputedStyle(group);
+    return group.offsetHeight === reference.offsetHeight && style.border === referenceStyle.border
+      && style.borderRadius === referenceStyle.borderRadius;
+  });
+}));
+ok('编辑工具只显示图标并保留操作提示',
+  !(await ribbon.textContent()).trim() && await toolbarClusters.locator('button').evaluateAll(buttons =>
+    buttons.every(btn => !btn.textContent.trim() && btn.querySelector('svg use') && btn.title && btn.ariaLabel)));
+await page.evaluate(async selected => (await import('/js/editor/canvas.js')).select(selected), ids);
+ok('三个独立控件选中时，等间距和等尺寸操作可用',
+  (await enabledSelectionTools()).includes('hdist') && (await enabledSelectionTools()).includes('both'));
+ok('选择变化时工具栏高度保持一致', (await ribbon.boundingBox()).height === ribbonHeight);
+
 /* ── A. 组合：Ctrl+G ── */
 await page.evaluate(async (id) => (await import('/js/editor/canvas.js')).select([id]), ids[0]);
 await clickWidget(ids[1], ['Shift']);                      // Shift 加选第二个
 let sel = await selection();
 ok('先选中 2 个控件（点选 + Shift 加选）', sel.length === 2, JSON.stringify(sel));
+const lockButton = page.locator('#btnLock');
+await lockButton.click();
+ok('锁定图标切换为解锁并更新悬停提示',
+  await lockButton.getAttribute('aria-label') === '解锁' && await lockButton.getAttribute('title') === '解锁选中控件');
+await lockButton.click();
+ok('两个独立控件可对齐和组合，等间距操作禁用',
+  (await enabledSelectionTools()).includes('left') && (await enabledSelectionTools()).includes('btnGroup')
+    && !(await enabledSelectionTools()).includes('hdist'));
+await page.getByRole('button', { name: '组合', exact: true }).click();
+const iconGroup = (await state()).find(w => w.id === ids[0]).group;
+ok('点击网格后的两个图标可以组合和取消组合',
+  !!iconGroup && (await state()).find(w => w.id === ids[1]).group === iconGroup
+  && await page.getByRole('button', { name: '取消组合', exact: true }).isEnabled());
+await page.getByRole('button', { name: '取消组合', exact: true }).click();
+ok('点击取消组合后，两个控件的组号清空', (await state()).every(w => !w.group));
 await page.keyboard.press('Control+g');
 await page.waitForTimeout(200);
 let st = await state();
@@ -66,6 +117,24 @@ ok('Ctrl+G 组合：两个控件拿到同一个组号',
 const statusText = await page.textContent('#stSel');
 ok('状态栏写明「已选中 1 组」', /1 组/.test(statusText), statusText);
 ok('画布上出现「组 N」角标', await page.locator('#canvas .group-tag').count() > 0);
+ok('只选中一个整体组合时，仅取消组合可用', (await enabledSelectionTools()).join() === 'btnUngroup');
+
+const upLayer = page.locator('#btnZUp');
+const downLayer = page.locator('#btnZDown');
+const paintedOrder = () => page.locator('#canvas .wd').evaluateAll((widgets, ids) => widgets
+  .filter(el => ids.includes(el.dataset.id))
+  .sort((a, b) => Number(a.style.zIndex) - Number(b.style.zIndex))
+  .map(el => el.dataset.id), ids);
+const sameOrder = (actual, expected) => actual.join() === expected.join();
+ok('组合在底部时可上移一层，下移按钮禁用', await upLayer.isEnabled() && await downLayer.isDisabled());
+await upLayer.click();
+ok('整个组合上移一层，组内叠放顺序保持', sameOrder(await paintedOrder(), [ids[2], ids[0], ids[1]])
+  && await upLayer.isDisabled() && await downLayer.isEnabled());
+await downLayer.click();
+ok('点击下移一层能把组合移回原位置', sameOrder(await paintedOrder(), ids));
+await page.locator('#btnZTop').click();
+await downLayer.click();
+ok('组合成员层级相同也能下移一层，并保持组内绘制顺序', sameOrder(await paintedOrder(), ids));
 
 /* ── B. 点组里任意一个 = 选中整组 ── */
 await page.evaluate(async () => (await import('/js/editor/canvas.js')).select([]));
@@ -282,7 +351,11 @@ await page.evaluate(async ([g, o]) => {
   c.select([...members, o]);                             // 组 + 组外控件（组外最后选 = 主控件）
 }, [laid.a, laid.other]);
 await page.waitForTimeout(150);
-await page.evaluate(async () => (await import('/js/editor/canvas.js')).alignWidgets('left'));
+await page.setViewportSize({ width: 800, height: 600 });
+const toolbarOverflow = await page.locator('#toolbar button:visible').evaluateAll(buttons =>
+  buttons.filter(btn => btn.getBoundingClientRect().right > innerWidth).map(btn => btn.id || btn.title));
+ok('窄窗口多选时，主工具栏和多选操作都在窗口内', toolbarOverflow.length === 0, toolbarOverflow.join(', '));
+await page.locator('#alignGroup [data-align="left"]').click();
 await page.waitForTimeout(250);
 const after2 = await state();
 const A = after2.find(w => w.id === laid.a), B = after2.find(w => w.id === laid.b), O = after2.find(w => w.id === laid.other);
@@ -296,7 +369,7 @@ ok('左对齐没有拆开组：组内相对位置完全没变（这就是之前�
 /* 顶对齐 + 水平居中 同样按整体走 */
 const before3 = await state();
 const relB3 = { dx: before3.find(w => w.id === laid.b).x - before3.find(w => w.id === laid.a).x };
-await page.evaluate(async () => (await import('/js/editor/canvas.js')).alignWidgets('top'));
+await page.locator('#alignGroup [data-align="top"]').click();
 await page.waitForTimeout(200);
 const after3 = await state();
 const A3 = after3.find(w => w.id === laid.a), B3 = after3.find(w => w.id === laid.b), O3 = after3.find(w => w.id === laid.other);
@@ -309,7 +382,7 @@ const w4a = before4.find(w => w.id === laid.a), w4b = before4.find(w => w.id ===
 const rel4 = w4b.x - w4a.x;
 const boxW4 = Math.max(w4a.x + w4a.w, w4b.x + w4b.w) - Math.min(w4a.x, w4b.x);
 const memberW4 = w4a.w;                       // 组内成员宽度（缩放前）
-await page.evaluate(async () => (await import('/js/editor/canvas.js')).makeSameSize('width'));
+await page.locator('#alignGroup [data-size="width"]').click();
 await page.waitForTimeout(250);
 const after4 = await state();
 const A4 = after4.find(w => w.id === laid.a), B4 = after4.find(w => w.id === laid.b), O4 = after4.find(w => w.id === laid.other);
@@ -320,6 +393,22 @@ ok('等宽：组内按比例缩放（相对间距跟着缩放，不是把成员�
   rel5 !== rel4 && Math.abs(rel5 - Math.round(rel4 * O4.w / boxW4)) <= 2 && A4.w !== memberW4,
   `相对间距 ${rel4} → ${rel5}（预期约 ${Math.round(rel4 * O4.w / boxW4)}）；成员宽 ${memberW4} → ${A4.w}`);
 
+await page.setViewportSize({ width: 390, height: 720 });
+await page.waitForFunction(() => !document.querySelector('.toolbar-main').classList.contains('align-inline'));
+const wrapped = await ribbon.evaluate(el => {
+  const groupTops = [...el.children].map(group => group.getBoundingClientRect().top);
+  return groupTops.every(top => top === groupTops[0])
+    && el.getBoundingClientRect().top >= document.getElementById('btnUngroup').getBoundingClientRect().bottom;
+});
+ok('空间不足时对齐和尺寸作为一组换到网格下方', wrapped && !(await ribbonOnGridRow()));
+const narrowRibbonFits = await page.locator('#toolbar button:visible').evaluateAll(buttons =>
+  buttons.every(btn => btn.getBoundingClientRect().right <= innerWidth));
+ok('390px 窄窗口工具栏换行，所有按钮留在窗口内', narrowRibbonFits);
+ok('窄窗口里编组仍与网格在同一行', await page.locator('#btnGrid').evaluate(grid =>
+  grid.getBoundingClientRect().top === document.getElementById('btnGroup').getBoundingClientRect().top));
+await page.setViewportSize({ width: 1500, height: 900 });
+await page.waitForFunction(() => document.querySelector('.toolbar-main').classList.contains('align-inline'));
+ok('窗口拉宽后对齐和尺寸自动回到网格所在行', await ribbonOnGridRow());
 ok('全程无未捕获 JS 异常', pageErrors.length === 0, pageErrors.slice(0, 2).join(' | '));
 
 console.log(results.join('\n'));

@@ -5,9 +5,7 @@
  *   · 尺寸与折叠状态存 localStorage，下次打开自动恢复
  * 注意：分隔条本身按「列」和「行」两种方向工作，逻辑分开写更好读。
  */
-// 左停靠区默认宽一点：变量表要放 勾选框/名称/类型/地址/长度/初值/删除，250px 会把
-// %MW102 这种地址截成 %MW1…（拖过分隔条的按用户自己存的宽度，双击分隔条恢复这个默认值）
-const DEFAULTS = { left: 300, right: 272, bottom: 220 };
+const DEFAULT_BOTTOM_HEIGHT = 220;
 const MIN = { left: 170, right: 210, bottom: 120 };
 const MAX = 560;
 
@@ -21,7 +19,7 @@ const panelId = s => (s === 'left' ? 'leftPanel' : s === 'right' ? 'rightPanel' 
 const rzId = s => (s === 'left' ? 'leftResizer' : s === 'right' ? 'rightResizer' : 'bottomResizer');
 
 function setWidth(side, w) {
-  document.getElementById(panelId(side)).style.width = w + 'px';
+  document.getElementById(panelId(side)).style.width = w == null ? '' : w + 'px';
 }
 function setHeight(h) {
   document.getElementById('bottomPanel').style.height = h + 'px';
@@ -73,8 +71,8 @@ function bindResizer(side) {
 
   // 双击恢复默认宽度
   rz.addEventListener('dblclick', () => {
-    setWidth(side, DEFAULTS[side]);
-    save(`hmi-panel-${side}`, DEFAULTS[side]);
+    setWidth(side, null);
+    localStorage.removeItem(`hmi-panel-${side}`);
   });
 }
 
@@ -117,19 +115,19 @@ function bindBottomResizer() {
   });
 
   rz.addEventListener('dblclick', () => {
-    setHeight(DEFAULTS.bottom);
-    save('hmi-panel-bottom', DEFAULTS.bottom);
+    setHeight(DEFAULT_BOTTOM_HEIGHT);
+    save('hmi-panel-bottom', DEFAULT_BOTTOM_HEIGHT);
   });
 }
 
 export function initPanels() {
   ['left', 'right'].forEach(side => {
-    setWidth(side, load(`hmi-panel-${side}`, DEFAULTS[side]));
+    setWidth(side, load(`hmi-panel-${side}`, null));
     if (load(`hmi-panel-${side}-collapsed`, false)) setCollapsed(side, true);
     bindResizer(side);
   });
   // 底部停靠区
-  setHeight(load('hmi-panel-bottom', DEFAULTS.bottom));
+  setHeight(load('hmi-panel-bottom', DEFAULT_BOTTOM_HEIGHT));
   if (load('hmi-panel-bottom-collapsed', false)) {
     document.getElementById('bottomPanel').classList.add('collapsed');
     document.getElementById('bottomResizer').classList.add('collapsed');

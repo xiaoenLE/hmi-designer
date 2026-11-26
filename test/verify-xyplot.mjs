@@ -22,7 +22,7 @@ const req = createRequire('C:/Users/Administrator/.workbuddy/binaries/node/works
 const { chromium } = req('playwright-core');
 const EXE = 'C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
 const PY = 'C:/Users/Administrator/AppData/Local/Programs/Python/Python310/python.exe';
-const ROOT = 'C:/Users/Administrator/Desktop/hmi/hmi-designer-v2';
+const ROOT = path.resolve(import.meta.dirname, '..');
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const results = [];
@@ -66,6 +66,7 @@ const S = await page.evaluate(async () => {
   const vars = [
     ['x1', 'real', 1], ['y1', 'real', 2], ['x2', 'real', 3], ['y2', 'real', 4],
     ['arrX', 'real[]', []], ['arrY', 'real[]', []],
+    ['xyStart', 'bool', false], ['xyClear', 'bool', false],
   ];
   vars.forEach(([name, type, value]) => {
     const old = m.data.variables.find(v => v.name === name);
@@ -111,11 +112,10 @@ const inkRatio = (sel) => page.evaluate((s) => {
   if (!cv) return -1;
   const ctx = cv.getContext('2d');
   const d = ctx.getImageData(0, 0, cv.width, cv.height).data;
-  const bg = [d[0], d[1], d[2]];
   let diff = 0, total = 0;
   for (let i = 0; i < d.length; i += 4 * 37) {
     total++;
-    if (Math.abs(d[i] - bg[0]) + Math.abs(d[i + 1] - bg[1]) + Math.abs(d[i + 2] - bg[2]) > 24) diff++;
+    if (d[i + 3] > 24) diff++;
   }
   return diff / total;
 }, sel);
@@ -135,7 +135,6 @@ const reg = await page.evaluate(async (id) => {
     inToolbox: box.some(t => t.includes('XY 波形')),
     canvas: !!canvas,
     canvasStyle: canvas ? canvas.getAttribute('style') || '' : '',
-    hasBind: def ? !!def.binding : true,
   };
 }, S.id);
 ok('★ 注册成功：type=xyplot / title「XY 波形」/ sub 带「多对 X/Y」/ selfDrawn',
@@ -145,7 +144,7 @@ ok('★ 工具箱里出现「XY 波形」', reg.inToolbox);
 ok('★ 编辑态渲染出 canvas 容器（wxy-cv），带内联网格静态示意',
   reg.canvas && reg.canvasStyle.indexOf('background-image') >= 0, JSON.stringify({ canvas: reg.canvas }));
 const NEED_PROPS = ['pairs', 'sampleMs', 'points', 'autoX', 'xMin', 'xMax', 'autoY', 'yMin', 'yMax',
-  'showGrid', 'showLegend', 'lineWidth', 'pointSize', 'decimals',
+  'showGrid', 'showLegend', 'xTicks', 'yTicks', 'showCaptureBtn', 'showClearBtn', 'lineWidth', 'pointSize', 'decimals',
   'bgColor', 'gridColor', 'textColor', 'borderColor', 'borderWidth', 'radius'];
 ok('★ props 齐全（pairs/sampleMs/points/范围/网格/图例/线宽/圆点/小数位/配色/边框圆角）',
   NEED_PROPS.every(k => reg.props.includes(k)),
@@ -271,9 +270,106 @@ ok('★ 切回标量对仍工作：kind=scalar、n 继续增长（数组→标�
   && back2.pairs[0].n > back1.pairs[0].n,
   JSON.stringify({ a: back1 && back1.pairs, b: back2 && back2.pairs }));
 
-/* ═══════════ 7. 收尾 ═══════════ */
+/* ═══════════ 7. 画面按钮、变量控制和数组清除 ═══════════ */
+await page.evaluate(async id => {
+  const { project: m } = window.app;
+  window.app.exitRun();
+  m.updateWidgetProp(id, 'pairs', 'x1,y1\narrX,arrY');
+  (await import('/js/editor/canvas.js')).select([id]);
+}, S.id);
+await page.locator('#propBody [data-prop="showCaptureBtn"]').check();
+await page.locator('#propBody [data-prop="showClearBtn"]').check();
+const editXY = page.locator(`#canvas .wd[data-id="${S.id}"]`);
+const runXY = page.locator(`#rtPage .wd[data-id="${S.id}"]`);
+const capture = runXY.getByRole('button', { name: /抓取/ });
+const clear = runXY.getByRole('button', { name: '清除数据' });
+const readHeader = widget => widget.locator('.w-plot-header').evaluate(el => {
+  const legend = el.querySelector('.w-plot-legend');
+  const labels = legend.getBoundingClientRect();
+  const buttons = el.querySelector('.w-plot-tools').getBoundingClientRect();
+  return {
+    legend: legend.textContent,
+    sameRow: Math.abs((labels.top + labels.height / 2) - (buttons.top + buttons.height / 2)) < 1
+      && labels.right <= buttons.left,
+  };
+});
+const editHeader = await readHeader(editXY);
+ok('★ XY 编辑态：变量对和按钮同一行，按钮只预览',
+  editHeader.sameRow && editHeader.legend.includes('arrX→arrY')
+  && await editXY.getByRole('button', { name: '开始抓取' }).isDisabled()
+  && await editXY.getByRole('button', { name: '清除数据' }).isDisabled());
+
+const enter = () => page.evaluate(async () => {
+  await window.app.enterRun();
+  (await import('/js/runtime/runtime.js')).hideRuntimeHint();
+});
+const setArrays = (x, y) => page.evaluate(([x, y]) => {
+  window.app.varStore.values.arrX = x;
+  window.app.varStore.values.arrY = y;
+}, [x, y]);
+await enter();
+await setArrays([1, 2, 3], [2, 4, 6]);
+await sleep(160);
+ok('★ XY 运行态：图例同排，手动抓取初始等待开始',
+  (await readHeader(runXY)).sameRow && await capture.textContent() === '开始抓取'
+  && (await xyState()).pairs.every(pair => pair.n === 0));
+await capture.click();
+await sleep(240);
+const grabbed = await xyState();
+ok('★ XY 开始抓取采标量和数组，图例标记数组对',
+  grabbed.pairs[0].n > 1 && grabbed.pairs[1].n === 3
+  && (await readHeader(runXY)).legend.includes('arrX→arrY 数组'));
+await capture.click();
+const stopped = await xyState();
+await setArrays([10, 20], [30, 40]);
+await sleep(200);
+const held = await xyState();
+ok('★ XY 停止抓取会同时冻结两种曲线',
+  held.pairs[0].n === stopped.pairs[0].n && held.pairs[1].n === 3 && held.pairs[1].lastY === 6);
+await clear.click();
+await sleep(140);
+ok('★ XY 停止时清除两种曲线',
+  (await xyState()).pairs.every(pair => pair.n === 0));
+await capture.click();
+await sleep(180);
+await clear.click();
+await setArrays([10, 20], [30, 40]); // PLC 回读相同数组，不会重画旧曲线
+await sleep(180);
+ok('★ XY 抓取中清除数组后，相同回读不会恢复旧曲线',
+  (await xyState()).pairs[1].n === 0);
+await setArrays([10, 20], [31, 41]);
+await sleep(180);
+ok('★ XY 收到新数组后继续画曲线',
+  (await xyState()).pairs[1].n === 2 && (await xyState()).pairs[1].lastY === 41);
+
+await page.evaluate(id => {
+  window.app.exitRun();
+  const m = window.app.project;
+  const binding = m.getWidget(id).bindings;
+  binding.startVar = 'xyStart';
+  binding.clearVar = 'xyClear';
+  m.commit('切换为 XY 外部控制');
+}, S.id);
+await enter();
+await setArrays([1, 2], [2, 4]);
+await sleep(150);
+const scope = await page.evaluate(async () => (await import('/js/runtime/runtime.js')).pageVarScope());
+ok('★ XY 外部变量均进入采集范围，对应按钮隐藏且初始停止',
+  scope.includes('xyStart') && scope.includes('xyClear') && await capture.count() === 0
+  && await clear.count() === 0 && (await xyState()).pairs.every(pair => pair.n === 0));
+await setVar('xyStart', true);
+await sleep(180);
+ok('★ XY 外部启动为 1 时抓取', (await xyState()).pairs[1].n === 2);
+await setVar('xyStart', false);
+await setVar('xyClear', true);
+await sleep(200);
+ok('★ XY 外部清除上升沿在停止时也能清空', (await xyState()).pairs.every(pair => pair.n === 0));
+await setVar('xyStart', true);
+await sleep(210);
+ok('★ XY 外部清除保持为 1 不会反复清除', (await xyState()).pairs[1].n === 2);
+
 await page.evaluate(() => window.app.exitRun());
-await sleep(400);
+await sleep(200);
 ok('全程无未捕获 JS 异常', errs.length === 0, errs.slice(0, 3).join(' | '));
 
 await browser.close();

@@ -414,13 +414,13 @@ export function isIdentName(name) {
 /**
  * 脚本里变量「**属性写法**」的正则：`hmi.v.名字` / `hmi.v['名字']`（新写法，见 scriptEngine 的 hmi.v）。
  *
- * 组：1 = 点写法的名字 · 2 = 引号 · 3 = 方括号写法的名字。
+ * 组：1 = 点写法的名字 · 2 = 引号 · 3 = 方括号写法的名字 · 4 = 可选的字面量下标。
  * ⚠ 只能当**工厂**用（带 g 的正则有 lastIndex 状态）：扫描引用、改名替换两边各取一个新实例，
  *   否则一边 exec 到一半、另一边从中间接着匹配，会漏。
  * ⚠ 别把 `hmi.vars()` 也吃进来：点写法要求 `v` 后面**紧跟一个点**，`hmi.vars` 不满足。
  */
 export const scriptVarPropRe = () =>
-  /\bhmi\s*\.\s*v\s*\.\s*([\p{L}\p{N}_$]+)|\bhmi\s*\.\s*v\s*\[\s*(['"])([^'"]+)\2\s*\]/gu;
+  /\bhmi\s*\.\s*v\s*(?:\.\s*([\p{L}\p{N}_$]+)|\[\s*(['"])([^'"]+)\2\s*\])(?:[ \t]*\[[ \t]*(\d+)[ \t]*\])?/gu;
 
 /** 属性写法的代码片段（名字不是合法标识符时自动用方括号）—— 编辑器插例子、文档都用它 */
 export const varSnippet = (name, value = 'true') =>
@@ -662,6 +662,10 @@ export function contrastTextOn(color) {
   });
   const L = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
   return L > 0.179 ? '#1f2329' : '#ffffff';
+}
+
+export function textAlignOf(value, fallback = 'left') {
+  return ['left', 'center', 'right'].includes(value) ? value : fallback;
 }
 
 /**

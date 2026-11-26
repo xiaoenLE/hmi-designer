@@ -42,7 +42,7 @@ register({
     { key: 'warnColor', label: '超限色', type: 'color' },
     { key: 'bgColor', label: '底色', type: 'color' },
     { key: 'textColor', label: '文字色', type: 'color' },
-    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 24 },
+    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 100 },
     { key: 'borderColor', label: '边框色', type: 'color' },
     { key: 'borderWidth', label: '边框宽', type: 'number', min: 0, max: 8 },
   ],

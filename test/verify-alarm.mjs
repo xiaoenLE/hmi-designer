@@ -571,19 +571,16 @@ const snapBar = () => page.evaluate(([b]) => {
   const bar = document.querySelector(`#rtPage .wd[data-id="${b}"] .w-alarmbar`);
   if (!bar) return { missing: true };
   const reel = bar.querySelector('.ab-reel');
-  const copies = [...bar.querySelectorAll('.ab-copy')];
   const view = bar.querySelector('.ab-view');
   return {
-    text: bar.textContent.replace(/\s+/g, ' ').trim(),
-    copyText: copies[0]?.textContent.replace(/\s+/g, ' ').trim() || '',
-    copies: copies.length,
-    same: copies.length === 2 && copies[0].textContent === copies[1].textContent,
-    copyW: Math.round(copies[0].getBoundingClientRect().width),
-    viewW: Math.round(view.clientWidth),
+    copyText: reel.textContent.replace(/\s+/g, ' ').trim(),
+    copies: reel.querySelectorAll('.ab-copy').length,
+    copyW: reel.offsetWidth,
+    viewW: view.clientWidth,
+    speed: Number(bar.dataset.abSpeed),
     roll: bar.classList.contains('roll'),
-    dur: reel.style.getPropertyValue('--ab-dur'),
+    dur: parseFloat(reel.style.getPropertyValue('--ab-dur')),
     anim: getComputedStyle(reel).animationName,
-    secondShown: copies[1] ? getComputedStyle(copies[1]).display !== 'none' : null,
   };
 }, [wids.bar]);
 /** 改完报警内容要等一下：报警引擎 200ms 一跳才把新文字刷进「当前报警」，
@@ -598,50 +595,42 @@ const bar2 = await snapBar();
 ok('两条报警拼成一串（一次就能看到全部，不用等轮播）',
   /主轴转速过高/.test(bar2.copyText) && /模式被切到/.test(bar2.copyText) && /●/.test(bar2.copyText), bar2.copyText.slice(0, 90));
 ok('每条都带时间戳', (bar2.copyText.match(/\[\d\d:\d\d:\d\d\]/g) || []).length === 2, bar2.copyText.slice(0, 70));
-ok('串太长 → 一直在滚（.roll + 动画 ab-ticker），按速度算出滚动时长',
-  bar2.roll && bar2.anim === 'ab-ticker' && /s$/.test(bar2.dur) && bar2.copyW > bar2.viewW,
-  JSON.stringify({ roll: bar2.roll, anim: bar2.anim, dur: bar2.dur, copyW: bar2.copyW, viewW: bar2.viewW }));
-ok('同一份内容放两遍（滚到 -50% 正好接上第一份 → 无缝循环，不会跳回开头）',
-  bar2.copies === 2 && bar2.same === true && bar2.secondShown === true, JSON.stringify({ copies: bar2.copies, same: bar2.same }));
+ok('长消息持续滚动，时长按可视区和文字总宽度计算',
+  bar2.roll && bar2.anim === 'ab-ticker' && bar2.copyW > bar2.viewW
+  && Math.abs(bar2.dur * bar2.speed - bar2.copyW - bar2.viewW) < 0.1, JSON.stringify(bar2));
 
-/* 首尾对接（无缝）：判据是「两份内容首尾相接 + 一圈正好走一份」。
-   ⚠ 以前 .ab-reel 是块级 flex 容器，宽度默认取可视区宽（575）而不是内容宽（1768），
-   于是 translateX(-50%) 只走半个可视区 ≈ 288px，滚到后面突然跳回开头 —— 就是这个 bug。
-   为什么不去采样动画时钟：paused 的动画改 animation-delay 不一定重算当前时间，
-   量出来的位移不可靠；而「带子宽 = 2×一份 + 关键帧走 -50%」两条合起来在数学上等价于无缝。 */
-const seam = await page.evaluate(async ([b]) => {
+const cycle = await page.evaluate(async ([b]) => {
   const reel = document.querySelector(`#rtPage .wd[data-id="${b}"] .w-alarmbar .ab-reel`);
   const view = reel.closest('.ab-view');
-  const copy = reel.querySelector('.ab-copy');
-  const cs = getComputedStyle(reel);
-  // 从样式表里把 @keyframes ab-ticker 的终点帧读出来
-  let toFrame = '';
-  for (const sheet of document.styleSheets) {
-    let rules;
-    try { rules = sheet.cssRules; } catch { continue; }      // 跨域表读不到就跳过
-    for (const r of rules) {
-      if (r.type === CSSRule.KEYFRAMES_RULE && r.name === 'ab-ticker') {
-        for (const kf of r.cssRules) if (kf.keyText === '100%' || kf.keyText === 'to') toFrame = kf.style.transform;
-      }
-    }
-  }
-  return {
-    reelW: Math.round(reel.getBoundingClientRect().width),
-    copyW: Math.round(copy.getBoundingClientRect().width),
-    viewW: Math.round(view.getBoundingClientRect().width),
-    anim: cs.animationName,
-    iter: cs.animationIterationCount,
-    timing: cs.animationTimingFunction,
-    toFrame,
+  const animation = reel.getAnimations()[0];
+  animation.pause();
+  await animation.ready;
+  const { duration, iterations } = animation.effect.getTiming();
+  const frames = animation.effect.getKeyframes();
+  const positionAt = time => {
+    animation.currentTime = time;
+    const text = reel.getBoundingClientRect(), area = view.getBoundingClientRect();
+    return { entry: text.left - area.right, exit: text.right - area.left };
   };
+  const first = positionAt(0);
+  const last = positionAt(duration - 1);
+  const next = positionAt(duration + 1);
+  animation.currentTime = 0;
+  animation.play();
+  return { first, last, next, infinite: iterations === Infinity, timing: frames[0].easing };
 }, [wids.bar]);
-ok('滚动带宽度 = 两份内容（不是被压成可视区那么宽）',
-  Math.abs(seam.reelW - seam.copyW * 2) <= 2 && seam.reelW > seam.viewW, JSON.stringify(seam));
-ok('动画是 ab-ticker + linear + infinite（匀速、一直循环）',
-  seam.anim === 'ab-ticker' && seam.iter === 'infinite' && seam.timing === 'linear',
-  JSON.stringify({ anim: seam.anim, iter: seam.iter, timing: seam.timing }));
-ok('关键帧走 -50% → 一圈正好一份内容宽，首尾对接不跳',
-  /translateX\(\s*-?50%\s*\)/.test(seam.toFrame), JSON.stringify(seam.toFrame));
+ok('整串从右侧进入，尾字滚出左侧后下一轮才出现',
+  bar2.copies === 1 && Math.abs(cycle.first.entry) < 1 && Math.abs(cycle.last.exit) < 1
+  && Math.abs(cycle.next.entry) < 1, JSON.stringify(cycle));
+ok('滚动动画匀速并持续循环', cycle.infinite && cycle.timing === 'linear');
+
+const sameAnimation = await page.evaluate(async ([b]) => {
+  const lookup = () => document.querySelector(`#rtPage .wd[data-id="${b}"] .ab-reel`)?.getAnimations()[0];
+  const animation = lookup();
+  (await import('/js/core/eventBus.js')).bus.emit('alarms:changed', { raised: [], cleared: [] });
+  return !!animation && lookup() === animation;
+}, [wids.bar]);
+ok('报警文字没有变化时，刷新保持当前动画进度', sameAnimation);
 
 /* 滚起来：等一会儿看 transform 真的在变（不是在原地不动） */
 const t1 = await page.evaluate(([b]) => getComputedStyle(document.querySelector(`#rtPage .wd[data-id="${b}"] .ab-reel`)).transform, [wids.bar]);
@@ -649,8 +638,7 @@ await sleep(900);
 const t2 = await page.evaluate(([b]) => getComputedStyle(document.querySelector(`#rtPage .wd[data-id="${b}"] .ab-reel`)).transform, [wids.bar]);
 ok('内容真的在动（两次取到的 transform 不一样）', t1 !== t2, `${String(t1).slice(0, 34)} → ${String(t2).slice(0, 34)}`);
 
-/* 内容短到不超宽 → 不滚（短文字在条里晃来晃去很闹）
-   注意：当时活着的是 alarms()[0]（rSpeed）和 alarms()[2]（sMode），改文字要改这两条 */
+/* 内容能一次显示完整时也继续滚动。 */
 await page.evaluate(async ([b]) => {
   const m = await import('/js/core/project.js');
   const a = m.project.alarms();
@@ -661,9 +649,9 @@ await page.evaluate(async ([b]) => {
 }, [wids.bar]);
 await settleBar();
 const barShort = await snapBar();
-ok('短到装得下就不滚（第二份收起来，静静显示整串）',
-  barShort.roll === false && barShort.anim === 'none' && barShort.secondShown === false,
-  JSON.stringify({ roll: barShort.roll, anim: barShort.anim, second: barShort.secondShown, text: barShort.copyText }));
+ok('文字短于可视区时也持续滚动',
+  barShort.roll && barShort.anim === 'ab-ticker' && barShort.copies === 1 && barShort.copyW < barShort.viewW,
+  JSON.stringify(barShort));
 ok('分隔符可改（● → |）', /A/.test(barShort.copyText) && /B/.test(barShort.copyText)
   && /\|/.test(barShort.copyText) && !/●/.test(barShort.copyText), barShort.copyText.slice(0, 60));
 
@@ -678,7 +666,7 @@ const bar3 = await snapBar();
 ok('关掉「拼接全部」→ 只剩最严重那条 + 「还有 1 条」',
   /还有 1 条/.test(bar3.copyText) && !/跳闸/.test(bar3.copyText), bar3.copyText.slice(0, 70));
 
-/* 关掉「超长滚动」→ 就算超长也不滚（静态截断） */
+/* 关掉「持续滚动」后静态显示。 */
 await page.evaluate(async ([b]) => {
   const m = await import('/js/core/project.js');
   m.project.updateWidgetProp(b, 'joinAll', true);
@@ -688,8 +676,8 @@ await page.evaluate(async ([b]) => {
 }, [wids.bar]);
 await settleBar();
 const bar4 = await snapBar();
-ok('关掉「超长滚动」→ 再长也不滚（量都不量，直接截断）',
-  bar4.roll === false && bar4.copyW > bar4.viewW, JSON.stringify({ roll: bar4.roll, copyW: bar4.copyW, viewW: bar4.viewW }));
+ok('关掉「持续滚动」后，超长文字静态显示',
+  bar4.roll === false && bar4.anim === 'none' && bar4.copyW > bar4.viewW, JSON.stringify(bar4));
 
 /* 恢复原样，后面的用例还指望这两条报警的文字 */
 await page.evaluate(async ([b]) => {
@@ -796,15 +784,21 @@ const dayNav = await (async () => {
   // 直接往历史里塞三天数据（走 localStorage，和真实持久化一致）
   await page.evaluate(async () => {
     const A = await import('/js/runtime/alarms.js');
+    const rt = await import('/js/runtime/runtime.js');
+    const { project } = await import('/js/core/project.js');
+    rt.exitRun();
+    A.clearHistory();
+    // 独立验证历史翻页，避免上个用例的报警在重进运行态时重新触发。
+    project.updateVariable('rSpeed', { value: 0 });
+    project.updateVariable('iCount', { value: 0 });
+    project.updateVariable('sMode', { value: '手动' });
     const mk = (ts, text) => ({ key: `k${ts}`, id: `k${ts}`, name: '', text, level: 'alarm', value: 1, at: ts, endAt: ts + 1000, acked: true });
     const today = new Date(); today.setHours(10, 0, 0, 0);
     const yest = new Date(today.getTime() - 86400000);
     const before = new Date(today.getTime() - 2 * 86400000);
     const list = [mk(before.getTime(), '前天那条'), mk(yest.getTime(), '昨天那条'), mk(today.getTime(), '今天那条')];
     localStorage.setItem('hmi-alarm-history', JSON.stringify(list));
-    // 重新进运行态让它读进来
-    const rt = await import('/js/runtime/runtime.js');
-    rt.exitRun(); rt.enterRun();
+    await rt.enterRun();
   });
   await sleep(700);
   const read = () => page.evaluate(([wid]) => ({

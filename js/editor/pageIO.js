@@ -72,8 +72,7 @@ function pickPageFromProject(data, filename) {
           ${pages.map((p, i) => `<option value="${i}">${p.type === 'popup' ? '[弹窗] ' : '[页面] '}${esc(p.name)}（${p.widgets.length} 控件）</option>`).join('')}
         </select></div>
       <div class="dlg-hint">
-        导进来的是**新的一页**（页名重了会自动加序号），它用到的变量会一起补进变量表（同名的保留现有的）；
-        这一页套的公共底也会一起带过来。报警和脚本不跟着搬（它们是整机的）。
+        同时导入所用变量和公共底。同名变量保留现有设置。报警和脚本请单独导入。
       </div>`,
     onOk: () => {
       const i = Number(document.getElementById('piPick').value) || 0;

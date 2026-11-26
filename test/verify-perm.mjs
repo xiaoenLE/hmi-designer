@@ -17,7 +17,7 @@ const req = createRequire('C:/Users/Administrator/.workbuddy/binaries/node/works
 const { chromium } = req('playwright-core');
 const EXE = 'C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
 const PY = 'C:/Users/Administrator/AppData/Local/Programs/Python/Python310/python.exe';
-const ROOT = 'C:/Users/Administrator/Desktop/hmi/hmi-designer-v2';
+const ROOT = path.resolve(import.meta.dirname, '..');
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const results = [];
@@ -216,7 +216,7 @@ const propRows = await page.evaluate(async () => {
       label: r.querySelector('.f-label').textContent.trim(),
       hasCheck: !!r.querySelector('[data-prop="permPrompt"], [data-prop="showPermBadge"]'),
       checked: r.querySelector('[data-prop="showPermBadge"]')?.checked ?? null,
-      text: r.querySelector('label > span')?.textContent || '',
+      text: r.textContent.trim(),
     }));
   cv.select([window.__ids.op]);            // 配了等级的控件
   await new Promise(r => setTimeout(r, 350));
@@ -230,13 +230,12 @@ const propRows = await page.evaluate(async () => {
   project.setPermissions({ enabled: true });
   return { withLevel, noLevel, off };
 });
-// 「密码框」那一行的**文字去掉了**（现场要求只删文字、留开关）→ 和「小锁标记」一样是个裸勾选框，
-// 意思在标签「密码框」+ 悬停提示里。这里同时守着"别哪天又把长说明加回来"。
-ok('属性面板「操作权限」三行：权限等级 + 密码框 + 小锁标记（后两个都是裸勾选框、不带长说明）',
+// 两个复选框使用可点的文字标签，额外说明留在悬停提示里。
+ok('属性面板保留权限等级、密码框和小锁标记，复选框只显示标签',
   JSON.stringify(propRows.withLevel.map(r => r.label)) === JSON.stringify(['权限等级', '密码框', '小锁标记'])
   && propRows.withLevel[1].hasCheck && propRows.withLevel[2].hasCheck
-  && propRows.withLevel[1].text.trim() === ''
-  && propRows.withLevel[2].text.trim() === '',
+  && propRows.withLevel[1].text === '密码框'
+  && propRows.withLevel[2].text === '小锁标记',
   JSON.stringify(propRows.withLevel));
 ok('「小锁标记」**默认是勾上的**（不用逐个控件去打开）',
   propRows.withLevel[2].checked === true && propRows.noLevel[2].checked === true

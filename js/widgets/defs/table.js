@@ -60,7 +60,7 @@ register({
     { key: 'borderColor', label: '线色', type: 'color' },
     { key: 'borderWidth', label: '边框宽', type: 'number', min: 0, max: 8 },
     { key: 'zebra', label: '斑马纹', type: 'check', defVal: true },
-    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 30 },
+    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 100 },
     // 行点击动作（单独一栏）：点行 → 写变量 / 跳页
     { key: 'rowVar', label: '行变量', type: 'text', group: '行点击' },
     { key: 'rowValues', label: '行值', type: 'textarea', rows: 5, group: '行点击', i18n: 'lines' },

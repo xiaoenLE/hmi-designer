@@ -65,7 +65,7 @@ register({
       { v: 'cover', t: '铺满裁切（cover）' },
       { v: 'fill', t: '拉伸铺满（fill）' },
     ] },
-    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 60 },
+    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 100 },
     { key: 'borderColor', label: '边框色', type: 'color' },
     { key: 'borderWidth', label: '边框宽', type: 'number', min: 0, max: 8 },
   ],
@@ -79,7 +79,7 @@ register({
     // bool 变量两种写法都认：状态图里写 true/false 或 1/0 都能命中
     const candidates = v === true ? ['true', '1'] : v === false ? ['false', '0'] : (raw === '' ? [] : [raw]);
     const fit = ['contain', 'cover', 'fill'].includes(p.fit) ? p.fit : 'contain';
-    const radius = clamp(Math.round(numOr(p.radius, 0)), 0, 60);
+    const radius = clamp(Math.round(numOr(p.radius, 0)), 0, 100);
     const bw = clamp(numOr(p.borderWidth, 0), 0, 8);
     const bd = bw > 0 ? `border:${bw}px solid ${p.borderColor || '#c3cbd6'};` : '';
     const boxStyle = `position:relative;width:100%;height:100%;box-sizing:border-box;overflow:hidden;border-radius:${radius}px;${bd}`;

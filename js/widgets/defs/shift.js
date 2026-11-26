@@ -6,10 +6,8 @@
  *
  * 用途（现场「班次功能」）：显示总产量计数，并统计**本班**产量、OK/NG，以及**每小时产出**。
  *   · binding.variable = 总产量计数（必办/数值）；props 里还能填 OK / NG / 重置变量名（都是可选的）。
- *   · 班次窗口：`shiftStart`（HH:MM）起每 `shiftHours` 小时一班，跨天连续（显示如 08:00–16:00）。
- *   · 本班产量 = 当前总产量 − 班次开始时的基线；OK / NG 同理（基线在进运行态/换班/重置上升沿取）。
- *     现场要求界面上**不显示「本班产量」这一格**（直接看 OK 数量），但基线/本班差值内部照旧维护
- *     （resetVar、每小时增量都靠它；`el.__shiftState().shiftTotal` 仍然给）。
+ *   · 班次从每天的 `shiftStart` 开始，末班到次日第一班开始时结束。
+ *   · 总产量保留计数器原值，本班数字累加计数器的正向变化。班中计数器清零后可接着统计。
  *   · 每小时计数：运行态每秒（refreshMs）采样一次总产量，把增量记到当前小时 key；
  *     维护最近 `hourlyRows` 小时（最新在上），本小时标「进行中」。
  *   · resetVar 上升沿：把基线设为当前值、清每小时表（只清"本班统计"，不动 PLC 计数器）。
@@ -86,10 +84,13 @@ export function shiftWindowOf(nowMs, start, hours) {
   const dur = h * HOUR_MS;
   let startMin = parseHHMM(start);
   if (startMin < 0) startMin = 8 * 60;                 // 认不出按 08:00
-  const anchor = anchorOf(nowMs, startMin);
+  const first = new Date(anchorOf(nowMs, startMin));
+  if (first.getTime() > nowMs) first.setDate(first.getDate() - 1);
+  const anchor = first.getTime();
+  first.setDate(first.getDate() + 1);
   const k = Math.floor((nowMs - anchor) / dur);        // 最近一个「已开始」的班次
   const startMs = anchor + k * dur;
-  const endMs = startMs + dur;
+  const endMs = Math.min(startMs + dur, first.getTime());
   return {
     start: startMs,
     end: endMs,
@@ -357,6 +358,7 @@ function stateOf(w, create) {
       lastTotal: null, lastOk: null, lastNg: null,
       lastReset: false,
       sampledAt: 0,     // 最近一次采样时间（测试用：退出运行后不再前进 = 定时器停掉了）
+      readIssue: '',
       hourly: [],      // [{ key, hh, day, count }]，最新在前
       // ── 历史班次（本地按天）──
       days: null,      // { 'YYYY-MM-DD': { 'HH:MM': {total,ok,ng,hourly,startLabel,endLabel} } }
@@ -398,6 +400,7 @@ register({
   sub: '总产量 / OK / NG / 每小时计数',
   icon: '<svg viewBox="0 0 36 36" width="30" height="30"><rect x="4" y="6" width="28" height="24" rx="3" fill="#fff" stroke="#94a3b8"/><path d="M4 13h28" stroke="#c3cbd6" stroke-width="1.6"/><path d="M10 22V18M14 22V15M18 22V19M22 22V16M26 22V20" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/><circle cx="10" cy="9.5" r="1.4" fill="#22c55e"/><circle cx="14" cy="9.5" r="1.4" fill="#e5e7eb"/><circle cx="18" cy="9.5" r="1.4" fill="#e5e7eb"/></svg>',
   selfDrawn: false,
+  refreshOnVariable: false,       // 定时采样统一刷新，避免 PLC 高频推送重建日期框和列表
   defaults: {
     w: 340, h: 240,
     title: '班次产量',
@@ -431,7 +434,7 @@ register({
     { key: 'bgColor', label: '背景色', type: 'color' },
     { key: 'borderColor', label: '边框色', type: 'color' },
     { key: 'borderWidth', label: '边框宽', type: 'number', min: 0, max: 8 },
-    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 30 },
+    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 100 },
   ],
   binding: {
     variable: { types: ['bool', 'int', 'uint', 'dint', 'udint', 'real', 'lreal'], label: '总产量计数' },
@@ -448,7 +451,7 @@ register({
     const fs = numIn(p.fontSize, 13, 9, 30);
     const numSize = numIn(p.numberSize, 26, 12, 64);
     const bw = numIn(p.borderWidth, 1, 0, 8);
-    const radius = numIn(p.radius, 6, 0, 30);
+    const radius = numIn(p.radius, 6, 0, 100);
     const fg = p.textColor || '#1f2329';
     const bg = p.bgColor || '#ffffff';
     const line = p.borderColor || '#c3cbd6';
@@ -478,19 +481,17 @@ register({
     };
     const okVar = boundStatVar(w, 'ok');
     const ngVar = boundStatVar(w, 'ng');
-    const total = ready ? st.total : toNum(varValue(w, vars));
-    const okNow = ready ? st.ok : (okVar ? toNum(getV(okVar)) : null);
-    const ngNow = ready ? st.ng : (ngVar ? toNum(getV(ngVar)) : null);
-    const baseline = ready ? st.baseline : total;                 // 预览：基线 = 当前值 → 本班 0
-    const okBase = ready ? st.okBase : okNow;
-    const ngBase = ready ? st.ngBase : ngNow;
-    const shiftTotal = (total !== null && baseline !== null) ? (total - baseline) : null;
-    const okShift = (okNow !== null && okBase !== null) ? (okNow - okBase) : null;
-    const ngShift = (ngNow !== null && ngBase !== null) ? (ngNow - ngBase) : null;
+    const waiting = st && st.readIssue;
+    const total = ready ? st.total : (waiting ? null : toNum(varValue(w, vars)));
+    const okNow = ready ? st.ok : (okVar && !waiting ? toNum(getV(okVar)) : null);
+    const ngNow = ready ? st.ng : (ngVar && !waiting ? toNum(getV(ngVar)) : null);
+    const shiftTotal = total === null ? null : (st && st.rec ? st.rec.total : 0);
+    const okShift = okNow === null ? null : (st && st.rec ? st.rec.ok : 0);
+    const ngShift = ngNow === null ? null : (st && st.rec ? st.rec.ng : 0);
     // 主数据行显示哪一份：看历史时用那一班的累计值
-    const viewTotal = (!liveView && pastSel) ? pastSel.total : total;
-    const viewOk = (!liveView && pastSel) ? pastSel.ok : okNow;
-    const viewNg = (!liveView && pastSel) ? pastSel.ng : ngNow;
+    const viewTotal = liveView ? total : (pastSel ? pastSel.total : null);
+    const viewOk = liveView ? okNow : (pastSel ? pastSel.ok : null);
+    const viewNg = liveView ? ngNow : (pastSel ? pastSel.ng : null);
 
     const title = tr(p.title || '班次产量');
     const subStyle = `font-size:${Math.max(9, fs - 2)}px;color:#6b7280;white-space:nowrap`;
@@ -507,18 +508,20 @@ register({
     if (!liveView && pastSel) {
       winTxt = `${pastSel.startLabel}–${pastSel.endLabel || pastSel.startLabel}`;
       pct = 100;
+    } else if (!liveView) {
+      winTxt = '';
     } else if (p.showShiftTime !== false) {
       const elapsed = Math.max(0, Math.min(win.end - win.start, now - win.start));
       const em = Math.floor(elapsed / 60000);
       winTxt += ` · ${tr('已过')} ${Math.floor(em / 60)}:${pad2(em % 60)}`;
     }
-    const bar = (p.showShiftTime !== false || (!liveView && pastSel))
+    const bar = ((liveView && p.showShiftTime !== false) || (!liveView && pastSel))
       ? `<div class="sh-bar" style="height:3px;border-radius:2px;background:#eef2f7;overflow:hidden;flex:none"><i style="display:block;height:100%;width:${pct}%;background:#2563eb"></i></div>`
       : '';
 
     // ── 历史条（标题行下面）：‹ 日期 › + 「回到本班」（只看历史时出现）──
     const hBtnStyle = `flex:none;height:${Math.max(18, fs + 8)}px;padding:0 8px;box-sizing:border-box;border:1px solid ${line};border-radius:${Math.max(0, radius - 2)}px;background:#f7f8fa;color:${fg};font-size:${Math.max(10, fs - 1)}px;line-height:1;cursor:pointer;`;
-    const hInputStyle = `flex:1;min-width:0;height:${Math.max(20, fs + 10)}px;box-sizing:border-box;border:1px solid ${line};border-radius:${Math.max(0, radius - 2)}px;background:#ffffff;color:${fg};font-size:${Math.max(10, fs - 1)}px;padding:0 4px;`;
+    const hInputStyle = `flex:0 1 auto;width:${Math.max(136, fs * 7 + 32)}px;min-width:0;height:${Math.max(20, fs + 10)}px;box-sizing:border-box;border:1px solid ${line};border-radius:${Math.max(0, radius - 2)}px;background:#ffffff;color:${fg};font-size:${Math.max(10, fs - 1)}px;padding:0 4px;`;
     const histBar = historyOn ? `<div class="sh-histbar" style="display:flex;align-items:center;gap:4px;flex:none;min-width:0">
         <button type="button" class="sh-hbtn" data-shact="histPrev"${mode === 'edit' ? ' disabled' : ''} style="${hBtnStyle}">‹</button>
         <input class="sh-hdate" type="date" data-shhist="date" value="${escapeHtml(histDate)}"${mode === 'edit' ? ' disabled' : ''} style="${hInputStyle}">
@@ -549,8 +552,8 @@ register({
       const maxRows = numIn(p.hourlyRows, 8, 1, 24);
       const curKey = hourKeyOf(now).key;
       let rows;
-      if (!liveView && pastSel) {
-        rows = normalizeHourly(pastSel.hourly).slice(0, maxRows);
+      if (!liveView) {
+        rows = normalizeHourly(pastSel ? pastSel.hourly : []).slice(0, maxRows);
       } else {
         rows = ready ? st.hourly.slice(0, maxRows) : [{ key: curKey, hh: hourKeyOf(now).hh, day: hourKeyOf(now).day, count: 0, ok: okVar ? 0 : null, ng: ngVar ? 0 : null }];
       }
@@ -595,13 +598,13 @@ register({
       <div class="sh-head" style="display:flex;align-items:baseline;gap:8px;flex:none;min-width:0">
         <span class="sh-title" style="font-size:${fs + 1}px;font-weight:600;color:${fg};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(title)}</span>
         ${histMark}
-        <span class="sh-window" style="flex:1;text-align:right;${subStyle}">${escapeHtml(winTxt)}</span>
+        <span class="sh-window" title="${waiting && liveView ? escapeHtml(waiting) : ''}" style="flex:1;text-align:right;${subStyle}">${escapeHtml(waiting && liveView ? tr('等待设备数据') : winTxt)}</span>
       </div>
       ${histBar}
       ${bar}
       ${pastList}
       <div class="sh-main" style="display:flex;align-items:flex-end;gap:10px;flex:none;min-width:0">
-        ${cell('sh-total', tr('总产量'), fmtCount(viewTotal), '', fg)}
+        ${cell('sh-total', tr('总产量'), fmtCount(viewTotal), liveView && shiftTotal !== null ? `${tr('本班')} ${fmtCount(shiftTotal)}` : '', fg)}
         ${cell('sh-ok', tr('OK'), okVar ? fmtCount(viewOk) : '—', (liveView && okVar && okShift) ? ('+' + fmtCount(okShift)) : '', okColor)}
         ${cell('sh-ng', tr('NG'), ngVar ? fmtCount(viewNg) : '—', (liveView && ngVar && ngShift) ? ('+' + fmtCount(ngShift)) : '', ngColor)}
       </div>
@@ -653,6 +656,8 @@ register({
       const ngVar = boundStatVar(w, 'ng');
       const resetVar = boundStatVar(w, 'reset');
       const now = Date.now();
+      st.readIssue = [totalVar, okVar, ngVar, resetVar].filter(Boolean).map(api.blockReason).find(Boolean) || '';
+      if (st.readIssue) return;
       const win = shiftWindowOf(now, p.shiftStart, p.shiftHours);
       const total = toNum(read(totalVar));
       const ok = okVar ? toNum(read(okVar)) : null;
@@ -690,7 +695,11 @@ register({
           st.pendingHourly = null;
           st.hourly = savedH.length ? savedH : normalizeHourly(rec.hourly);
           if (!st.hourly.length) st.hourly = [{ key: hk.key, hh: hk.hh, day: hk.day, count: 0, ok: okVar ? 0 : null, ng: ngVar ? 0 : null }];
-          rec.hourly = cloneHourly(st.hourly);
+          if (!rec.hourly.length) {
+            const firstHour = hourKeyOf(win.start).key;
+            const lastHour = hourKeyOf(now).key;
+            rec.hourly = cloneHourly(st.hourly.filter(r => r.key >= firstHour && r.key <= lastHour));
+          }
         } else {
           // 换班：新班的记录从 0 开始；**实时每小时表不清**（继续滚动，只有 resetVar 手动清）
           rec.total = 0; rec.ok = 0; rec.ng = 0;
@@ -780,13 +789,12 @@ register({
       const win = shiftWindowOf(Date.now(), p.shiftStart, p.shiftHours);
       const ready = !!st.init;
       const total = st.total;
-      const shiftTotal = (ready && total !== null) ? (total - st.baseline) : null;
+      const shiftTotal = (ready && total !== null) ? st.rec.total : null;
       // hourly 跟当前视图：实时 = 持久化的实时每小时表；看历史 = 那班记录里的每小时
       const liveInfo = { day: dayKeyOf(win.start), startLabel: win.startLabel };
       const pastRec = pastRecordOf(st, liveInfo);
-      const viewHourly = pastRec
-        ? normalizeHourly(pastRec.hourly).map(r => ({ h: r.hh, count: r.count, key: r.key, ok: r.ok, ng: r.ng }))
-        : st.hourly.map(r => ({ h: r.hh, count: r.count, key: r.key, ok: r.ok, ng: r.ng }));
+      const shownHourly = st.view === 'past' ? normalizeHourly(pastRec ? pastRec.hourly : []) : st.hourly;
+      const viewHourly = shownHourly.map(r => ({ h: r.hh, count: r.count, key: r.key, ok: r.ok, ng: r.ng }));
       return {
         shiftKey: win.key,
         start: win.start,
@@ -798,8 +806,8 @@ register({
         shiftTotal: shiftTotal,
         ok: st.ok,
         ng: st.ng,
-        okShift: (st.ok !== null) ? (st.ok - st.okBase) : null,
-        ngShift: (st.ng !== null) ? (st.ng - st.ngBase) : null,
+        okShift: (st.rec && st.ok !== null) ? st.rec.ok : null,
+        ngShift: (st.rec && st.ng !== null) ? st.rec.ng : null,
         baseline: st.baseline,
         okBase: st.okBase,
         ngBase: st.ngBase,
@@ -825,7 +833,15 @@ register({
       st.histSel = rows.length ? rows[rows.length - 1].key : null;
       refreshView();
     };
-    const refreshView = () => { try { api.refresh(); } catch (e) { /* 控件已离开画面就算了 */ } };
+    const refreshView = () => {
+      const selectors = ['.sh-hlist', '.sh-pastlist'];
+      const positions = selectors.map(sel => el.querySelector(sel)?.scrollTop || 0);
+      api.refresh();
+      selectors.forEach((sel, i) => {
+        const list = el.querySelector(sel);
+        if (list) list.scrollTop = positions[i];
+      });
+    };
 
     // 历史条 / 历史班次行 的交互（事件全挂 el 上做委托，body 重画也不受影响）
     el.addEventListener('click', (e) => {
@@ -896,7 +912,8 @@ register({
         return;
       }
       sample();
-      try { api.refresh(); } catch (e) { /* 控件已离开画面就算了 */ }
+      // 打开原生日历期间只采样，待操作结束后才重建控件内容。
+      if (document.activeElement !== el.querySelector('.sh-hdate')) refreshView();
     };
 
     if (st.timer) { clearInterval(st.timer); st.timer = 0; }   // 重画/切语言后 attach 会再跑一次

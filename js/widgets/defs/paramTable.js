@@ -77,7 +77,7 @@ register({
     { key: 'headerBg', label: '表头底色', type: 'color' },
     { key: 'lineColor', label: '线色', type: 'color' },
     { key: 'zebra', label: '斑马纹', type: 'check', defVal: true },
-    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 30 },
+    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 100 },
   ],
   binding: {
     variables: {
@@ -98,7 +98,7 @@ register({
     const headBg = p.headerBg || '#eef2f7';
     const fs = intIn(p.fontSize, 14, 9, 40);
     const rowH = intIn(p.rowH, 30, 16, 80);
-    const radius = intIn(p.radius, 4, 0, 30);
+    const radius = intIn(p.radius, 4, 0, 100);
     const dec = decOf(p.decimals);
     // 显示名 / 单位：多行文字逐行翻（i18n:'lines'），再按行取
     const labelLines = trLines(p.labels || '').split('\n').map(s => s.trim());

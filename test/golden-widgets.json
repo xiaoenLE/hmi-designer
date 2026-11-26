@@ -7,6 +7,7 @@
     "input",
     "number",
     "clock",
+    "line",
     "rect",
     "circle",
     "image",
@@ -29,7 +30,9 @@
     "barcode",
     "paramTable",
     "recipe",
-    "shift"
+    "recipeEditor",
+    "shift",
+    "operations"
   ],
   "widgets": [
     {
@@ -43,6 +46,7 @@
       "defaultH": 46,
       "defaults": {
         "fontSize": 15,
+        "align": "center",
         "textColor": "#ffffff",
         "borderColor": "",
         "radius": 7,
@@ -61,13 +65,15 @@
         {
           "key": "onText",
           "label": "满足文字",
-          "type": "text",
+          "type": "textarea",
+          "rows": 2,
           "i18n": "text"
         },
         {
           "key": "offText",
           "label": "未满文字",
-          "type": "text",
+          "type": "textarea",
+          "rows": 2,
           "i18n": "text"
         },
         {
@@ -139,6 +145,26 @@
           "max": 72
         },
         {
+          "key": "align",
+          "label": "对齐",
+          "type": "select",
+          "options": [
+            {
+              "v": "left",
+              "t": "左对齐"
+            },
+            {
+              "v": "center",
+              "t": "居中"
+            },
+            {
+              "v": "right",
+              "t": "右对齐"
+            }
+          ],
+          "defVal": "center"
+        },
+        {
           "key": "textColor",
           "label": "文字色",
           "type": "color"
@@ -153,7 +179,7 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 40
+          "max": 100
         },
         {
           "key": "borderWidth",
@@ -195,17 +221,18 @@
         "back",
         "setValue",
         "clearAlarm",
-        "exitPerm"
+        "exitPerm",
+        "openRecipeManager"
       ],
       "iconLen": 196,
       "render": {
         "edit": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><button class=\"w-btn\" type=\"button\" tabindex=\"-1\" style=\"font-size:15px;color:#ffffff;background:linear-gradient(180deg,#22c55edd,#22c55e);border:1px solid #22c55e;border-radius:7px\">开</button></div>"
+          "html": "<div class=\"wd-body\"><button class=\"w-btn\" type=\"button\" tabindex=\"-1\" style=\"font-size:15px;color:#ffffff;background:#22c55e;border:1px solid #22c55e;border-radius:7px;justify-content:center;text-align:center\"><span class=\"w-btn-text\">开</span></button></div>"
         },
         "run": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><button class=\"w-btn\" type=\"button\" tabindex=\"-1\" style=\"font-size:15px;color:#ffffff;background:linear-gradient(180deg,#22c55edd,#22c55e);border:1px solid #22c55e;border-radius:7px\">开</button></div>"
+          "html": "<div class=\"wd-body\"><button class=\"w-btn\" type=\"button\" tabindex=\"-1\" style=\"font-size:15px;color:#ffffff;background:#22c55e;border:1px solid #22c55e;border-radius:7px;justify-content:center;text-align:center\"><span class=\"w-btn-text\">开</span></button></div>"
         }
       }
     },
@@ -232,14 +259,16 @@
         {
           "key": "offText",
           "label": "灭时文字",
-          "type": "text",
+          "type": "textarea",
+          "rows": 2,
           "defFrom": "text",
           "i18n": "text"
         },
         {
           "key": "onText",
           "label": "亮时文字",
-          "type": "text",
+          "type": "textarea",
+          "rows": 2,
           "defFrom": "text",
           "i18n": "text"
         },
@@ -351,7 +380,8 @@
         {
           "key": "text",
           "label": "文本",
-          "type": "text",
+          "type": "textarea",
+          "rows": 3,
           "i18n": "text"
         },
         {
@@ -400,17 +430,18 @@
           "options": [
             {
               "v": "left",
-              "t": "左"
+              "t": "左对齐"
             },
             {
               "v": "center",
-              "t": "中"
+              "t": "居中"
             },
             {
               "v": "right",
-              "t": "右"
+              "t": "右对齐"
             }
-          ]
+          ],
+          "defVal": "left"
         },
         {
           "key": "bold",
@@ -452,11 +483,11 @@
       "render": {
         "edit": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><div class=\"w-label\" style=\"font-size:14px;color:#1f2329;justify-content:flex-start;font-weight:400;\">12</div></div>"
+          "html": "<div class=\"wd-body\"><div class=\"w-label\" style=\"font-size:14px;color:#1f2329;text-align:left;font-weight:400;\"><span>12</span></div></div>"
         },
         "run": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><div class=\"w-label\" style=\"font-size:14px;color:#1f2329;justify-content:flex-start;font-weight:400;\">12</div></div>"
+          "html": "<div class=\"wd-body\"><div class=\"w-label\" style=\"font-size:14px;color:#1f2329;text-align:left;font-weight:400;\"><span>12</span></div></div>"
         }
       }
     },
@@ -475,6 +506,7 @@
         "decimals": 1,
         "unit": "",
         "fontSize": 16,
+        "align": "right",
         "textColor": "#1f2329",
         "bgColor": "#ffffff",
         "borderColor": "#c3cbd6"
@@ -497,6 +529,26 @@
           "type": "number",
           "min": 8,
           "max": 72
+        },
+        {
+          "key": "align",
+          "label": "对齐",
+          "type": "select",
+          "options": [
+            {
+              "v": "left",
+              "t": "左对齐"
+            },
+            {
+              "v": "center",
+              "t": "居中"
+            },
+            {
+              "v": "right",
+              "t": "右对齐"
+            }
+          ],
+          "defVal": "right"
         },
         {
           "key": "textColor",
@@ -533,11 +585,11 @@
       "render": {
         "edit": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><div class=\"w-value\" style=\"background:#ffffff;border-color:#c3cbd6\">\n      <span class=\"v\" style=\"font-size:16px;color:#1f2329\">12.0</span>\n      </div></div>"
+          "html": "<div class=\"wd-body\"><div class=\"w-value\" style=\"background:#ffffff;border-color:#c3cbd6;justify-content:flex-end\">\n      <span class=\"v\" style=\"font-size:16px;color:#1f2329\">12.0</span>\n      </div></div>"
         },
         "run": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><div class=\"w-value\" style=\"background:#ffffff;border-color:#c3cbd6\">\n      <span class=\"v\" style=\"font-size:16px;color:#1f2329\">12.0</span>\n      </div></div>"
+          "html": "<div class=\"wd-body\"><div class=\"w-value\" style=\"background:#ffffff;border-color:#c3cbd6;justify-content:flex-end\">\n      <span class=\"v\" style=\"font-size:16px;color:#1f2329\">12.0</span>\n      </div></div>"
         }
       }
     },
@@ -554,7 +606,10 @@
         "placeholder": "输入数值…",
         "fmt": "%.1f",
         "fontSize": 15,
+        "align": "left",
         "textColor": "#1f2329",
+        "bgColor": "#fdfdff",
+        "borderColor": "#c3cbd6",
         "rangeOn": false,
         "rangeMinMode": "fixed",
         "rangeMinValue": "",
@@ -583,8 +638,38 @@
           "max": 72
         },
         {
+          "key": "align",
+          "label": "对齐",
+          "type": "select",
+          "options": [
+            {
+              "v": "left",
+              "t": "左对齐"
+            },
+            {
+              "v": "center",
+              "t": "居中"
+            },
+            {
+              "v": "right",
+              "t": "右对齐"
+            }
+          ],
+          "defVal": "left"
+        },
+        {
           "key": "textColor",
           "label": "文字色",
+          "type": "color"
+        },
+        {
+          "key": "bgColor",
+          "label": "背景色",
+          "type": "color"
+        },
+        {
+          "key": "borderColor",
+          "label": "边框色",
           "type": "color"
         },
         {
@@ -632,11 +717,11 @@
       "render": {
         "edit": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><input class=\"w-input\" type=\"text\" disabled=\"\" value=\"12.0\" data-shown=\"12.0\" placeholder=\"输入数值…\" style=\"font-size:15px;color:#1f2329\" inputmode=\"decimal\"></div>"
+          "html": "<div class=\"wd-body\"><input class=\"w-input\" type=\"text\" disabled=\"\" value=\"12.0\" data-shown=\"12.0\" placeholder=\"输入数值…\" style=\"text-align:left;font-size:15px;color:#1f2329;background:#fdfdff;border-color:#c3cbd6;\" inputmode=\"decimal\"></div>"
         },
         "run": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><input class=\"w-input\" type=\"text\" value=\"12.0\" data-shown=\"12.0\" placeholder=\"输入数值…\" style=\"font-size:15px;color:#1f2329\" inputmode=\"decimal\"></div>"
+          "html": "<div class=\"wd-body\"><input class=\"w-input\" type=\"text\" value=\"12.0\" data-shown=\"12.0\" placeholder=\"输入数值…\" style=\"text-align:left;font-size:15px;color:#1f2329;background:#fdfdff;border-color:#c3cbd6;\" inputmode=\"decimal\"></div>"
         }
       }
     },
@@ -658,6 +743,7 @@
         "padBlockOthers": true,
         "unit": "",
         "fontSize": 16,
+        "align": "left",
         "textColor": "#1f2329",
         "bgColor": "#ffffff",
         "borderColor": "#c3cbd6",
@@ -724,6 +810,26 @@
           "max": 72
         },
         {
+          "key": "align",
+          "label": "对齐",
+          "type": "select",
+          "options": [
+            {
+              "v": "left",
+              "t": "左对齐"
+            },
+            {
+              "v": "center",
+              "t": "居中"
+            },
+            {
+              "v": "right",
+              "t": "右对齐"
+            }
+          ],
+          "defVal": "left"
+        },
+        {
           "key": "textColor",
           "label": "文字色",
           "type": "color"
@@ -751,7 +857,7 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 60
+          "max": 100
         },
         {
           "key": "rangeOn",
@@ -806,11 +912,11 @@
       "render": {
         "edit": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><div class=\"w-number editable\" style=\"background:#ffffff;border:1px solid #c3cbd6;border-radius:5px\">\n      \n      <span class=\"wn-val\" style=\"font-size:16px;color:#1f2329\">12.0</span>\n      \n      \n    </div></div>"
+          "html": "<div class=\"wd-body\"><div class=\"w-number editable\" style=\"background:#ffffff;border:1px solid #c3cbd6;border-radius:5px\">\n      \n      <span class=\"wn-val\" style=\"text-align:left;font-size:16px;color:#1f2329\">12.0</span>\n      \n      \n    </div></div>"
         },
         "run": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><div class=\"w-number editable\" style=\"background:#ffffff;border:1px solid #c3cbd6;border-radius:5px\">\n      \n      <span class=\"wn-val\" style=\"font-size:16px;color:#1f2329\">12.0</span>\n      \n      \n    </div></div>"
+          "html": "<div class=\"wd-body\"><div class=\"w-number editable\" style=\"background:#ffffff;border:1px solid #c3cbd6;border-radius:5px\">\n      \n      <span class=\"wn-val\" style=\"text-align:left;font-size:16px;color:#1f2329\">12.0</span>\n      \n      \n    </div></div>"
         }
       }
     },
@@ -985,7 +1091,7 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 30
+          "max": 100
         }
       ],
       "binding": {},
@@ -999,6 +1105,94 @@
         "run": {
           "ok": true,
           "html": "<div class=\"wd-body\"><div class=\"w-clock\" style=\"font-size:16px;color:#1f2329;font-weight:400;justify-content:flex-start;border-radius:4px\"><span class=\"wc-pre\"></span><span class=\"wc-time\" data-clock-fmt=\"YYYY-MM-DD hh:mm:ss\">2025-10-03 22:00:00</span><span class=\"wc-suf\"></span></div></div>"
+        }
+      }
+    },
+    {
+      "type": "line",
+      "title": "直线",
+      "sub": "分割线 / 边框线（实线、虚线、点线）",
+      "hidden": false,
+      "defaultBind": false,
+      "selfDrawn": false,
+      "defaultW": 220,
+      "defaultH": 8,
+      "defaults": {
+        "dir": "h",
+        "color": "#52606d",
+        "thickness": 2,
+        "lineStyle": "solid"
+      },
+      "props": [
+        {
+          "key": "dir",
+          "label": "方向",
+          "type": "select",
+          "defVal": "h",
+          "options": [
+            {
+              "v": "h",
+              "t": "水平"
+            },
+            {
+              "v": "v",
+              "t": "垂直"
+            },
+            {
+              "v": "d1",
+              "t": "斜线 ↘"
+            },
+            {
+              "v": "d2",
+              "t": "斜线 ↗"
+            }
+          ]
+        },
+        {
+          "key": "color",
+          "label": "颜色",
+          "type": "color"
+        },
+        {
+          "key": "thickness",
+          "label": "线宽",
+          "type": "number",
+          "min": 1,
+          "max": 40,
+          "defVal": 2
+        },
+        {
+          "key": "lineStyle",
+          "label": "线型",
+          "type": "select",
+          "defVal": "solid",
+          "options": [
+            {
+              "v": "solid",
+              "t": "实线"
+            },
+            {
+              "v": "dashed",
+              "t": "虚线"
+            },
+            {
+              "v": "dotted",
+              "t": "点线"
+            }
+          ]
+        }
+      ],
+      "binding": {},
+      "actions": [],
+      "iconLen": 231,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-line\" data-dir=\"h\" data-line-style=\"solid\" data-thickness=\"2\">\n      <svg class=\"wl-svg\" viewBox=\"0 0 220 8\" preserveAspectRatio=\"none\" style=\"width:100%;height:100%;display:block\">\n        <line x1=\"1\" y1=\"4\" x2=\"219\" y2=\"4\" stroke=\"#52606d\" stroke-width=\"2\" stroke-linecap=\"round\"></line>\n      </svg>\n    </div></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-line\" data-dir=\"h\" data-line-style=\"solid\" data-thickness=\"2\">\n      <svg class=\"wl-svg\" viewBox=\"0 0 220 8\" preserveAspectRatio=\"none\" style=\"width:100%;height:100%;display:block\">\n        <line x1=\"1\" y1=\"4\" x2=\"219\" y2=\"4\" stroke=\"#52606d\" stroke-width=\"2\" stroke-linecap=\"round\"></line>\n      </svg>\n    </div></div>"
         }
       }
     },
@@ -1037,11 +1231,31 @@
           "max": 12
         },
         {
+          "key": "lineStyle",
+          "label": "线型",
+          "type": "select",
+          "defVal": "solid",
+          "options": [
+            {
+              "v": "solid",
+              "t": "实线"
+            },
+            {
+              "v": "dashed",
+              "t": "虚线"
+            },
+            {
+              "v": "dotted",
+              "t": "点线"
+            }
+          ]
+        },
+        {
           "key": "radius",
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 60
+          "max": 100
         }
       ],
       "binding": {},
@@ -1089,6 +1303,26 @@
           "type": "number",
           "min": 0,
           "max": 12
+        },
+        {
+          "key": "lineStyle",
+          "label": "线型",
+          "type": "select",
+          "defVal": "solid",
+          "options": [
+            {
+              "v": "solid",
+              "t": "实线"
+            },
+            {
+              "v": "dashed",
+              "t": "虚线"
+            },
+            {
+              "v": "dotted",
+              "t": "点线"
+            }
+          ]
         }
       ],
       "binding": {},
@@ -1115,13 +1349,20 @@
       "defaultW": 140,
       "defaultH": 100,
       "defaults": {
-        "src": ""
+        "src": "",
+        "bgColor": ""
       },
       "props": [
         {
           "key": "src",
           "label": "图片",
           "type": "image"
+        },
+        {
+          "key": "bgColor",
+          "label": "背景色",
+          "type": "color",
+          "title": "留空或点「透明」= 不画底色（透明 PNG 看不出方框）"
         }
       ],
       "binding": {},
@@ -1300,7 +1541,7 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 30
+          "max": 100
         },
         {
           "key": "rowVar",
@@ -1514,7 +1755,7 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 30
+          "max": 100
         }
       ],
       "binding": {
@@ -1639,7 +1880,7 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 24
+          "max": 100
         },
         {
           "key": "borderColor",
@@ -1889,7 +2130,7 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 60
+          "max": 100
         },
         {
           "key": "borderColor",
@@ -2049,7 +2290,7 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 30
+          "max": 100
         }
       ],
       "binding": {
@@ -2160,7 +2401,7 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 80
+          "max": 100
         }
       ],
       "binding": {
@@ -2259,6 +2500,27 @@
           "min": 1,
           "max": 40,
           "defVal": 8
+        },
+        {
+          "key": "lineStyle",
+          "label": "线型",
+          "type": "select",
+          "defVal": "solid",
+          "title": "虚线/点线只在空心（描边）模式下生效",
+          "options": [
+            {
+              "v": "solid",
+              "t": "实线"
+            },
+            {
+              "v": "dashed",
+              "t": "虚线"
+            },
+            {
+              "v": "dotted",
+              "t": "点线"
+            }
+          ]
         }
       ],
       "binding": {
@@ -2301,6 +2563,7 @@
         "levelFilter": "all",
         "joinAll": true,
         "sepText": "●",
+        "showIcon": true,
         "showTime": true,
         "blink": true,
         "scroll": true,
@@ -2317,6 +2580,12 @@
         "radius": 4
       },
       "props": [
+        {
+          "key": "levelFilter",
+          "label": "显示级别",
+          "type": "alarmLevels",
+          "defVal": "all"
+        },
         {
           "key": "joinAll",
           "label": "拼接全部",
@@ -2352,31 +2621,10 @@
           "type": "text"
         },
         {
-          "key": "levelFilter",
-          "label": "最低级别",
-          "type": "select",
-          "options": [
-            {
-              "v": "all",
-              "t": "全部"
-            },
-            {
-              "v": "info",
-              "t": "提示及以上"
-            },
-            {
-              "v": "warn",
-              "t": "警告及以上"
-            },
-            {
-              "v": "alarm",
-              "t": "报警及以上"
-            },
-            {
-              "v": "urgent",
-              "t": "只显示紧急"
-            }
-          ]
+          "key": "showIcon",
+          "label": "显示图标",
+          "type": "check",
+          "defVal": true
         },
         {
           "key": "showTime",
@@ -2392,7 +2640,7 @@
         },
         {
           "key": "scroll",
-          "label": "超长滚动",
+          "label": "持续滚动",
           "type": "check",
           "defVal": true
         },
@@ -2437,7 +2685,7 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 30
+          "max": 100
         }
       ],
       "binding": {},
@@ -2446,7 +2694,7 @@
       "render": {
         "edit": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><div class=\"w-alarmbar cyc blink\" data-ab-speed=\"40\" style=\"--ab-bg:#ef4444;--ab-fg:#ffffff;font-size:15px;\n        border:0px solid transparent;border-radius:4px\">\n      <span class=\"ab-ico\">⚠</span>\n      <span class=\"ab-view\"><span class=\"ab-reel\">\n        <span class=\"ab-copy\">[23:06:40] 急停被按下，设备已停止 —— 请排除后按复位　●　[23:05:39] 安全门未关闭，禁止启动</span><span class=\"ab-copy dup\" aria-hidden=\"true\">[23:06:40] 急停被按下，设备已停止 —— 请排除后按复位　●　[23:05:39] 安全门未关闭，禁止启动</span>\n      </span></span>\n    </div></div>"
+          "html": "<div class=\"wd-body\"><div class=\"w-alarmbar blink\" data-ab-speed=\"40\" style=\"--ab-bg:#ef4444;--ab-fg:#ffffff;font-size:15px;\n        border:0px solid transparent;border-radius:4px\">\n      <span class=\"ab-ico\">⚠</span>\n      <span class=\"ab-view\"><span class=\"ab-reel\">\n        <span class=\"ab-copy\">[23:06:40] 急停被按下，设备已停止 —— 请排除后按复位　●　[23:05:39] 安全门未关闭，禁止启动</span>\n      </span></span>\n    </div></div>"
         },
         "run": {
           "ok": true,
@@ -2464,6 +2712,7 @@
       "defaultW": 420,
       "defaultH": 150,
       "defaults": {
+        "levelFilter": "all",
         "maxRows": 5,
         "showHeader": true,
         "showTime": true,
@@ -2487,6 +2736,12 @@
         "radius": 4
       },
       "props": [
+        {
+          "key": "levelFilter",
+          "label": "显示级别",
+          "type": "alarmLevels",
+          "defVal": "all"
+        },
         {
           "key": "maxRows",
           "label": "显示条数",
@@ -2632,7 +2887,7 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 30
+          "max": 100
         }
       ],
       "binding": {},
@@ -2659,6 +2914,7 @@
       "defaultW": 460,
       "defaultH": 190,
       "defaults": {
+        "levelFilter": "all",
         "maxRows": 6,
         "showHeader": true,
         "dayNav": true,
@@ -2683,6 +2939,12 @@
         "radius": 4
       },
       "props": [
+        {
+          "key": "levelFilter",
+          "label": "显示级别",
+          "type": "alarmLevels",
+          "defVal": "all"
+        },
         {
           "key": "dayNav",
           "label": "按天翻看",
@@ -2840,7 +3102,7 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 30
+          "max": 100
         }
       ],
       "binding": {},
@@ -2853,7 +3115,7 @@
         },
         "run": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><div class=\"w-alarmtbl hist\" style=\"--at-line:#c3cbd6;--at-head:#e2e8f0;--at-headfg:#1f2329;\n        font-size:13px;color:#1f2329;background:#ffffff;\n        border:1px solid #c3cbd6;border-radius:4px\">\n      \n      <div class=\"at-nav\">\n        <button class=\"at-btn\" type=\"button\" data-alarmday=\"prev\" title=\"前一天\">‹</button>\n        <input class=\"at-date\" type=\"date\" data-alarmdate=\"wDump\" value=\"2025-10-03\" title=\"选任意一天\">\n        <button class=\"at-btn\" type=\"button\" data-alarmday=\"next\" title=\"后一天\">›</button>\n        <button class=\"at-btn at-today on\" type=\"button\" data-alarmday=\"today\">今天</button>\n        <span class=\"at-count\">0 条</span>\n        <button class=\"at-btn at-clear\" type=\"button\" data-alarmclear=\"1\">清空记录</button>\n      </div>\n      <div class=\"at-scroll\" style=\"max-height:182px\">\n        <table class=\"w-table at-table\"><thead><tr><td class=\"th\" style=\"height:26px\">级别</td><td class=\"th\" style=\"height:26px\">时间</td><td class=\"th\" style=\"height:26px\">报警内容</td><td class=\"th\" style=\"height:26px\">恢复</td></tr></thead><tbody><tr><td class=\"alempty\" colspan=\"4\" style=\"height:26px\">这一天没有报警记录</td></tr></tbody></table></div></div></div>"
+          "html": "<div class=\"wd-body\"><div class=\"w-alarmtbl hist\" style=\"--at-line:#c3cbd6;--at-head:#e2e8f0;--at-headfg:#1f2329;\n        font-size:13px;color:#1f2329;background:#ffffff;\n        border:1px solid #c3cbd6;border-radius:4px\">\n      \n      <div class=\"at-nav\">\n        <button class=\"at-btn\" type=\"button\" data-alarmday=\"prev\" title=\"前一天\">‹</button>\n        <input class=\"at-date\" type=\"date\" data-alarmdate=\"wDump\" value=\"2025-10-03\" title=\"选任意一天\">\n        <button class=\"at-btn\" type=\"button\" data-alarmday=\"next\" title=\"后一天\">›</button>\n        <button class=\"at-btn at-today on\" type=\"button\" data-alarmday=\"today\">今天</button>\n        <span class=\"at-count\">0 条</span>\n        <button class=\"at-btn at-clear\" type=\"button\" data-alarmclear=\"1\" title=\"清空全部报警历史\">清空记录</button>\n      </div>\n      <div class=\"at-scroll\" style=\"max-height:182px\">\n        <table class=\"w-table at-table\"><thead><tr><td class=\"th\" style=\"height:26px\">级别</td><td class=\"th\" style=\"height:26px\">时间</td><td class=\"th\" style=\"height:26px\">报警内容</td><td class=\"th\" style=\"height:26px\">恢复</td></tr></thead><tbody><tr><td class=\"alempty\" colspan=\"4\" style=\"height:26px\">这一天没有报警记录</td></tr></tbody></table></div></div></div>"
         }
       }
     },
@@ -2885,6 +3147,10 @@
         "y2Max": 100,
         "showCsvBtn": false,
         "csvBtnText": "导出 CSV",
+        "showCaptureBtn": false,
+        "showClearBtn": false,
+        "xTicks": 5,
+        "yTicks": 5,
         "showGrid": true,
         "showLegend": true,
         "lineWidth": 2,
@@ -2955,6 +3221,40 @@
           "label": "右轴最大",
           "type": "number",
           "group": "双 Y 轴"
+        },
+        {
+          "key": "xTicks",
+          "label": "X 轴刻度数",
+          "type": "number",
+          "min": 2,
+          "max": 20,
+          "defVal": 5,
+          "group": "网格刻度"
+        },
+        {
+          "key": "yTicks",
+          "label": "Y 轴刻度数",
+          "type": "number",
+          "min": 2,
+          "max": 20,
+          "defVal": 5,
+          "group": "网格刻度"
+        },
+        {
+          "key": "showCaptureBtn",
+          "label": "开始／停止抓取",
+          "type": "check",
+          "defVal": false,
+          "group": "画面按钮",
+          "title": "运行时手动开始或停止本波形。绑定了启动抓取变量时由变量控制。"
+        },
+        {
+          "key": "showClearBtn",
+          "label": "清除数据",
+          "type": "check",
+          "defVal": false,
+          "group": "画面按钮",
+          "title": "运行时清除本波形的记录。绑定了清除数据变量时由变量控制。"
         },
         {
           "key": "showCsvBtn",
@@ -3036,7 +3336,7 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 30
+          "max": 100
         }
       ],
       "binding": {
@@ -3059,8 +3359,8 @@
           ],
           "label": "启动抓取",
           "group": "控制变量",
-          "placeholder": "（留空 = 一直抓）",
-          "hint": "留空（默认）= 这台设备一直抓数据；填了变量 = 它为真才抓（为假时曲线停住，老数据不丢）。"
+          "placeholder": "（可选 BOOL 变量）",
+          "hint": "绑定时为真才抓，为假停在当前曲线。留空且开启画面按钮时手动抓取，否则一直抓。"
         },
         "clearVar": {
           "types": [
@@ -3068,8 +3368,8 @@
           ],
           "label": "清除数据",
           "group": "控制变量",
-          "placeholder": "（留空 = 不清）",
-          "hint": "填了变量 = 它从 0 变 1 那一刻清空曲线一次（一直保持 1 不会反复清，得回 0 再来一次）。"
+          "placeholder": "（可选 BOOL 变量）",
+          "hint": "绑定后，从 0 变 1 时清除一次并隐藏对应的画面按钮。留空可启用画面清除按钮。"
         }
       },
       "actions": [],
@@ -3077,11 +3377,11 @@
       "render": {
         "edit": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><div class=\"w-trend\" style=\"position:relative\"><canvas class=\"trend-cv\"></canvas></div></div>"
+          "html": "<div class=\"wd-body\"><div class=\"w-trend\" style=\"position:relative;border-radius:6px;background-color:#0f172a\"><canvas class=\"trend-cv\"></canvas></div></div>"
         },
         "run": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><div class=\"w-trend\" style=\"position:relative\"><canvas class=\"trend-cv\"></canvas></div></div>"
+          "html": "<div class=\"wd-body\"><div class=\"w-trend\" style=\"position:relative;border-radius:6px;background-color:#0f172a\"><canvas class=\"trend-cv\"></canvas></div></div>"
         }
       }
     },
@@ -3096,6 +3396,10 @@
       "defaultH": 280,
       "defaults": {
         "pairs": "",
+        "showCaptureBtn": false,
+        "showClearBtn": false,
+        "xTicks": 5,
+        "yTicks": 5,
         "sampleMs": 100,
         "points": 2000,
         "autoX": true,
@@ -3179,6 +3483,40 @@
           "group": "坐标范围"
         },
         {
+          "key": "xTicks",
+          "label": "X 轴刻度数",
+          "type": "number",
+          "min": 2,
+          "max": 20,
+          "defVal": 5,
+          "group": "网格刻度"
+        },
+        {
+          "key": "yTicks",
+          "label": "Y 轴刻度数",
+          "type": "number",
+          "min": 2,
+          "max": 20,
+          "defVal": 5,
+          "group": "网格刻度"
+        },
+        {
+          "key": "showCaptureBtn",
+          "label": "开始／停止抓取",
+          "type": "check",
+          "defVal": false,
+          "group": "画面按钮",
+          "title": "运行时手动开始或停止本波形。绑定了启动抓取变量时由变量控制。"
+        },
+        {
+          "key": "showClearBtn",
+          "label": "清除数据",
+          "type": "check",
+          "defVal": false,
+          "group": "画面按钮",
+          "title": "运行时清除本波形的记录。绑定了清除数据变量时由变量控制。"
+        },
+        {
           "key": "showGrid",
           "label": "显示网格",
           "type": "check",
@@ -3244,20 +3582,39 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 60
+          "max": 100
         }
       ],
-      "binding": {},
+      "binding": {
+        "startVar": {
+          "types": [
+            "bool"
+          ],
+          "label": "启动抓取",
+          "group": "控制变量",
+          "placeholder": "（可选 BOOL 变量）",
+          "hint": "绑定时为真才抓。留空且开启画面按钮时手动抓取。"
+        },
+        "clearVar": {
+          "types": [
+            "bool"
+          ],
+          "label": "清除数据",
+          "group": "控制变量",
+          "placeholder": "（可选 BOOL 变量）",
+          "hint": "从 0 变 1 时清除一次。留空可启用画面清除按钮。"
+        }
+      },
       "actions": [],
       "iconLen": 384,
       "render": {
         "edit": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><div class=\"wxy\" style=\"position:relative;width:100%;height:100%;box-sizing:border-box;border:1px solid #334155;border-radius:6px;overflow:hidden\"><canvas class=\"wxy-cv\" style=\"display:block;width:100%;height:100%;background-color:#0f172a;background-image:linear-gradient(to right,#1e3a5f 1px,transparent 1px),linear-gradient(to bottom,#1e3a5f 1px,transparent 1px);background-size:32px 32px;\"></canvas></div></div>"
+          "html": "<div class=\"wd-body\"><div class=\"w-xyplot\" style=\"box-sizing:border-box;border:1px solid #334155;border-radius:6px;background-color:#0f172a\"><canvas class=\"wxy-cv\" style=\"background-image:linear-gradient(to right,#1e3a5f 1px,transparent 1px),linear-gradient(to bottom,#1e3a5f 1px,transparent 1px);background-size:calc((100% - 1px) / 4) calc((100% - 1px) / 4);\"></canvas></div></div>"
         },
         "run": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><div class=\"wxy\" style=\"position:relative;width:100%;height:100%;box-sizing:border-box;border:1px solid #334155;border-radius:6px;overflow:hidden\"><canvas class=\"wxy-cv\" style=\"display:block;width:100%;height:100%;background-color:#0f172a;background-image:linear-gradient(to right,#1e3a5f 1px,transparent 1px),linear-gradient(to bottom,#1e3a5f 1px,transparent 1px);background-size:32px 32px;\"></canvas></div></div>"
+          "html": "<div class=\"wd-body\"><div class=\"w-xyplot\" style=\"box-sizing:border-box;border:1px solid #334155;border-radius:6px;background-color:#0f172a\"><canvas class=\"wxy-cv\" style=\"\"></canvas></div></div>"
         }
       }
     },
@@ -3371,7 +3728,7 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 30
+          "max": 100
         }
       ],
       "binding": {
@@ -3424,13 +3781,15 @@
         {
           "key": "onText",
           "label": "开时文字",
-          "type": "text",
+          "type": "textarea",
+          "rows": 2,
           "i18n": "text"
         },
         {
           "key": "offText",
           "label": "关时文字",
-          "type": "text",
+          "type": "textarea",
+          "rows": 2,
           "i18n": "text"
         },
         {
@@ -3487,11 +3846,11 @@
       "render": {
         "edit": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><div class=\"w-switch\" data-on=\"0\" style=\"position:relative;width:100%;height:100%;box-sizing:border-box;cursor:pointer;user-select:none;overflow:hidden;\n      background:#9ca3af;border-radius:22px;transition:background .15s\">\n      <div class=\"wsw-knob\" style=\"position:absolute;top:3px;left:3px;width:38px;height:38px;border-radius:50%;background:#ffffff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:left .15s,right .15s\"></div><span class=\"wsw-text\" style=\"position:absolute;inset:0;display:flex;align-items:center;box-sizing:border-box;padding-left:44px;padding-right:13px;justify-content:flex-end;font-size:14px;color:#ffffff;font-weight:600;white-space:nowrap;overflow:hidden;pointer-events:none\">关</span>\n    </div></div>"
+          "html": "<div class=\"wd-body\"><div class=\"w-switch\" data-on=\"0\" style=\"position:relative;width:100%;height:100%;box-sizing:border-box;cursor:pointer;user-select:none;overflow:hidden;\n      background:#9ca3af;border-radius:22px;transition:background .15s\">\n      <div class=\"wsw-knob\" style=\"position:absolute;top:3px;left:3px;width:38px;height:38px;border-radius:50%;background:#ffffff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:left .15s,right .15s\"></div><span class=\"wsw-text\" style=\"position:absolute;inset:0;display:flex;align-items:center;box-sizing:border-box;padding-left:44px;padding-right:13px;justify-content:flex-end;font-size:14px;color:#ffffff;font-weight:600;white-space:pre-wrap;overflow-wrap:anywhere;overflow:hidden;pointer-events:none\">关</span>\n    </div></div>"
         },
         "run": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><div class=\"w-switch\" data-on=\"0\" style=\"position:relative;width:100%;height:100%;box-sizing:border-box;cursor:pointer;user-select:none;overflow:hidden;\n      background:#9ca3af;border-radius:22px;transition:background .15s\">\n      <div class=\"wsw-knob\" style=\"position:absolute;top:3px;left:3px;width:38px;height:38px;border-radius:50%;background:#ffffff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:left .15s,right .15s\"></div><span class=\"wsw-text\" style=\"position:absolute;inset:0;display:flex;align-items:center;box-sizing:border-box;padding-left:44px;padding-right:13px;justify-content:flex-end;font-size:14px;color:#ffffff;font-weight:600;white-space:nowrap;overflow:hidden;pointer-events:none\">关</span>\n    </div></div>"
+          "html": "<div class=\"wd-body\"><div class=\"w-switch\" data-on=\"0\" style=\"position:relative;width:100%;height:100%;box-sizing:border-box;cursor:pointer;user-select:none;overflow:hidden;\n      background:#9ca3af;border-radius:22px;transition:background .15s\">\n      <div class=\"wsw-knob\" style=\"position:absolute;top:3px;left:3px;width:38px;height:38px;border-radius:50%;background:#ffffff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:left .15s,right .15s\"></div><span class=\"wsw-text\" style=\"position:absolute;inset:0;display:flex;align-items:center;box-sizing:border-box;padding-left:44px;padding-right:13px;justify-content:flex-end;font-size:14px;color:#ffffff;font-weight:600;white-space:pre-wrap;overflow-wrap:anywhere;overflow:hidden;pointer-events:none\">关</span>\n    </div></div>"
         }
       }
     },
@@ -3579,7 +3938,7 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 30
+          "max": 100
         }
       ],
       "binding": {
@@ -3613,7 +3972,7 @@
       "type": "barcode",
       "title": "条码输入",
       "sub": "扫码枪/键盘输入，回车提交",
-      "hidden": false,
+      "hidden": true,
       "defaultBind": false,
       "selfDrawn": false,
       "defaultW": 240,
@@ -3707,7 +4066,7 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 30
+          "max": 100
         }
       ],
       "binding": {
@@ -3835,7 +4194,7 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 30
+          "max": 100
         }
       ],
       "binding": {
@@ -3870,7 +4229,7 @@
     {
       "type": "recipe",
       "title": "配方",
-      "sub": "保存/应用整套参数",
+      "sub": "保存当前值、查看、应用和删除配方",
       "hidden": false,
       "defaultBind": false,
       "selfDrawn": false,
@@ -3880,10 +4239,10 @@
         "title": "配方",
         "varsText": "",
         "showList": true,
-        "showSave": true,
         "showRefresh": true,
+        "showSave": true,
         "allowDelete": false,
-        "namePlaceholder": "配方名…",
+        "useKeyboard": true,
         "rowH": 30,
         "fontSize": 14,
         "textColor": "#1f2329",
@@ -3901,20 +4260,15 @@
         },
         {
           "key": "varsText",
-          "label": "配方变量",
+          "label": "补充采集变量",
           "type": "textarea",
           "rows": 6,
-          "placeholder": "一行一条：\n变量名\n数组名（整组）\n数组名[起..止]（如 调速参数[1..20]）"
+          "i18n": false,
+          "placeholder": "每行一个需要加入画面采集范围的变量或数组范围"
         },
         {
           "key": "showList",
           "label": "显示配方列表",
-          "type": "check",
-          "defVal": true
-        },
-        {
-          "key": "showSave",
-          "label": "显示保存当前",
           "type": "check",
           "defVal": true
         },
@@ -3925,16 +4279,22 @@
           "defVal": true
         },
         {
+          "key": "showSave",
+          "label": "显示保存当前值",
+          "type": "check",
+          "defVal": true
+        },
+        {
           "key": "allowDelete",
-          "label": "允许删除",
+          "label": "允许删除配方",
           "type": "check",
           "defVal": false
         },
         {
-          "key": "namePlaceholder",
-          "label": "配方名占位",
-          "type": "text",
-          "i18n": "text"
+          "key": "useKeyboard",
+          "label": "软键盘输入",
+          "type": "check",
+          "defVal": true
         },
         {
           "key": "rowH",
@@ -3975,20 +4335,76 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 30
+          "max": 100
         }
       ],
       "binding": {},
       "actions": [],
-      "iconLen": 461,
+      "iconLen": 437,
       "render": {
         "edit": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><div class=\"w-recipe\" style=\"position:relative;display:flex;flex-direction:column;width:100%;height:100%;box-sizing:border-box;overflow:hidden;background:#ffffff;border:1px solid #c3cbd6;border-radius:4px\">\n      <div class=\"rc-head\" style=\"display:flex;align-items:center;gap:6px;padding:6px 8px;box-sizing:border-box;background:#eef2f7;border-bottom:1px solid #c3cbd6;flex:none\">\n      <span class=\"rc-title\" style=\"flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px;font-weight:600;color:#1f2329\">配方</span>\n      <span class=\"rc-count\" style=\"flex:none;white-space:nowrap;font-size:12px;color:#6b7280\">2 个变量</span>\n      <button type=\"button\" class=\"rc-btn\" data-rcact=\"refresh\" style=\"flex:none;height:26px;padding:0 10px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#f7f8fa;color:#1f2329;font-size:14px;line-height:1;cursor:pointer;cursor:pointer;\">刷新</button>\n    </div><div class=\"rc-form\" style=\"display:flex;align-items:center;gap:6px;padding:8px;box-sizing:border-box;border-bottom:1px solid #c3cbd6;flex:none\">\n      <input class=\"rc-name\" data-rc=\"name\" type=\"text\" value=\"\" placeholder=\"配方名…\" disabled=\"\" style=\"flex:1;min-width:0;height:26px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#ffffff;color:#1f2329;font-size:14px;padding:0 8px;outline:none;opacity:.7;\">\n      <button type=\"button\" class=\"rc-btn\" data-rcact=\"save\" style=\"flex:none;height:26px;padding:0 10px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#f7f8fa;color:#1f2329;font-size:14px;line-height:1;cursor:pointer;cursor:pointer;\">保存当前</button>\n    </div><div class=\"rc-list\" style=\"flex:1;min-height:0;overflow:auto;background:#ffffff\"><div class=\"rc-row\" data-rcrow=\"0\" data-rcname=\"配方 1\" style=\"display:flex;align-items:center;gap:6px;height:30px;padding:0 8px;box-sizing:border-box;border-bottom:1px solid #c3cbd6;cursor:pointer;\">\n          <span class=\"rc-rowname\" title=\"配方 1\" style=\"flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;color:#1f2329\">配方 1</span>\n          <button type=\"button\" class=\"rc-btn rc-btn-row\" data-rcact=\"apply\" style=\"flex:none;height:22px;padding:0 8px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#f7f8fa;color:#1f2329;font-size:12px;line-height:1;cursor:pointer;cursor:pointer;\">应用</button>\n          \n        </div><div class=\"rc-row\" data-rcrow=\"1\" data-rcname=\"配方 2\" style=\"display:flex;align-items:center;gap:6px;height:30px;padding:0 8px;box-sizing:border-box;border-bottom:1px solid #c3cbd6;cursor:pointer;\">\n          <span class=\"rc-rowname\" title=\"配方 2\" style=\"flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;color:#1f2329\">配方 2</span>\n          <button type=\"button\" class=\"rc-btn rc-btn-row\" data-rcact=\"apply\" style=\"flex:none;height:22px;padding:0 8px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#f7f8fa;color:#1f2329;font-size:12px;line-height:1;cursor:pointer;cursor:pointer;\">应用</button>\n          \n        </div></div><div class=\"rc-msg\" style=\"flex:none;padding:4px 8px;min-height:18px;box-sizing:border-box;color:#6b7280;font-size:12px;line-height:1.4;white-space:pre-wrap\"></div>\n    </div></div>"
+          "html": "<div class=\"wd-body\"><div class=\"w-recipe\" style=\"width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;background:#ffffff;color:#1f2329;font-size:14px;border:1px solid #c3cbd6;border-radius:4px;\">\n      <header class=\"rc-toolbar\" style=\"background:#eef2f7;border-bottom:1px solid #c3cbd6\">\n        <strong class=\"rc-title\">配方</strong>\n        <button type=\"button\" data-rcact=\"open-save\" data-rcname=\"\" disabled=\"\" style=\"height:24px;padding:0 7px;background:#f8fafc;border:1px solid #c3cbd6;border-radius:4px;font:inherit;white-space:nowrap;cursor:pointer;\">保存当前值</button><button type=\"button\" data-rcact=\"refresh\" data-rcname=\"\" disabled=\"\" style=\"height:24px;padding:0 7px;background:#f8fafc;border:1px solid #c3cbd6;border-radius:4px;font:inherit;white-space:nowrap;cursor:pointer;\">刷新</button></header>\n      \n      <div class=\"rc-list\" style=\"min-height:0;overflow:auto;flex:1;\">\n      <table style=\"width:100%;border-spacing:0\"><thead><tr><th style=\"padding:4px 8px;border-bottom:1px solid #c3cbd6;text-align:left;overflow-wrap:anywhere;background:#eef2f7;position:sticky;top:0;white-space:nowrap\">配方名称</th><th style=\"padding:4px 8px;border-bottom:1px solid #c3cbd6;text-align:left;overflow-wrap:anywhere;background:#eef2f7;position:sticky;top:0;white-space:nowrap\">操作</th></tr></thead><tbody><tr class=\"rc-row\" data-rcname=\"配方 1\">\n      <th scope=\"row\" style=\"padding:4px 8px;border-bottom:1px solid #c3cbd6;text-align:left;overflow-wrap:anywhere;\">配方 1</th>\n      <td style=\"padding:4px 8px;border-bottom:1px solid #c3cbd6;text-align:left;overflow-wrap:anywhere;white-space:nowrap;width:1%\"><button type=\"button\" data-rcact=\"view\" data-rcname=\"配方 1\" disabled=\"\" style=\"height:24px;padding:0 7px;background:#f8fafc;border:1px solid #c3cbd6;border-radius:4px;font:inherit;white-space:nowrap;cursor:pointer;\">查看</button> <button type=\"button\" data-rcact=\"apply\" data-rcname=\"配方 1\" disabled=\"\" style=\"height:24px;padding:0 7px;background:#f8fafc;border:1px solid #c3cbd6;border-radius:4px;font:inherit;white-space:nowrap;cursor:pointer;\">应用</button></td>\n      </tr><tr class=\"rc-row\" data-rcname=\"配方 2\">\n      <th scope=\"row\" style=\"padding:4px 8px;border-bottom:1px solid #c3cbd6;text-align:left;overflow-wrap:anywhere;\">配方 2</th>\n      <td style=\"padding:4px 8px;border-bottom:1px solid #c3cbd6;text-align:left;overflow-wrap:anywhere;white-space:nowrap;width:1%\"><button type=\"button\" data-rcact=\"view\" data-rcname=\"配方 2\" disabled=\"\" style=\"height:24px;padding:0 7px;background:#f8fafc;border:1px solid #c3cbd6;border-radius:4px;font:inherit;white-space:nowrap;cursor:pointer;\">查看</button> <button type=\"button\" data-rcact=\"apply\" data-rcname=\"配方 2\" disabled=\"\" style=\"height:24px;padding:0 7px;background:#f8fafc;border:1px solid #c3cbd6;border-radius:4px;font:inherit;white-space:nowrap;cursor:pointer;\">应用</button></td>\n      </tr></tbody></table>\n      </div></div></div>"
         },
         "run": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><div class=\"w-recipe\" style=\"position:relative;display:flex;flex-direction:column;width:100%;height:100%;box-sizing:border-box;overflow:hidden;background:#ffffff;border:1px solid #c3cbd6;border-radius:4px\">\n      <div class=\"rc-head\" style=\"display:flex;align-items:center;gap:6px;padding:6px 8px;box-sizing:border-box;background:#eef2f7;border-bottom:1px solid #c3cbd6;flex:none\">\n      <span class=\"rc-title\" style=\"flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px;font-weight:600;color:#1f2329\">配方</span>\n      <span class=\"rc-count\" style=\"flex:none;white-space:nowrap;font-size:12px;color:#6b7280\">2 个变量</span>\n      <button type=\"button\" class=\"rc-btn\" data-rcact=\"refresh\" style=\"flex:none;height:26px;padding:0 10px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#f7f8fa;color:#1f2329;font-size:14px;line-height:1;cursor:pointer;cursor:pointer;\">刷新</button>\n    </div><div class=\"rc-form\" style=\"display:flex;align-items:center;gap:6px;padding:8px;box-sizing:border-box;border-bottom:1px solid #c3cbd6;flex:none\">\n      <input class=\"rc-name\" data-rc=\"name\" type=\"text\" value=\"\" placeholder=\"配方名…\" style=\"flex:1;min-width:0;height:26px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#ffffff;color:#1f2329;font-size:14px;padding:0 8px;outline:none;\">\n      <button type=\"button\" class=\"rc-btn\" data-rcact=\"save\" style=\"flex:none;height:26px;padding:0 10px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#f7f8fa;color:#1f2329;font-size:14px;line-height:1;cursor:pointer;cursor:pointer;\">保存当前</button>\n    </div><div class=\"rc-list\" style=\"flex:1;min-height:0;overflow:auto;background:#ffffff\"><div class=\"rc-empty\" style=\"padding:12px 8px;color:#8a94a6;font-size:14px;text-align:center\">还没有配方</div></div><div class=\"rc-msg\" style=\"flex:none;padding:4px 8px;min-height:18px;box-sizing:border-box;color:#6b7280;font-size:12px;line-height:1.4;white-space:pre-wrap\"></div>\n    </div></div>"
+          "html": "<div class=\"wd-body\"><div class=\"w-recipe\" style=\"width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;background:#ffffff;color:#1f2329;font-size:14px;border:1px solid #c3cbd6;border-radius:4px;\">\n      <header class=\"rc-toolbar\" style=\"background:#eef2f7;border-bottom:1px solid #c3cbd6\">\n        <strong class=\"rc-title\">配方</strong>\n        <button type=\"button\" data-rcact=\"open-save\" data-rcname=\"\" style=\"height:24px;padding:0 7px;background:#f8fafc;border:1px solid #c3cbd6;border-radius:4px;font:inherit;white-space:nowrap;cursor:pointer;\">保存当前值</button><button type=\"button\" data-rcact=\"refresh\" data-rcname=\"\" style=\"height:24px;padding:0 7px;background:#f8fafc;border:1px solid #c3cbd6;border-radius:4px;font:inherit;white-space:nowrap;cursor:pointer;\">刷新</button></header>\n      \n      <div class=\"rc-list\" style=\"min-height:0;overflow:auto;flex:1;\">\n      <table style=\"width:100%;border-spacing:0\"><thead><tr><th style=\"padding:4px 8px;border-bottom:1px solid #c3cbd6;text-align:left;overflow-wrap:anywhere;background:#eef2f7;position:sticky;top:0;white-space:nowrap\">配方名称</th><th style=\"padding:4px 8px;border-bottom:1px solid #c3cbd6;text-align:left;overflow-wrap:anywhere;background:#eef2f7;position:sticky;top:0;white-space:nowrap\">操作</th></tr></thead><tbody><tr><td colspan=\"2\" style=\"padding:4px 8px;border-bottom:1px solid #c3cbd6;text-align:left;overflow-wrap:anywhere;text-align:center\">还没有配方</td></tr></tbody></table>\n      </div></div></div>"
+        }
+      }
+    },
+    {
+      "type": "recipeEditor",
+      "title": "配方数据编辑",
+      "sub": "每列一套配方，直接修改保存值",
+      "hidden": false,
+      "defaultBind": false,
+      "selfDrawn": true,
+      "defaultW": 680,
+      "defaultH": 310,
+      "defaults": {
+        "title": "配方数据编辑",
+        "fontSize": 14,
+        "allowDelete": false,
+        "useKeyboard": true
+      },
+      "props": [
+        {
+          "key": "title",
+          "label": "标题",
+          "type": "text",
+          "i18n": "text"
+        },
+        {
+          "key": "fontSize",
+          "label": "字号",
+          "type": "number",
+          "min": 9,
+          "max": 30
+        },
+        {
+          "key": "useKeyboard",
+          "label": "软键盘输入",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "allowDelete",
+          "label": "允许删除配方",
+          "type": "check",
+          "defVal": false
+        }
+      ],
+      "binding": {},
+      "actions": [],
+      "iconLen": 262,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><section class=\"w-recipe-editor\" style=\"font-size:14px\">\n    <header class=\"rg-toolbar\">\n      <strong>配方数据编辑</strong>\n      <button type=\"button\" class=\"rg-primary\" data-rg=\"new\" disabled=\"\">新建配方</button>\n      <button type=\"button\" data-rg=\"refresh\" disabled=\"\">刷新</button>\n      <input type=\"search\" data-rg-filter=\"\" aria-label=\"筛选配方变量\" placeholder=\"变量名或地址\" inputmode=\"none\" disabled=\"\">\n    </header>\n    <div class=\"rg-scroll\" tabindex=\"0\" aria-label=\"配方表格滚动区\">\n      <table class=\"rg-table\" aria-label=\"配方数据\">\n        <thead><tr><th scope=\"col\">变量</th><th scope=\"col\">配方 A</th><th scope=\"col\">配方 B</th></tr></thead>\n        <tbody><tr><th scope=\"row\">目标速度</th><td>10</td><td>20</td></tr><tr><th scope=\"row\">温度设定</th><td>11</td><td>21</td></tr></tbody>\n      </table>\n    </div>\n    <footer class=\"rg-footer\">\n      <span data-rg-pages=\"columns\" hidden=\"\">\n        <button type=\"button\" data-rg=\"prev-col\" aria-label=\"上一组配方\">‹</button>\n        <span data-rg-count=\"columns\"></span>\n        <button type=\"button\" data-rg=\"next-col\" aria-label=\"下一组配方\">›</button>\n      </span>\n      <span data-rg-pages=\"rows\" hidden=\"\">\n        <button type=\"button\" data-rg=\"prev-row\" aria-label=\"上一页变量\">‹</button>\n        <span data-rg-count=\"rows\"></span>\n        <button type=\"button\" data-rg=\"next-row\" aria-label=\"下一页变量\">›</button>\n      </span>\n      <span role=\"status\" data-rg-status=\"\"></span>\n    </footer>\n  </section></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><section class=\"w-recipe-editor\" style=\"font-size:14px\">\n    <header class=\"rg-toolbar\">\n      <strong>配方数据编辑</strong>\n      <button type=\"button\" class=\"rg-primary\" data-rg=\"new\">新建配方</button>\n      <button type=\"button\" data-rg=\"refresh\">刷新</button>\n      <input type=\"search\" data-rg-filter=\"\" aria-label=\"筛选配方变量\" placeholder=\"变量名或地址\" inputmode=\"none\">\n    </header>\n    <div class=\"rg-scroll\" tabindex=\"0\" aria-label=\"配方表格滚动区\">\n      <table class=\"rg-table\" aria-label=\"配方数据\">\n        <thead><tr><th scope=\"col\">变量</th></tr></thead>\n        <tbody></tbody>\n      </table>\n    </div>\n    <footer class=\"rg-footer\">\n      <span data-rg-pages=\"columns\" hidden=\"\">\n        <button type=\"button\" data-rg=\"prev-col\" aria-label=\"上一组配方\">‹</button>\n        <span data-rg-count=\"columns\"></span>\n        <button type=\"button\" data-rg=\"next-col\" aria-label=\"下一组配方\">›</button>\n      </span>\n      <span data-rg-pages=\"rows\" hidden=\"\">\n        <button type=\"button\" data-rg=\"prev-row\" aria-label=\"上一页变量\">‹</button>\n        <span data-rg-count=\"rows\"></span>\n        <button type=\"button\" data-rg=\"next-row\" aria-label=\"下一页变量\">›</button>\n      </span>\n      <span role=\"status\" data-rg-status=\"\"></span>\n    </footer>\n  </section></div>"
         }
       }
     },
@@ -4134,7 +4550,7 @@
           "label": "圆角",
           "type": "number",
           "min": 0,
-          "max": 30
+          "max": 100
         }
       ],
       "binding": {
@@ -4190,11 +4606,106 @@
       "render": {
         "edit": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><div class=\"w-shift\" style=\"width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:4px;padding:8px;overflow:hidden;background:#ffffff;border:1px solid #c3cbd6;border-radius:6px;color:#1f2329\">\n      <div class=\"sh-head\" style=\"display:flex;align-items:baseline;gap:8px;flex:none;min-width:0\">\n        <span class=\"sh-title\" style=\"font-size:14px;font-weight:600;color:#1f2329;white-space:nowrap;overflow:hidden;text-overflow:ellipsis\">班次产量</span>\n        \n        <span class=\"sh-window\" style=\"flex:1;text-align:right;font-size:11px;color:#6b7280;white-space:nowrap\">16:00–00:00 · 已过 6:00</span>\n      </div>\n      <div class=\"sh-histbar\" style=\"display:flex;align-items:center;gap:4px;flex:none;min-width:0\">\n        <button type=\"button\" class=\"sh-hbtn\" data-shact=\"histPrev\" disabled=\"\" style=\"flex:none;height:21px;padding:0 8px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#f7f8fa;color:#1f2329;font-size:12px;line-height:1;cursor:pointer;\">‹</button>\n        <input class=\"sh-hdate\" type=\"date\" data-shhist=\"date\" value=\"2025-10-03\" disabled=\"\" style=\"flex:1;min-width:0;height:23px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#ffffff;color:#1f2329;font-size:12px;padding:0 4px;\">\n        <button type=\"button\" class=\"sh-hbtn\" data-shact=\"histNext\" disabled=\"\" style=\"flex:none;height:21px;padding:0 8px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#f7f8fa;color:#1f2329;font-size:12px;line-height:1;cursor:pointer;\">›</button>\n        <span style=\"flex:none;width:4px\"></span>\n        \n      </div>\n      <div class=\"sh-bar\" style=\"height:3px;border-radius:2px;background:#eef2f7;overflow:hidden;flex:none\"><i style=\"display:block;height:100%;width:75%;background:#2563eb\"></i></div>\n      \n      <div class=\"sh-main\" style=\"display:flex;align-items:flex-end;gap:10px;flex:none;min-width:0\">\n        <div class=\"sh-cell sh-total\" style=\"display:flex;flex-direction:column;min-width:0;flex:1\">\n      <span class=\"sh-label\" style=\"font-size:11px;color:#6b7280;white-space:nowrap\">总产量</span>\n      <span class=\"sh-num\" style=\"font-size:26px;font-weight:700;line-height:1.05;color:#1f2329;font-variant-numeric:tabular-nums\">12</span>\n      \n    </div>\n        <div class=\"sh-cell sh-ok\" style=\"display:flex;flex-direction:column;min-width:0;flex:1\">\n      <span class=\"sh-label\" style=\"font-size:11px;color:#6b7280;white-space:nowrap\">OK</span>\n      <span class=\"sh-num\" style=\"font-size:26px;font-weight:700;line-height:1.05;color:#16a34a;font-variant-numeric:tabular-nums\">—</span>\n      \n    </div>\n        <div class=\"sh-cell sh-ng\" style=\"display:flex;flex-direction:column;min-width:0;flex:1\">\n      <span class=\"sh-label\" style=\"font-size:11px;color:#6b7280;white-space:nowrap\">NG</span>\n      <span class=\"sh-num\" style=\"font-size:26px;font-weight:700;line-height:1.05;color:#dc2626;font-variant-numeric:tabular-nums\">—</span>\n      \n    </div>\n      </div>\n      <div class=\"sh-hourly\" style=\"flex:1;min-height:0;display:flex;flex-direction:column;border-top:1px solid #c3cbd6;padding-top:4px\">\n        <div class=\"sh-hhead\" style=\"display:flex;align-items:baseline;gap:6px;flex:none;padding:0 2px\">\n          <span style=\"font-size:11px;color:#6b7280;white-space:nowrap\">每小时</span>\n        </div>\n        <div class=\"sh-hcols\" style=\"display:flex;align-items:center;gap:6px;flex:none\">\n          <span class=\"sh-hkey\" style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:none;min-width:38px\">小时</span>\n          <span style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:1;text-align:right\">产量</span>\n          <span style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:none;min-width:34px;text-align:right\">OK</span>\n          <span style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:none;min-width:34px;text-align:right\">NG</span>\n          <span style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:none;width:39px\"></span>\n        </div>\n        <div class=\"sh-hlist\" style=\"flex:1;min-height:0;overflow:auto\"><div class=\"sh-hrow\" data-shhour=\"2025-10-03 22:00\" style=\"display:flex;align-items:center;gap:6px;padding:1px 2px;border-bottom:1px solid #f1f3f6;font-size:12px;color:#1f2329\">\n          <span class=\"sh-hkey\" style=\"flex:none;min-width:38px;color:#6b7280\">22:00</span>\n          <span class=\"sh-hcount\" style=\"flex:1;text-align:right;font-variant-numeric:tabular-nums;font-weight:700\">0</span>\n          <span class=\"sh-hok\" style=\"flex:none;min-width:34px;text-align:right;font-variant-numeric:tabular-nums;color:#16a34a\">—</span>\n          <span class=\"sh-hng\" style=\"flex:none;min-width:34px;text-align:right;font-variant-numeric:tabular-nums;color:#dc2626\">—</span>\n          <span class=\"sh-hcur\" style=\"flex:none;width:39px;text-align:right;color:#2563eb;font-size:10px\">进行中</span>\n        </div></div>\n      </div>\n    </div></div>"
+          "html": "<div class=\"wd-body\"><div class=\"w-shift\" style=\"width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:4px;padding:8px;overflow:hidden;background:#ffffff;border:1px solid #c3cbd6;border-radius:6px;color:#1f2329\">\n      <div class=\"sh-head\" style=\"display:flex;align-items:baseline;gap:8px;flex:none;min-width:0\">\n        <span class=\"sh-title\" style=\"font-size:14px;font-weight:600;color:#1f2329;white-space:nowrap;overflow:hidden;text-overflow:ellipsis\">班次产量</span>\n        \n        <span class=\"sh-window\" title=\"\" style=\"flex:1;text-align:right;font-size:11px;color:#6b7280;white-space:nowrap\">16:00–00:00 · 已过 6:00</span>\n      </div>\n      <div class=\"sh-histbar\" style=\"display:flex;align-items:center;gap:4px;flex:none;min-width:0\">\n        <button type=\"button\" class=\"sh-hbtn\" data-shact=\"histPrev\" disabled=\"\" style=\"flex:none;height:21px;padding:0 8px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#f7f8fa;color:#1f2329;font-size:12px;line-height:1;cursor:pointer;\">‹</button>\n        <input class=\"sh-hdate\" type=\"date\" data-shhist=\"date\" value=\"2025-10-03\" disabled=\"\" style=\"flex:0 1 auto;width:136px;min-width:0;height:23px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#ffffff;color:#1f2329;font-size:12px;padding:0 4px;\">\n        <button type=\"button\" class=\"sh-hbtn\" data-shact=\"histNext\" disabled=\"\" style=\"flex:none;height:21px;padding:0 8px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#f7f8fa;color:#1f2329;font-size:12px;line-height:1;cursor:pointer;\">›</button>\n        <span style=\"flex:none;width:4px\"></span>\n        \n      </div>\n      <div class=\"sh-bar\" style=\"height:3px;border-radius:2px;background:#eef2f7;overflow:hidden;flex:none\"><i style=\"display:block;height:100%;width:75%;background:#2563eb\"></i></div>\n      \n      <div class=\"sh-main\" style=\"display:flex;align-items:flex-end;gap:10px;flex:none;min-width:0\">\n        <div class=\"sh-cell sh-total\" style=\"display:flex;flex-direction:column;min-width:0;flex:1\">\n      <span class=\"sh-label\" style=\"font-size:11px;color:#6b7280;white-space:nowrap\">总产量</span>\n      <span class=\"sh-num\" style=\"font-size:26px;font-weight:700;line-height:1.05;color:#1f2329;font-variant-numeric:tabular-nums\">12</span>\n      <span class=\"sh-sub\" style=\"font-size:11px;color:#6b7280;white-space:nowrap\">本班 0</span>\n    </div>\n        <div class=\"sh-cell sh-ok\" style=\"display:flex;flex-direction:column;min-width:0;flex:1\">\n      <span class=\"sh-label\" style=\"font-size:11px;color:#6b7280;white-space:nowrap\">OK</span>\n      <span class=\"sh-num\" style=\"font-size:26px;font-weight:700;line-height:1.05;color:#16a34a;font-variant-numeric:tabular-nums\">—</span>\n      \n    </div>\n        <div class=\"sh-cell sh-ng\" style=\"display:flex;flex-direction:column;min-width:0;flex:1\">\n      <span class=\"sh-label\" style=\"font-size:11px;color:#6b7280;white-space:nowrap\">NG</span>\n      <span class=\"sh-num\" style=\"font-size:26px;font-weight:700;line-height:1.05;color:#dc2626;font-variant-numeric:tabular-nums\">—</span>\n      \n    </div>\n      </div>\n      <div class=\"sh-hourly\" style=\"flex:1;min-height:0;display:flex;flex-direction:column;border-top:1px solid #c3cbd6;padding-top:4px\">\n        <div class=\"sh-hhead\" style=\"display:flex;align-items:baseline;gap:6px;flex:none;padding:0 2px\">\n          <span style=\"font-size:11px;color:#6b7280;white-space:nowrap\">每小时</span>\n        </div>\n        <div class=\"sh-hcols\" style=\"display:flex;align-items:center;gap:6px;flex:none\">\n          <span class=\"sh-hkey\" style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:none;min-width:38px\">小时</span>\n          <span style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:1;text-align:right\">产量</span>\n          <span style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:none;min-width:34px;text-align:right\">OK</span>\n          <span style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:none;min-width:34px;text-align:right\">NG</span>\n          <span style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:none;width:39px\"></span>\n        </div>\n        <div class=\"sh-hlist\" style=\"flex:1;min-height:0;overflow:auto\"><div class=\"sh-hrow\" data-shhour=\"2025-10-03 22:00\" style=\"display:flex;align-items:center;gap:6px;padding:1px 2px;border-bottom:1px solid #f1f3f6;font-size:12px;color:#1f2329\">\n          <span class=\"sh-hkey\" style=\"flex:none;min-width:38px;color:#6b7280\">22:00</span>\n          <span class=\"sh-hcount\" style=\"flex:1;text-align:right;font-variant-numeric:tabular-nums;font-weight:700\">0</span>\n          <span class=\"sh-hok\" style=\"flex:none;min-width:34px;text-align:right;font-variant-numeric:tabular-nums;color:#16a34a\">—</span>\n          <span class=\"sh-hng\" style=\"flex:none;min-width:34px;text-align:right;font-variant-numeric:tabular-nums;color:#dc2626\">—</span>\n          <span class=\"sh-hcur\" style=\"flex:none;width:39px;text-align:right;color:#2563eb;font-size:10px\">进行中</span>\n        </div></div>\n      </div>\n    </div></div>"
         },
         "run": {
           "ok": true,
-          "html": "<div class=\"wd-body\"><div class=\"w-shift\" style=\"width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:4px;padding:8px;overflow:hidden;background:#ffffff;border:1px solid #c3cbd6;border-radius:6px;color:#1f2329\">\n      <div class=\"sh-head\" style=\"display:flex;align-items:baseline;gap:8px;flex:none;min-width:0\">\n        <span class=\"sh-title\" style=\"font-size:14px;font-weight:600;color:#1f2329;white-space:nowrap;overflow:hidden;text-overflow:ellipsis\">班次产量</span>\n        \n        <span class=\"sh-window\" style=\"flex:1;text-align:right;font-size:11px;color:#6b7280;white-space:nowrap\">16:00–00:00 · 已过 6:00</span>\n      </div>\n      <div class=\"sh-histbar\" style=\"display:flex;align-items:center;gap:4px;flex:none;min-width:0\">\n        <button type=\"button\" class=\"sh-hbtn\" data-shact=\"histPrev\" style=\"flex:none;height:21px;padding:0 8px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#f7f8fa;color:#1f2329;font-size:12px;line-height:1;cursor:pointer;\">‹</button>\n        <input class=\"sh-hdate\" type=\"date\" data-shhist=\"date\" value=\"2025-10-03\" style=\"flex:1;min-width:0;height:23px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#ffffff;color:#1f2329;font-size:12px;padding:0 4px;\">\n        <button type=\"button\" class=\"sh-hbtn\" data-shact=\"histNext\" style=\"flex:none;height:21px;padding:0 8px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#f7f8fa;color:#1f2329;font-size:12px;line-height:1;cursor:pointer;\">›</button>\n        <span style=\"flex:none;width:4px\"></span>\n        \n      </div>\n      <div class=\"sh-bar\" style=\"height:3px;border-radius:2px;background:#eef2f7;overflow:hidden;flex:none\"><i style=\"display:block;height:100%;width:75%;background:#2563eb\"></i></div>\n      \n      <div class=\"sh-main\" style=\"display:flex;align-items:flex-end;gap:10px;flex:none;min-width:0\">\n        <div class=\"sh-cell sh-total\" style=\"display:flex;flex-direction:column;min-width:0;flex:1\">\n      <span class=\"sh-label\" style=\"font-size:11px;color:#6b7280;white-space:nowrap\">总产量</span>\n      <span class=\"sh-num\" style=\"font-size:26px;font-weight:700;line-height:1.05;color:#1f2329;font-variant-numeric:tabular-nums\">12</span>\n      \n    </div>\n        <div class=\"sh-cell sh-ok\" style=\"display:flex;flex-direction:column;min-width:0;flex:1\">\n      <span class=\"sh-label\" style=\"font-size:11px;color:#6b7280;white-space:nowrap\">OK</span>\n      <span class=\"sh-num\" style=\"font-size:26px;font-weight:700;line-height:1.05;color:#16a34a;font-variant-numeric:tabular-nums\">—</span>\n      \n    </div>\n        <div class=\"sh-cell sh-ng\" style=\"display:flex;flex-direction:column;min-width:0;flex:1\">\n      <span class=\"sh-label\" style=\"font-size:11px;color:#6b7280;white-space:nowrap\">NG</span>\n      <span class=\"sh-num\" style=\"font-size:26px;font-weight:700;line-height:1.05;color:#dc2626;font-variant-numeric:tabular-nums\">—</span>\n      \n    </div>\n      </div>\n      <div class=\"sh-hourly\" style=\"flex:1;min-height:0;display:flex;flex-direction:column;border-top:1px solid #c3cbd6;padding-top:4px\">\n        <div class=\"sh-hhead\" style=\"display:flex;align-items:baseline;gap:6px;flex:none;padding:0 2px\">\n          <span style=\"font-size:11px;color:#6b7280;white-space:nowrap\">每小时</span>\n        </div>\n        <div class=\"sh-hcols\" style=\"display:flex;align-items:center;gap:6px;flex:none\">\n          <span class=\"sh-hkey\" style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:none;min-width:38px\">小时</span>\n          <span style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:1;text-align:right\">产量</span>\n          <span style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:none;min-width:34px;text-align:right\">OK</span>\n          <span style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:none;min-width:34px;text-align:right\">NG</span>\n          <span style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:none;width:39px\"></span>\n        </div>\n        <div class=\"sh-hlist\" style=\"flex:1;min-height:0;overflow:auto\"><div class=\"sh-hrow\" data-shhour=\"2025-10-03 22:00\" style=\"display:flex;align-items:center;gap:6px;padding:1px 2px;border-bottom:1px solid #f1f3f6;font-size:12px;color:#1f2329\">\n          <span class=\"sh-hkey\" style=\"flex:none;min-width:38px;color:#6b7280\">22:00</span>\n          <span class=\"sh-hcount\" style=\"flex:1;text-align:right;font-variant-numeric:tabular-nums;font-weight:700\">0</span>\n          <span class=\"sh-hok\" style=\"flex:none;min-width:34px;text-align:right;font-variant-numeric:tabular-nums;color:#16a34a\">—</span>\n          <span class=\"sh-hng\" style=\"flex:none;min-width:34px;text-align:right;font-variant-numeric:tabular-nums;color:#dc2626\">—</span>\n          <span class=\"sh-hcur\" style=\"flex:none;width:39px;text-align:right;color:#2563eb;font-size:10px\">进行中</span>\n        </div></div>\n      </div>\n    </div></div>"
+          "html": "<div class=\"wd-body\"><div class=\"w-shift\" style=\"width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:4px;padding:8px;overflow:hidden;background:#ffffff;border:1px solid #c3cbd6;border-radius:6px;color:#1f2329\">\n      <div class=\"sh-head\" style=\"display:flex;align-items:baseline;gap:8px;flex:none;min-width:0\">\n        <span class=\"sh-title\" style=\"font-size:14px;font-weight:600;color:#1f2329;white-space:nowrap;overflow:hidden;text-overflow:ellipsis\">班次产量</span>\n        \n        <span class=\"sh-window\" title=\"\" style=\"flex:1;text-align:right;font-size:11px;color:#6b7280;white-space:nowrap\">16:00–00:00 · 已过 6:00</span>\n      </div>\n      <div class=\"sh-histbar\" style=\"display:flex;align-items:center;gap:4px;flex:none;min-width:0\">\n        <button type=\"button\" class=\"sh-hbtn\" data-shact=\"histPrev\" style=\"flex:none;height:21px;padding:0 8px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#f7f8fa;color:#1f2329;font-size:12px;line-height:1;cursor:pointer;\">‹</button>\n        <input class=\"sh-hdate\" type=\"date\" data-shhist=\"date\" value=\"2025-10-03\" style=\"flex:0 1 auto;width:136px;min-width:0;height:23px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#ffffff;color:#1f2329;font-size:12px;padding:0 4px;\">\n        <button type=\"button\" class=\"sh-hbtn\" data-shact=\"histNext\" style=\"flex:none;height:21px;padding:0 8px;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:4px;background:#f7f8fa;color:#1f2329;font-size:12px;line-height:1;cursor:pointer;\">›</button>\n        <span style=\"flex:none;width:4px\"></span>\n        \n      </div>\n      <div class=\"sh-bar\" style=\"height:3px;border-radius:2px;background:#eef2f7;overflow:hidden;flex:none\"><i style=\"display:block;height:100%;width:75%;background:#2563eb\"></i></div>\n      \n      <div class=\"sh-main\" style=\"display:flex;align-items:flex-end;gap:10px;flex:none;min-width:0\">\n        <div class=\"sh-cell sh-total\" style=\"display:flex;flex-direction:column;min-width:0;flex:1\">\n      <span class=\"sh-label\" style=\"font-size:11px;color:#6b7280;white-space:nowrap\">总产量</span>\n      <span class=\"sh-num\" style=\"font-size:26px;font-weight:700;line-height:1.05;color:#1f2329;font-variant-numeric:tabular-nums\">12</span>\n      <span class=\"sh-sub\" style=\"font-size:11px;color:#6b7280;white-space:nowrap\">本班 0</span>\n    </div>\n        <div class=\"sh-cell sh-ok\" style=\"display:flex;flex-direction:column;min-width:0;flex:1\">\n      <span class=\"sh-label\" style=\"font-size:11px;color:#6b7280;white-space:nowrap\">OK</span>\n      <span class=\"sh-num\" style=\"font-size:26px;font-weight:700;line-height:1.05;color:#16a34a;font-variant-numeric:tabular-nums\">—</span>\n      \n    </div>\n        <div class=\"sh-cell sh-ng\" style=\"display:flex;flex-direction:column;min-width:0;flex:1\">\n      <span class=\"sh-label\" style=\"font-size:11px;color:#6b7280;white-space:nowrap\">NG</span>\n      <span class=\"sh-num\" style=\"font-size:26px;font-weight:700;line-height:1.05;color:#dc2626;font-variant-numeric:tabular-nums\">—</span>\n      \n    </div>\n      </div>\n      <div class=\"sh-hourly\" style=\"flex:1;min-height:0;display:flex;flex-direction:column;border-top:1px solid #c3cbd6;padding-top:4px\">\n        <div class=\"sh-hhead\" style=\"display:flex;align-items:baseline;gap:6px;flex:none;padding:0 2px\">\n          <span style=\"font-size:11px;color:#6b7280;white-space:nowrap\">每小时</span>\n        </div>\n        <div class=\"sh-hcols\" style=\"display:flex;align-items:center;gap:6px;flex:none\">\n          <span class=\"sh-hkey\" style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:none;min-width:38px\">小时</span>\n          <span style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:1;text-align:right\">产量</span>\n          <span style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:none;min-width:34px;text-align:right\">OK</span>\n          <span style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:none;min-width:34px;text-align:right\">NG</span>\n          <span style=\"font-size:10px;color:#8a94a6;padding:0 2px;flex:none;width:39px\"></span>\n        </div>\n        <div class=\"sh-hlist\" style=\"flex:1;min-height:0;overflow:auto\"><div class=\"sh-hrow\" data-shhour=\"2025-10-03 22:00\" style=\"display:flex;align-items:center;gap:6px;padding:1px 2px;border-bottom:1px solid #f1f3f6;font-size:12px;color:#1f2329\">\n          <span class=\"sh-hkey\" style=\"flex:none;min-width:38px;color:#6b7280\">22:00</span>\n          <span class=\"sh-hcount\" style=\"flex:1;text-align:right;font-variant-numeric:tabular-nums;font-weight:700\">0</span>\n          <span class=\"sh-hok\" style=\"flex:none;min-width:34px;text-align:right;font-variant-numeric:tabular-nums;color:#16a34a\">—</span>\n          <span class=\"sh-hng\" style=\"flex:none;min-width:34px;text-align:right;font-variant-numeric:tabular-nums;color:#dc2626\">—</span>\n          <span class=\"sh-hcur\" style=\"flex:none;width:39px;text-align:right;color:#2563eb;font-size:10px\">进行中</span>\n        </div></div>\n      </div>\n    </div></div>"
+        }
+      }
+    },
+    {
+      "type": "operations",
+      "title": "操作记录",
+      "sub": "按钮触发 / 人工写值 / 配方操作",
+      "hidden": false,
+      "defaultBind": false,
+      "selfDrawn": false,
+      "defaultW": 620,
+      "defaultH": 300,
+      "defaults": {
+        "title": "操作记录",
+        "fontSize": 13,
+        "dayNav": true,
+        "clearable": true,
+        "clearText": "清空记录",
+        "todayText": "今天",
+        "clearPerm": "widget",
+        "emptyText": "这一天没有操作记录"
+      },
+      "props": [
+        {
+          "key": "title",
+          "label": "标题",
+          "type": "text",
+          "i18n": "text"
+        },
+        {
+          "key": "fontSize",
+          "label": "字号",
+          "type": "number",
+          "min": 9,
+          "max": 24
+        },
+        {
+          "key": "dayNav",
+          "label": "按天翻看",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "clearable",
+          "label": "可清空",
+          "type": "check",
+          "defVal": true
+        },
+        {
+          "key": "clearText",
+          "label": "清空按钮文字",
+          "type": "text",
+          "i18n": "text"
+        },
+        {
+          "key": "todayText",
+          "label": "今天按钮文字",
+          "type": "text",
+          "i18n": "text"
+        },
+        {
+          "key": "clearPerm",
+          "label": "清空权限",
+          "type": "select",
+          "defVal": "widget",
+          "title": "按控件权限：先过本控件的「操作权限」，再验管理员；仅管理员：只验管理员",
+          "options": [
+            {
+              "v": "widget",
+              "t": "按控件权限"
+            },
+            {
+              "v": "admin",
+              "t": "仅管理员"
+            }
+          ]
+        },
+        {
+          "key": "emptyText",
+          "label": "无记录时",
+          "type": "text",
+          "i18n": "text"
+        }
+      ],
+      "binding": {},
+      "actions": [],
+      "iconLen": 374,
+      "render": {
+        "edit": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-operations\" style=\"width:100%;height:100%;min-height:0;display:flex;flex-direction:column;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:6px;overflow:hidden;background:#fff;color:#1f2329;font-size:13px\">\n      <div style=\"display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:6px 8px;background:#eef2f7;border-bottom:1px solid #c3cbd6\">\n        <strong style=\"flex:1;min-width:4em\">操作记录</strong>\n        <input type=\"search\" data-op=\"filter\" aria-label=\"筛选操作记录\" placeholder=\"筛选操作记录\" disabled=\"\" style=\"height:26px;min-width:0;border:1px solid #c3cbd6;border-radius:4px;background:#fff;color:#1f2329;padding:0 6px;width:8em;flex:0 1 8em\">\n        <button type=\"button\" data-op=\"login\" hidden=\"\" style=\"height:26px;min-width:0;border:1px solid #c3cbd6;border-radius:4px;background:#fff;color:#1f2329;padding:0 6px;\">登录查看</button>\n        <button type=\"button\" data-op=\"refresh\" disabled=\"\" style=\"height:26px;min-width:0;border:1px solid #c3cbd6;border-radius:4px;background:#fff;color:#1f2329;padding:0 6px;\">刷新</button>\n      </div>\n      \n      <div class=\"at-nav\">\n        <button class=\"at-btn\" type=\"button\" data-op=\"day\" data-kind=\"prev\" disabled=\"\" title=\"前一天\">‹</button>\n        <input class=\"at-date\" type=\"date\" data-op=\"daydate\" value=\"2025-10-03\" disabled=\"\" title=\"选任意一天\">\n        <button class=\"at-btn\" type=\"button\" data-op=\"day\" data-kind=\"next\" disabled=\"\" title=\"后一天\">›</button>\n        <button class=\"at-btn at-today on\" type=\"button\" data-op=\"day\" data-kind=\"today\" disabled=\"\">今天</button>\n        <span class=\"at-dayname\" data-op=\"dayname\" hidden=\"\"></span>\n        <span class=\"at-count\"></span>\n        \n      </div>\n      <div data-op=\"status\" role=\"status\" style=\"padding:5px 8px;color:#526279\" hidden=\"\">正在读取操作记录…</div>\n      <div style=\"flex:1;min-height:0;overflow:auto\">\n        <table aria-label=\"操作记录\" style=\"border-spacing:0;width:100%;min-width:510px;font-size:inherit\">\n          <thead><tr><th scope=\"col\" style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;position:sticky;top:0;background:#eef2f7;white-space:nowrap\">时间</th><th scope=\"col\" style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;position:sticky;top:0;background:#eef2f7;white-space:nowrap\">操作者</th><th scope=\"col\" style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;position:sticky;top:0;background:#eef2f7;white-space:nowrap\">操作</th><th scope=\"col\" style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;position:sticky;top:0;background:#eef2f7;white-space:nowrap\">目标</th><th scope=\"col\" style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;position:sticky;top:0;background:#eef2f7;white-space:nowrap\">结果</th><th scope=\"col\" style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;position:sticky;top:0;background:#eef2f7;white-space:nowrap\">详情</th></tr></thead><tbody data-op=\"rows\"><tr><td style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;white-space:nowrap;font-variant-numeric:tabular-nums\">08:30:00</td><td style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;overflow-wrap:anywhere\">管理员</td><td style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;overflow-wrap:anywhere\">应用配方</td><td style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;overflow-wrap:anywhere\">产品 A</td><td style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;white-space:nowrap\"><span style=\"padding:2px 5px;border-radius:4px;color:#166534;background:#dcfce7\">成功</span></td>\n      <td style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;overflow-wrap:anywhere\">成功 8 项</td></tr><tr><td style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;white-space:nowrap;font-variant-numeric:tabular-nums\">08:30:00</td><td style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;overflow-wrap:anywhere\">未登录</td><td style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;overflow-wrap:anywhere\">写入变量</td><td style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;overflow-wrap:anywhere\">目标速度</td><td style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;white-space:nowrap\"><span style=\"padding:2px 5px;border-radius:4px;color:#991b1b;background:#fee2e2\">失败</span></td>\n      <td style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;overflow-wrap:anywhere\">设备未连接</td></tr></tbody>\n        </table>\n      </div>\n      <div class=\"at-nav\" data-op=\"paging\" hidden=\"\">\n        <button class=\"at-btn\" type=\"button\" data-op=\"previous\" aria-label=\"上一页\" disabled=\"\">‹</button>\n        <button class=\"at-btn\" type=\"button\" data-op=\"next\" aria-label=\"下一页\" disabled=\"\">›</button>\n        <span class=\"at-count\" data-op=\"count\">0 条</span>\n      </div>\n    </div></div>"
+        },
+        "run": {
+          "ok": true,
+          "html": "<div class=\"wd-body\"><div class=\"w-operations\" style=\"width:100%;height:100%;min-height:0;display:flex;flex-direction:column;box-sizing:border-box;border:1px solid #c3cbd6;border-radius:6px;overflow:hidden;background:#fff;color:#1f2329;font-size:13px\">\n      <div style=\"display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:6px 8px;background:#eef2f7;border-bottom:1px solid #c3cbd6\">\n        <strong style=\"flex:1;min-width:4em\">操作记录</strong>\n        <input type=\"search\" data-op=\"filter\" aria-label=\"筛选操作记录\" placeholder=\"筛选操作记录\" style=\"height:26px;min-width:0;border:1px solid #c3cbd6;border-radius:4px;background:#fff;color:#1f2329;padding:0 6px;width:8em;flex:0 1 8em\">\n        <button type=\"button\" data-op=\"login\" hidden=\"\" style=\"height:26px;min-width:0;border:1px solid #c3cbd6;border-radius:4px;background:#fff;color:#1f2329;padding:0 6px;\">登录查看</button>\n        <button type=\"button\" data-op=\"refresh\" style=\"height:26px;min-width:0;border:1px solid #c3cbd6;border-radius:4px;background:#fff;color:#1f2329;padding:0 6px;\">刷新</button>\n      </div>\n      \n      <div class=\"at-nav\">\n        <button class=\"at-btn\" type=\"button\" data-op=\"day\" data-kind=\"prev\" title=\"前一天\">‹</button>\n        <input class=\"at-date\" type=\"date\" data-op=\"daydate\" value=\"2025-10-03\" title=\"选任意一天\">\n        <button class=\"at-btn\" type=\"button\" data-op=\"day\" data-kind=\"next\" title=\"后一天\">›</button>\n        <button class=\"at-btn at-today on\" type=\"button\" data-op=\"day\" data-kind=\"today\">今天</button>\n        <span class=\"at-dayname\" data-op=\"dayname\" hidden=\"\"></span>\n        <span class=\"at-count\"></span>\n        <button class=\"at-btn at-clear\" type=\"button\" data-op=\"clear\" title=\"清空这一天的操作记录\">清空记录</button>\n      </div>\n      <div data-op=\"status\" role=\"status\" style=\"padding:5px 8px;color:#526279\">正在读取操作记录…</div>\n      <div style=\"flex:1;min-height:0;overflow:auto\">\n        <table aria-label=\"操作记录\" style=\"border-spacing:0;width:100%;min-width:510px;font-size:inherit\">\n          <thead><tr><th scope=\"col\" style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;position:sticky;top:0;background:#eef2f7;white-space:nowrap\">时间</th><th scope=\"col\" style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;position:sticky;top:0;background:#eef2f7;white-space:nowrap\">操作者</th><th scope=\"col\" style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;position:sticky;top:0;background:#eef2f7;white-space:nowrap\">操作</th><th scope=\"col\" style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;position:sticky;top:0;background:#eef2f7;white-space:nowrap\">目标</th><th scope=\"col\" style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;position:sticky;top:0;background:#eef2f7;white-space:nowrap\">结果</th><th scope=\"col\" style=\"padding:5px 7px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top;position:sticky;top:0;background:#eef2f7;white-space:nowrap\">详情</th></tr></thead><tbody data-op=\"rows\"></tbody>\n        </table>\n      </div>\n      <div class=\"at-nav\" data-op=\"paging\">\n        <button class=\"at-btn\" type=\"button\" data-op=\"previous\" aria-label=\"上一页\" disabled=\"\">‹</button>\n        <button class=\"at-btn\" type=\"button\" data-op=\"next\" aria-label=\"下一页\" disabled=\"\">›</button>\n        <span class=\"at-count\" data-op=\"count\">0 条</span>\n      </div>\n    </div></div>"
         }
       }
     }

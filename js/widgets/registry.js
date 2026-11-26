@@ -8,6 +8,8 @@
  *   icon      SVG 字符串
  *   defaults  默认属性 { w, h, ...props }
  *   props     属性面板 schema [{key,label,type,options?,min?,max?}]
+ *   i18nTexts 固定界面文字，供工程翻译表导出
+ *   preserveBody 内容相同时保留 DOM（例如持续播放的动画）
  *   binding   绑定声明 { variable: {types:['bool'], required?} }
  *   actions   该控件允许配置的动作类型列表
  *   render(w, mode, vars) → body innerHTML（编辑/运行共用，所见即所得）
@@ -16,6 +18,7 @@ import { fmtValue, escapeHtml } from '../core/utils.js';
 import { langFontFactor, fontFactorForWidget } from '../core/i18n.js';
 
 const defs = new Map();
+const preservedBodyHtml = new WeakMap();
 
 /**
  * 把 render 出来的 HTML 里**内联 font-size** 乘一遍（多语言字号）。
@@ -52,6 +55,7 @@ export const ACTION_DEFS = {
   toggle:    { label: '切换（点击翻转保持）',            params: { variable: 'var' } },
   gotoPage:  { label: '跳转页面',                        params: { page: 'page' } },
   showPopup: { label: '打开弹窗',                        params: { page: 'popup' } },
+  openRecipeManager: { label: '打开配方管理',           params: {} },
   hidePopup: { label: '关闭弹窗',                        params: {} },
   back:      { label: '返回上一页',                      params: {} },
   setValue:  { label: '置变量值',                        params: { variable: 'var', value: 'value' } },
@@ -92,7 +96,9 @@ export function renderWidgetDOM(w, mode, vars) {
     el.innerHTML = `<div class="wd-body">${missingDefHtml(w)}</div>`;
     return el;
   }
-  el.innerHTML = `<div class="wd-body">${scaleFontSizes(def.render(w, mode, vars), w)}</div>`;
+  const html = scaleFontSizes(def.render(w, mode, vars), w);
+  el.innerHTML = `<div class="wd-body">${html}</div>`;
+  if (def.preserveBody) preservedBodyHtml.set(el, html);
   return el;
 }
 
@@ -102,7 +108,13 @@ export function refreshWidgetBody(el, w, mode, vars) {
   const def = registry.get(w.type);
   if (!def || def.selfDrawn) return;
   const body = el.querySelector('.wd-body');
-  if (body) body.innerHTML = scaleFontSizes(def.render(w, mode, vars), w);
+  if (!body) return;
+  const html = scaleFontSizes(def.render(w, mode, vars), w);
+  if (def.preserveBody) {
+    if (preservedBodyHtml.get(el) === html) return;
+    preservedBodyHtml.set(el, html);
+  }
+  body.innerHTML = html;
 }
 
 /* ── defs.js 各类型共享的小工具 ── */

@@ -55,7 +55,7 @@ const renderBtn = (wid, val) => page.evaluate(async ([wid, val]) => {
   const r = await import('/js/widgets/registry.js');
   const w = m.project.getWidget(wid);
   const html = r.registry.get('button').render(w, 'run', { get: () => val });
-  return { text: html.match(/>([^<]*)<\/button>/)?.[1], html };
+  return { text: new DOMParser().parseFromString(html, 'text/html').querySelector('.w-btn-text')?.textContent, html };
 }, [wid, val]);
 
 /* ── A. bool 变量：开/关 ── */

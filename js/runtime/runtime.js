@@ -8,18 +8,19 @@
  *   · 变量监控抽屉（运行中手动改值测试逻辑）
  */
 import { bus } from '../core/eventBus.js';
+import { closeMenu } from '../core/contextMenu.js';
 import { project, PAD_REPLACE, PAD_LABEL_WIDGET, PAD_LABEL_NONE } from '../core/project.js';
 import { registry, renderWidgetDOM, refreshWidgetBody, rutil } from '../widgets/registry.js';
 import { varStore } from './varstore.js';
 import { backend } from '../api/backend.js';
 import { fmtValue, numberFmtOf, parseOptions, comboMode, isClickThrough,
   inputRangeOf, parseNumInput, inRange,
-  dispValueOf, rawValueOf, fixedScaleOf } from '../core/utils.js';
+  dispValueOf, rawValueOf, fixedScaleOf, textAlignOf } from '../core/utils.js';
 import { startAlarms, stopAlarms, ackAlarm, clearHistory, setAlarmHistoryDay, shiftAlarmHistoryDay, activeAlarms, retranslateAlarms } from './alarms.js';
 import { tr, languages as i18nLangs, getLang, setLang } from '../core/i18n.js';
 import * as perm from './permissions.js';
 import * as gate from './gate.js';
-import { layoutBar } from '../widgets/alarmBar.js';
+import { layoutAlarmBars } from '../widgets/alarmBar.js';
 import { createVList } from '../core/vlist.js';
 import { startScripts, stopScripts, scriptLogsAll, clearAllScriptLogs } from './scriptEngine.js';
 import { initRunUpdateBadge } from './runUpdate.js';
@@ -256,7 +257,7 @@ export function initRuntime() {
   // 现场在画面上点/按键 = "有人在操作" → 重新计自动上锁的时间（超过 N 分钟没动才自动锁）
   perm.attachActivity(rtRoot);
 
-  document.getElementById('rtExit').addEventListener('click', exitRun);
+  document.getElementById('rtExit').addEventListener('click', enterEditorFromRuntime);
   // 运行中的「PLC 设置」：直接复用编辑器那个连接对话框（运行态也能改连接，确定即生效）
   document.getElementById('rtPlcBtn').addEventListener('click', openRuntimePlcDialog);
   // 快捷键提示：点一下立刻收起（别挡着画面）
@@ -265,6 +266,16 @@ export function initRuntime() {
   initRunLangMenu();
   // 运行页右下角「有新版本」提示（run-only 才挂；没新版本/没开更新检查时什么都不显示）
   initRunUpdateBadge();
+  // 退出运行是全局命令，输入框和输入法持有焦点时也应能识别物理 E 键。
+  document.addEventListener('keydown', e => {
+    if (!running || e.repeat || e.altKey || e.metaKey) return;
+    const alternate = e.key === 'F8' && !e.ctrlKey && !e.shiftKey;
+    const primary = e.ctrlKey && e.shiftKey && (e.code === 'KeyE' || e.key.toLowerCase() === 'e');
+    if (!primary && !alternate) return;
+    e.preventDefault();
+    e.stopPropagation();
+    enterEditorFromRuntime();
+  }, true);
   document.addEventListener('keydown', e => {
     if (!running) return;
     // 输入框里打字不抢键（变量监控筛选框、数值输入框、脚本区…）
@@ -272,7 +283,7 @@ export function initRuntime() {
     const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
     // 快捷键一律**两个键一起按**（Ctrl+Shift+字母）：现场是按画面不是打字，
     // 单字母（F/V）太容易误触 —— 原来按个 V 就把变量监控翻出来、按个 F 画面就变了。
-    //   Ctrl+Shift<E 退出运行 · Ctrl+Shift+L PLC 连接设置
+    //   Ctrl+Shift+L PLC 连接设置
     //   Ctrl+Shift+V 变量监控显示/隐藏 · Ctrl+Shift+F 切换视图（原始 → 适应 → 填满）
     //   Ctrl+Shift+Y 切换语言（多语言工程才有；客户机不用管理员密码）
     //   Ctrl+Shift+J 脚本日志 · Ctrl+Shift+Q 退出操作权限（配了权限管理的工程才用得上）
@@ -282,8 +293,8 @@ export function initRuntime() {
       // Ctrl+Shift+Y：切换语言（运行中就能用，客户机 /run 也不用管理员密码）
       if (k === 'y') { e.preventDefault(); toggleRtLangMenu(); return; }
       // 下面这些是「改配置/退出」—— 客户机（/run）上先要管理员密码，过了才真做
-      if (k === 'e') { e.preventDefault(); enterEditorFromRuntime(); return; }
       if (k === 'l') { e.preventDefault(); openRuntimePlcDialog(); return; }
+      if (k === 'm') { e.preventDefault(); openRuntimeRecipeManager(); return; }
       if (k === 'v') { e.preventDefault(); toggleVarsPanel(); return; }
       // Ctrl+Shift+J：脚本日志（脚本里的 hmi.log/出错都在里面，运行页上看不到别的线索）
       if (k === 'j') { e.preventDefault(); toggleLogPanel(); return; }
@@ -315,8 +326,13 @@ export function initRuntime() {
   });
   // 右键「暂停采样（全部波形）」时同步缩小轮询范围；恢复后再把正在抓取的通道加回来。
   bus.on('trend:paused', () => { if (running) syncScope(); });
+  bus.on('trend:capture', () => { if (running) syncScope(); });
   // 操作权限变了（解锁/退出/自动上锁/等级被改）→ 重画控件角上的小锁 + 顶部那个"已解锁"小胶囊
-  bus.on('perm:changed', () => { if (running) refreshPermMarks(); });
+  bus.on('perm:changed', () => {
+    if (!running) return;
+    if (padTarget?.field && !padTarget.field.filter && padTarget.w.type !== 'recipe' && !perm.allowedFor(padTarget.w)) closeNumPad();
+    refreshPermMarks();
+  });
   /* 工程改了（组态面板改「按条件启用」的条件、改变量）：**运行态里当场生效** ——
      重建"条件变量 → 控件"那张表 + 全部重算一遍。不这么做的话，运行中改完条件要退出再进运行态
      才认（现场就是"改完没反应"）；条件变量从有到无也一样（索引里还挂着旧变量名）。 */
@@ -373,6 +389,18 @@ export function initRuntime() {
     applyRuntimeScale();
     if (popupStack.length) renderPopupLayer();
   });
+}
+
+export function openRuntimeRecipeManager() {
+  if (!running) return;
+  import('./recipeManager.js').then(({ openRecipeManager }) => {
+    if (!running) return;
+    openRecipeManager({
+      rpc: (path, opts) => backend.rpc(path, opts),
+      ensureAdmin: (what) => ensureAdmin(what, true),
+      attachActivity: perm.attachActivity,
+    });
+  }).catch(e => alert(`打开配方管理失败：${e.message || e}`));
 }
 
 /* ─────────── 变量监控抽屉：折叠 + 筛选 ─────────── */
@@ -754,6 +782,7 @@ export function showRuntimeHint(ms = HINT_MS) {
   const K = (...keys) => keys.map(k => `<kbd>${k}</kbd>`).join('+');
   // 配了操作权限的工程：把「退出权限」那个键也写上（现场干完活要交回权限）
   const permTip = perm.isPermEnabled() ? `${K('Ctrl', 'Shift', 'Q')} 退出权限<span class="rt-hint-sep">·</span>` : '';
+  const recipeTip = `${K('Ctrl', 'Shift', 'M')} 配方管理<span class="rt-hint-sep">·</span>`;
   // 多语言工程：语言切换也走快捷键（放在最前面 —— 现场最爱用的功能先露出来）；
   // 触摸设备没有键盘 → 同时写明「双指轻点画面」
   const coarse = !!window.matchMedia?.('(pointer: coarse)')?.matches;
@@ -766,14 +795,15 @@ export function showRuntimeHint(ms = HINT_MS) {
     ? '<b>运行中</b><span class="rt-hint-sep">·</span>'
       + permTip
       + langTip
+      + recipeTip
       + `${K('Ctrl', 'Shift', 'F')} 切换视图<span class="rt-hint-sep">·</span>`
       + `${K('Ctrl', 'Shift', 'L')} 改 PLC 连接<span class="rt-hint-sep">·</span>`
       + `${K('Ctrl', 'Shift', 'J')} 脚本日志<span class="rt-hint-sep">·</span>`
-      + `${K('Ctrl', 'Shift', 'E')} 进组态编辑<span class="rt-hint-sep">·</span>`
-      + '<span style="color:rgba(229,231,235,.55)">（E 进去要登录）</span>'
+      + `${K('Ctrl', 'Shift', 'E')} / ${K('F8')} 进入编辑器（管理员）`
     : '<b>快捷键</b><span class="rt-hint-sep">·</span>'
       + permTip
       + langTip
+      + recipeTip
       + `${K('Esc')} 退出运行<span class="rt-hint-sep">·</span>`
       + `${K('Ctrl', 'Shift', 'L')} PLC 连接设置<span class="rt-hint-sep">·</span>`
       + `${K('Ctrl', 'Shift', 'V')} 变量监控<span class="rt-hint-sep">·</span>`
@@ -806,9 +836,9 @@ export function isRunOnly() { return isRunOnlyNow(); }
  * 已经登录过（cookie 还在，12 小时）就直接放行，不用反复输密码。
  * @returns {Promise<boolean>} 验证通过 true；取消 / 密码错到底 false
  */
-async function ensureAdmin(what) {
+async function ensureAdmin(what, requireAdminRole = false) {
   const s = await backend.session().catch(() => null);
-  if (!s || s.logged_in || s.auth_enabled === false) return true;   // 没开闸门 / 已登录
+  if (!s || s.auth_enabled === false || (s.logged_in && (!requireAdminRole || s.role === 'admin'))) return true;
   const tb = await import('../editor/toolbar.js');
   return await new Promise(resolve => {
     let settled = false;
@@ -818,8 +848,7 @@ async function ensureAdmin(what) {
       okText: '登录',
       body: `<div style="font-size:13px;line-height:1.8">
           <b>${what}</b>要管理员密码。<br>
-          <span style="color:var(--text-2)">运行页平时只读：看数据、按按钮、输数值不用密码；
-          改 PLC 连接/配置才需要这一步（登录后 12 小时内不用再输）。</span></div>
+          <span style="color:var(--text-2)">同一会话内可继续使用管理员权限。</span></div>
         <div class="f-row" style="margin-top:10px"><span class="f-label">密码</span>
           <input class="f-input" id="rtAdminPw" type="password" placeholder="管理员密码"></div>
         <div id="rtAdminMsg" style="color:var(--danger);font-size:12px;line-height:1.7;margin-top:8px"></div>`,
@@ -864,23 +893,21 @@ export function openRuntimePlcDialog() {
   reallyOpenPlcDialog();
 }
 
-/** 客户机上「进组态编辑」：**同一个地址**，服务端按登录状态决定给运行页还是编辑器 ——
-    所以这里先问一句「登录着没」：登录着就直接跳 `/`（出来的就是编辑器）；
-    没登录就跳 `/login`，输一次密码后自动进编辑器。
-    （地址不拆开就是为了少一堆"走错页"的问题） */
+/** 退出编辑器的运行预览，或从独立运行页进入编辑器。 */
 export function enterEditorFromRuntime() {
-  /* 编辑器在不在这个页面里，看的是「有没有真的加载」（工具条 + 画布接口），
-     而不是「启动时那个身份」：客户机运行页里没有编辑器，就该去 /login（或已登录时跳编辑器）；
-     编辑器页里（同一个 / 地址）才是「退出运行」。
-     ⚠ 另加一道保险：**没有编辑器就绝不 exitRun** —— 退出去只会剩一片空白
-       （现场看到的就是「按了没反应」或者一按画面就空了）。 */
-  const editorHere = typeof window.app?.getZoom === 'function'
-    && !!document.getElementById('toolbar')?.getClientRects().length;
-  if (editorHere) return exitRun();
-  if (!isRunOnlyNow()) return;      // 既不是运行页、又没有编辑器：什么都别做，别把画面弄白
+  if (!running) return;
+  closeMenu();
+  if (!isRunOnlyNow() && typeof window.app?.getZoom === 'function') return exitRun();
 
-  const go = (logged) => { location.href = logged ? (globalThis.__HMI_EDITOR_PATH__ || '/') : '/login'; };
-  backend.session().then(s => go(!!(s && (s.logged_in || s.auth_enabled === false)))).catch(() => go(false));
+  // 握手时已收到登录状态，切换页面时无需在 PLC 读写之后再排一个会话请求。
+  if (!backend.canEdit()) {
+    location.assign('/login');
+    return;
+  }
+  const target = new URL(globalThis.__HMI_EDITOR_PATH__ || '/', location.href);
+  // 新连接重新验证身份。会话已过期时直接进登录页。
+  target.searchParams.set('edit', '1');
+  location.assign(target.href);
 }
 
 /* ─────────── 运行画面缩放（原始 / 适应 / 填满） ─────────── */
@@ -969,7 +996,10 @@ export async function enterRun() {
   rtRoot.classList.remove('hidden');
   bus.emit('mode:changed', { mode: 'run' });
 
+  // 操作记录使用独立连接，避免排在尚未结束的 PLC 读写之后。
+  backend.startButtonAudit();
   renderPage();
+  auditPageSwitch(resolvePage(start));   // 「进到了哪一页」也进操作记录（现场要能追画面轨迹）
   // 变量监控：进运行态**整个收起**（主页面只留画面，右上角也不占一角）——
   // Ctrl+Shift+V 或右键菜单随时叫出来；收起时顺手归位成「展开」，
   // 下次叫出来直接是变量列表而不是只露个标题栏。变量行仍在 DOM 里照常收推送，一开就是最新的
@@ -984,7 +1014,7 @@ export async function enterRun() {
   updateInternalTip();       // 内部变量运行提示：按当前数据源显示/隐藏
   hideWriteAlarm();          // 进运行态先清掉上一次的下发失败提示
   applyRuntimeScale();
-  layoutAlarmBars(rtPage);   // 报警条：量一下要不要滚
+  layoutAlarmBars(rtPage);
   // 快捷提示：**只在编辑器的「运行预览」里自动飘一条**；客户机运行页（/ 和 /run）开机不提示
   //   （现场口径：一上电就飘一条挡着画面；而且现在 Ctrl+Shift+L 也不要密码了，没什么好交代的）
   if (!isRunOnlyNow()) showRuntimeHint();
@@ -1045,6 +1075,7 @@ export function exitRun() {
   // （这里同样现算：/ 上的身份是运行时才定下来的，见 isRunOnlyNow 的说明）
   if (isRunOnlyNow()) return;
   running = false;
+  document.getElementById('recipeManager')?.dispatchEvent(new Event('recipes:close'));
   stopPlcWatch();
   stopAlarms();           // 报警引擎停掉（历史已经落盘：服务器 + 本机兜底，不会丢）
   perm.resetPerm();       // 退出运行态 = 把操作权限也交回去（下次进来重新输密码）
@@ -1054,6 +1085,7 @@ export function exitRun() {
   closeCombos(null);
   hideRuntimeHint();      // 快捷键提示别漏到编辑态
   backend.stopEvents();
+  backend.stopButtonAudit();
   // 退出运行态 = 没人在看画面了 → 注销登记（后端一个客户端都不剩时就不再跟设备通讯）
   backend.setPolling(false);
   if (numPad) closeNumPad();
@@ -1355,6 +1387,7 @@ function renderPage() {
   const id = pageStack[pageStack.length - 1];
   const page = project.getPage(id);
   if (!page) return;
+  if (padTarget?.field && rtPage.contains(padTarget.el)) closeNumPad();
   // 换页了 → 把「刚离开的那一页」放进保留窗口（见 pageVarScope 上面那段说明）
   if (lastRenderedPage && lastRenderedPage !== id) markPageLeft(lastRenderedPage);
   lastRenderedPage = id;
@@ -1384,12 +1417,7 @@ function renderPage() {
   rtPage.appendChild(frag);
   reindexRendered();
   applyRuntimeScale();   // 换页后按新页面尺寸重算缩放
-  // ⚠️ 换页后必须**重新量一次**报警条「要不要滚」（alarmBar.js 的 layoutBar：量一份内容多宽 → 写 .roll 类 + --ab-dur）。
-  //    不调会怎样：换页新画出来的报警条没有 .roll/--ab-dur，CSS 动画不上 → **卡住不动**，而且不报任何错。
-  //    用户报的现象正是这个：报警条画在**公共底**上时，第 1 个页面（进运行态时 layout 过）正常滚，
-  //    换到第 2 个页面就停；等报警内容变化触发 refreshAlarmWidgets()（它里面有 layoutAlarmBars）才又动起来。
-  //    放在 applyRuntimeScale() 之后量 —— 那时的宽度才是缩放后的真实值。
-  layoutAlarmBars(rtPage);
+  layoutAlarmBars(rtPage);   // 换页时公共底也重绘，需重新启动滚动
   syncScope();           // 换了页面 → 只采这一页用到的变量（多余的别占通讯）
 }
 
@@ -1558,6 +1586,7 @@ function syncScope() {
 }
 let currentScope = new Set();
 function renderPopupLayer() {
+  if (padTarget?.field && popupLayer.contains(padTarget.el)) closeNumPad();
   popupLayer.innerHTML = '';
   popupRendered = [];
   syncScope();           // 弹窗里的变量也要采集（关掉就不再采）
@@ -1628,6 +1657,7 @@ function renderPopupLayer() {
   });
   reindexRendered();     // 弹窗里的控件也要进「变量 → 控件」表
   popupLayer.style.display = popupStack.length ? 'flex' : 'none';
+  layoutAlarmBars(popupLayer);
 }
 
 /** ── 操作权限（运行态分级密码）──
@@ -1654,7 +1684,7 @@ function permAllowed(w) {
  *  ⚠ 顺序：先判条件再判权限。条件不满足时**不弹密码框**（不是权限的事，弹了只会让人白输一遍密码）。
  *  ⚠ 提示：mode='lock'（看得见但点不了）时**可以**弹一句「为什么点不动」（要在控件属性里勾「弹提示」，默认不弹）；mode='hide' 时控件根本看不见，
  *    还能走到这儿的多半是键盘/穿透路径，就别弹提示了（用户对着空地方看到一句提示更莫名）。 */
-function actAllowed(w) {
+function actAllowed(w, action) {
   if (!gate.gateOk(w)) {
     // 提示是**默认关**的（控件属性「按条件启用 → 弹提示」；现场要画面干净）。
     // 「看得见但点不了」才有得弹：藏起来那档控件根本看不到，弹了更莫名。
@@ -1662,7 +1692,8 @@ function actAllowed(w) {
     if (gate.gateMode(w) === 'lock' && gate.gateHint(w)) gateToast(gate.gateWhy(w));
     return false;
   }
-  return permAllowed(w);
+  // 普通配方控件的操作等级仅用于删除，保存和应用使用后端账号权限。
+  return (w?.type === 'recipe' && action !== 'delete') || permAllowed(w);
 }
 
 /** 「条件不满足」的小提示（同一句话 3 秒内只说一次：连点几下别刷屏） */
@@ -1691,7 +1722,9 @@ function applyGate(el, w) {
   const ok = !on || gate.gateOk(w);
   const hide = on && !ok && gate.gateMode(w) === 'hide';
   const lock = on && !ok && gate.gateMode(w) === 'lock';
+  const revealBar = !hide && w.type === 'alarmBar' && el.classList.contains('rt-gate-hidden');
   el.classList.toggle('rt-gate-hidden', hide);
+  if (revealBar) layoutAlarmBars(el);
   el.classList.toggle('rt-gate-locked', lock);
   const old = el.querySelector(':scope > .rt-gate-badge');
   if (!lock || w?.props?.showGateBadge === false) { old?.remove(); return; }
@@ -1747,10 +1780,15 @@ function buildWidget(w, zOff = 0) {
         //   确认文字走多语言（报警/按钮上的文字一样能被翻译）。
         const ask = String(w.props?.confirmText || '').trim();
         if (ask && !confirm(tr(ask))) return;
+        if (!taps.length) auditButton(w, el);
         clicks.forEach(a => doAction(a, 'click'));
       });
     }
     el.style.cursor = 'pointer';
+  } else if (w.type === 'button') {
+    el.addEventListener('click', () => {
+      if (actAllowed(w)) auditButton(w, el);
+    });
   }
   // 穿透：没配动作也要挂（方框自己没动作、只要求"穿过我，让下面那个也触发"是完全正常的用法）
   if (ct) {
@@ -1803,7 +1841,10 @@ function buildWidget(w, zOff = 0) {
         // 切换（拨动开关这类）：先读设备再写反值；老控件没有这个入口时它自己退回 set(get)
         toggle: (name) => varStore.toggle(name),
         blockReason: (name) => varStore.linkBlockReason(name),
-        allowed: () => actAllowed(w),
+        allowed: (action) => actAllowed(w, action),
+        canOperate: () => running && gate.gateOk(w) && perm.allowedFor(w),
+        authorizeRecipe: async (what, action) => running && el.isConnected && actAllowed(w, action)
+          && await ensureAdmin(what, true) && running && el.isConnected && actAllowed(w, action),
         refresh: () => { if (el.isConnected) refreshWidgetBody(el, w, 'run', varStore); },
         // 复用运行态软键盘：把"变量名"伪装成一个临时控件（键盘只认 bindings.variable / props 格式）
         editNumber: (name, inputEl, propOverride) => {
@@ -1815,12 +1856,23 @@ function buildWidget(w, zOff = 0) {
           }, inputEl || el);
           return true;
         },
+        // 只更新画面内的输入框，配方草稿仍由控件的输入事件和保存动作处理。
+        editField: (input, { filter = false } = {}) => {
+          if (!running || w.props?.useKeyboard === false || !input.isConnected
+            || !el.contains(input) || input.disabled || input.readOnly || (!filter && !actAllowed(w))) return false;
+          if (padTarget?.el !== input) openNumPad(w, input, { host: el, filter });
+          return true;
+        },
+        fieldPadOpen: () => padTarget?.field?.host === el,
         // 跳页（报警列表「点一行跳到报警详情」这类用）：接受页面 id 或页面名
         gotoPage: (pageRef) => gotoPage(pageRef),
         // 后端 RPC（配方这类"控件自己的数据在后端"的功能用：GET/POST /api/recipes…）
         rpc: (path, opts) => backend.rpc(path, opts),
+        onBackendEvent: fn => backend.onEvent(fn),
         // 管理员验证（写配方/改配置要在后端过管理员闸门；未开闸门/已登录直接返回 true）
         ensureAdmin: (what) => ensureAdmin(what),
+        // 严格管理员验证：登录成 operator 也不算（清空操作记录这类审计动作要用）
+        requireAdmin: (what) => ensureAdmin(what, true),
       });
     } catch (e) { console.warn(`[widget] ${w.type} attach 失败`, e); }
   }
@@ -1935,6 +1987,14 @@ function onGuardVisibility() {
 function onGuardBlur(e) { if (e.target === window) eachHeld(rec => rec.release('blur')); }
 function onGuardPageHide() { eachHeld(rec => rec.release('pagehide')); }
 
+function auditButton(w, el) {
+  if (w.type !== 'button') return;
+  const text = el.querySelector('.w-btn-text')?.textContent || '';
+  // 先发送按钮触发事件，再执行动作；PLC 写入结果单独记账。
+  backend.recordButton(w.name || text || w.id, text)
+    .catch(e => console.warn('[operations]', e.message));
+}
+
 /** 按钮上的「点动」(tap)：按住置 TRUE，**松手一定要置回 FALSE**（见上面那段兜底说明）
  *  没配变量的点动 = 静默跳过（doAction 里判），权限不够 = 这次按下不算数（松手也不置 FALSE）。 */
 function bindTapActions(el, w, taps) {
@@ -1958,6 +2018,7 @@ function bindTapActions(el, w, taps) {
     guardAdd(rec);
     const cap = tapMaxHoldMs();
     if (cap) rec.timer = setTimeout(() => release('max-hold'), cap);
+    auditButton(w, el);
     taps.forEach(a => doAction(a, 'down'));
   });
   ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev =>
@@ -2022,6 +2083,7 @@ function bindHoldActions(el, w, groups, holdMs) {
     ov.style.width = (p * 100).toFixed(1) + '%';
     if (p < 1) { raf = requestAnimationFrame(step); return; }
     fired = true;                                   // 到点：只执行一次
+    auditButton(w, el);
     clicks.forEach(a => doAction(a, 'click'));
     if (taps.length) { held = true; taps.forEach(a => doAction(a, 'down')); }
     ov.classList.add('done');
@@ -2084,8 +2146,13 @@ function enterNumberEdit(w, el) {
   // 不然用户看到 1.23、点进来变成 123，改完写回去又差 100 倍。
   // 浮点/老工程（倍率 1）保持原样：放原始值，别把还没改的精度先舍掉。
   const curText = fixedScaleOf(p) === 1 ? (cur ?? '') : fmtValue(dispValueOf(cur, p), numberFmtOf(p));
-  body.innerHTML = `<div class="w-number" style="background:${p.bgColor || 'transparent'};border:${p.borderWidth}px solid ${p.borderColor};border-radius:${p.radius}px">
-    <input type="text" inputmode="${imode}"${maxAttr} value="${esc(curText)}" style="font-size:${p.fontSize}px;color:${p.textColor}"${range ? ` title="${esc(range.tip)}"` : ''}>
+  // 透明 / 无边框态跟 defs/number.js 的 render 保持同一套判定（颜色空串 = 透明）：
+  // 内联 background/border 盖不住 `.w-number` 的 box-shadow: inset…（透明后那条淡边/3D 感），
+  // 所以这里也得加 is-flat —— 否则"编辑的那一下"凭空多出一圈深边。
+  const off = (c) => !c || c === 'transparent';
+  const flat = off(p.bgColor) || off(p.borderColor) || !(Number(p.borderWidth) > 0);
+  body.innerHTML = `<div class="w-number${flat ? ' is-flat' : ''}" style="background:${p.bgColor || 'transparent'};border:${p.borderWidth}px solid ${p.borderColor || 'transparent'};border-radius:${p.radius}px">
+    <input type="text" inputmode="${imode}"${maxAttr} value="${esc(curText)}" style="text-align:${textAlignOf(p.align)};font-size:${p.fontSize}px;color:${p.textColor}"${range ? ` title="${esc(range.tip)}"` : ''}>
     ${p.unit ? `<span class="wn-unit">${esc(p.unit)}</span>` : ''}</div>`;
   const inp = body.querySelector('input');
   inp.focus(); inp.select();
@@ -2147,12 +2214,6 @@ function commitInput(w, input) {
   }
 }
 
-/* 报警条：一整串报警在里面一直滚，超不超宽由 alarmBar.js 量（量完写 --ab-dur） */
-function layoutAlarmBars(root) {
-  if (!root) return;
-  root.querySelectorAll('.w-alarmbar').forEach(bar => layoutBar(bar));
-}
-
 /* ─────────── 报警控件刷新 + 确认/清空 ─────────── */
 /* ─────────── 报警声（按需响，默认安静） ───────────
    现场要求「报警要有声」：报警控件（当前报警 / 报警条 / 报警历史）属性里勾「报警声」，
@@ -2196,8 +2257,8 @@ function refreshAlarmWidgets() {
   alarmCells.forEach(({ w, el }) => {
     if (el.isConnected) refreshWidgetBody(el, w, 'run', varStore);
   });
-  layoutAlarmBars(rtPage);     // 重绘后重新量一次「要不要滚」
-  popupLayer.querySelectorAll('.rt-popup').forEach(c => layoutAlarmBars(c));
+  layoutAlarmBars(rtPage);
+  layoutAlarmBars(popupLayer);
 }
 
 function onAlarmClick(e) {
@@ -2327,7 +2388,10 @@ function fireBelowWidgets(el, w, e) {
     if (!child) continue;
     done.add(child.id);
     const acts = (child.actions || []).filter(a => a.trigger === 'click' && a.type !== 'tap');
-    if (acts.length && actAllowed(child)) acts.forEach(a => doAction(a, 'click'));
+    if ((acts.length || child.type === 'button' && !child.actions?.length) && actAllowed(child)) {
+      auditButton(child, cel);
+      acts.forEach(a => doAction(a, 'click'));
+    }
     if (!isClickThrough(child.props)) break;           // 不穿透：到这层为止
   }
 }
@@ -2479,8 +2543,8 @@ function padVarLabel() {
   const t = padTarget;
   if (!t) return '';
   if (project.keypad?.().label === PAD_LABEL_NONE) return '';
-  const info = padVarInfo(t.w);
-  const vname = t.w.bindings?.variable || '';
+  const info = t.field ? t : padVarInfo(t.w);
+  const vname = t.field ? t.el.getAttribute('aria-label') || '' : t.w.bindings?.variable || '';
   const wname = String(t.w.name || '').trim();
   const name = (project.keypad?.().label === PAD_LABEL_WIDGET && wname) ? wname : vname;
   const typeTxt = info.type ? `  (${info.type}${info.maxLen ? ` ${info.maxLen} 字符` : ''})` : '';
@@ -2498,6 +2562,7 @@ function padStartFresh() {
 
 function initNumPad() {
   numPad = document.getElementById('numPad');
+  numPad.tabIndex = -1;
   npDisplay = document.getElementById('npDisplay');
   npVar = document.getElementById('npVar');
   npCand = document.getElementById('npCand');
@@ -2690,22 +2755,22 @@ function renderCand() {
   }
 }
 
-function openNumPad(w, el) {
-  const info = padVarInfo(w);
-  const mode = isTextType(info.type) ? 'text' : 'num';
+function openNumPad(w, el, field = null) {
+  const info = field ? { type: '', maxLen: Math.max(0, el.maxLength || 0) } : padVarInfo(w);
+  const mode = (field ? el.type !== 'number' : isTextType(info.type)) ? 'text' : 'num';
   // 数值键盘的初始缓冲 = **屏上显示的那个数**：整数定点（PLC 123、屏上 1.23）时
   // 用户看到 1.23 就改 1.23；放原始值 123 会让人一按就加了 100 倍。
   // 浮点 / 文本 / 老工程倍率是 1，照旧放原值。
-  const rawCur = numValue(w);
-  const buffer = (mode === 'num' && fixedScaleOf(w.props) !== 1
+  const rawCur = field ? el.value : numValue(w);
+  const buffer = (!field && mode === 'num' && fixedScaleOf(w.props) !== 1
     && rawCur !== null && rawCur !== undefined && rawCur !== '')
     ? fmtValue(dispValueOf(rawCur, w.props), numberFmtOf(w.props))
     : String(rawCur ?? '');
   padTarget = {
-    w, el, mode, type: info.type, maxLen: info.maxLen,
+    w, el, field, mode, type: info.type, maxLen: info.maxLen,
     buffer, py: '', upper: false, page: 'abc', zh: false, candPage: 0,
     // 输入范围限制（只在数值键盘上生效；文本变量没有"范围"这回事）
-    range: mode === 'num' ? padRange(w) : null,
+    range: !field && mode === 'num' ? padRange(w) : null,
     // 首键清空重输：buffer 里放的**就是原值**（显示区照旧看得见现在是多少），
     // 只多一个"第一个字符键来了就先让位"的状态。接着原值改（默认）时它是 false，行为一个字不变。
     fresh: padReplaceMode(),
@@ -2715,6 +2780,7 @@ function openNumPad(w, el) {
   // （跟有标题时一个位置；不写明的话 space-between 只剩一个子元素会把它推到左边）
   numPad.classList.toggle('np-plain', project.keypad?.().label === PAD_LABEL_NONE);
   numPad.classList.toggle('wide', mode === 'text');
+  numPad.classList.toggle('np-field', !!field);
   // 「屏蔽其他控件」（控件属性，**默认勾着**）：键盘一弹出就把遮罩盖上 ——
   // 画面上的其他控件/弹窗一律点不动（防误碰：键盘开着时手滑按到"启动"是大事）。
   // 没勾的控件不盖（老行为：能点别处）。见 css/runtime.css 的 #npMask。
@@ -2731,8 +2797,8 @@ function openNumPad(w, el) {
   try {
     const saved = JSON.parse(localStorage.getItem('hmi-numpad-pos'));
     if (saved && saved.left != null && saved.top != null) {
-      numPad.style.left = Math.max(0, Math.min(saved.left, window.innerWidth - 40)) + 'px';
-      numPad.style.top = Math.max(0, Math.min(saved.top, window.innerHeight - 40)) + 'px';
+      numPad.style.left = Math.max(0, Math.min(saved.left, window.innerWidth - (field ? numPad.offsetWidth : 40))) + 'px';
+      numPad.style.top = Math.max(0, Math.min(saved.top, window.innerHeight - (field ? numPad.offsetHeight : 40))) + 'px';
       placed = true;
     }
   } catch { /* 忽略 */ }
@@ -2740,6 +2806,7 @@ function openNumPad(w, el) {
     numPad.style.left = Math.round((window.innerWidth - numPad.offsetWidth) / 2) + 'px';
     numPad.style.top = Math.round((window.innerHeight - numPad.offsetHeight) / 2) + 'px';
   }
+  if (field) numPad.focus({ preventScroll: true });
 }
 
 function renderPad() {
@@ -2840,6 +2907,23 @@ function padKey(k, kind = 'num') {
 function commitNumPad() {
   const t = padTarget;
   if (!t) return;
+  if (t.field) {
+    const input = t.el;
+    if (!running || !input.isConnected || input.disabled || input.readOnly || (!t.field.filter && !actAllowed(t.w))) {
+      closeNumPad();
+      return;
+    }
+    const number = t.mode === 'num' && t.buffer !== '' ? parseNumInput(t.buffer) : null;
+    if (t.mode === 'num' && t.buffer !== '' && number === null) {
+      padFlash('请填写有效数字');
+      return;
+    }
+    const text = t.mode === 'text' ? t.buffer + t.py : number === null ? '' : String(number);
+    input.value = t.maxLen ? [...text].slice(0, t.maxLen).join('') : text;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    closeNumPad();
+    return;
+  }
   // 软键盘开着的时候权限被自动锁掉了 → 这一下不算数（重新按控件、输了密码再输值）
   if (!perm.allowedFor(t.w)) { closeNumPad(); perm.ensure(t.w); return; }
   // 输入范围限制：越界**一个字节都不下发**。确定按钮这时也是禁用的，这里是双保险
@@ -2866,11 +2950,15 @@ function commitNumPad() {
 }
 
 function closeNumPad() {
+  const host = padTarget?.field?.host;
   padTarget = null;
   numPad.classList.add('hidden');
   npMask?.classList.add('hidden');     // 遮罩跟着键盘一起收（不然画面就点不动了）
   // 范围那几处状态收干净：下次开键盘（可能是另一个控件、可能没有范围）不带着上一次的红框
   paintPadRange();
+  if (host) queueMicrotask(() => {
+    if (host.isConnected && running) host.dispatchEvent(new Event('runtime:fieldpadclose'));
+  });
 }
 
 /* ─────────── 动作执行 ─────────── */
@@ -2904,6 +2992,7 @@ function doAction(act, phase) {
       break;
     }
     case 'showPopup': showPopup(p.page); break;
+    case 'openRecipeManager': openRuntimeRecipeManager(); break;
     case 'hidePopup': hidePopup(); break;
     case 'back': goBack(); break;
     case 'clearAlarm': {
@@ -2924,10 +3013,26 @@ function doAction(act, phase) {
 /** 页面：可以给 id 也可以给页面名（脚本里写 hmi.page('画面2') 更顺手）
  *  ⚠ 只有普通页能跳：弹窗走 showPopup，**公共底不是能"进"的画面**（它是套在页面上的那一层）
  *  —— 脚本里手滑写成 hmi.page('公共底1') 也不会把画面切成一张底 */
+/* 画面切换留痕：运行记录（操作记录控件/接口）里能看到「谁把画面切到了哪一页」。
+   ⚠ 只记渲染完成后的真实切换（同一页连点/脚本轮播会被 800ms 去重挡掉），
+     失败一律吞掉 —— 记账不该影响画面切换本身。 */
+let pageAudit = { id: '', at: 0 };
+function auditPageSwitch(pg) {
+  if (!pg || pg.type !== 'page') return;
+  const now = Date.now();
+  // 同一页连点 800ms 内不重复记；另外整体 500ms 只记一条 ——
+  // 脚本要是拿页面切换做"轮播"，也不至于把操作记录刷爆。
+  if (now - pageAudit.at < 500) return;
+  if (pageAudit.id === pg.id && now - pageAudit.at < 800) return;
+  pageAudit = { id: pg.id, at: now };
+  backend.rpc('/api/operations/page', { body: { name: (pg.name || '').trim() } })
+    .catch(() => { /* 后端没开/离线：不记就不记 */ });
+}
 export function gotoPage(pageIdOrName) {
   const pg = resolvePage(pageIdOrName);
   if (!running || !pg || pg.type !== 'page') return false;
-  if (pageStack[pageStack.length - 1] !== pg.id) pageStack.push(pg.id);
+  const from = pageStack[pageStack.length - 1];
+  if (from !== pg.id) pageStack.push(pg.id);
   // ⚠ 只 push 不封顶：脚本要是用页面跳转做"轮播"（一秒切几次），这个栈一天能涨几十万项
   //   —— 而它只用来支持「返回上一页」。留最近 PAGE_STACK_MAX 页足够用，从**最早**的丢
   //   （goBack 是从末尾弹的，丢开头不影响"返回"）。
@@ -2935,6 +3040,7 @@ export function gotoPage(pageIdOrName) {
   popupStack = [];
   renderPage();
   renderPopupLayer();
+  if (from !== pg.id) auditPageSwitch(pg);
   return true;
 }
 export function showPopup(pageIdOrName) {
@@ -2949,6 +3055,8 @@ export function goBack() {
   if (!running || pageStack.length <= 1) return false;
   pageStack.pop();
   renderPage();
+  // 「返回上一页」也是画面切换，一样留痕
+  auditPageSwitch(resolvePage(pageStack[pageStack.length - 1]));
   return true;
 }
 /** 脚本引擎通过这个句柄做页面/弹窗/报警操作（避免 runtime ↔ scriptEngine 相互 import 成环） */
@@ -2998,6 +3106,7 @@ function refreshBoundEverywhere(name) {
       const w = list[i].w, el = list[i].el;
       // 控件可能已经被换页/关弹窗换掉了（索引是上一版画面的）→ 元素不在文档里就跳过
       if (!el.isConnected) continue;
+      if (registry.get(w.type)?.refreshOnVariable === false) continue;
       const inp = el.querySelector('input');
       // 正在输入中的控件不打断（本地焦点优先）
       if (inp && document.activeElement === inp) continue;

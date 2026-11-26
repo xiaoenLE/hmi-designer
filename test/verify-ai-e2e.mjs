@@ -13,6 +13,7 @@
 //
 // 跑法：node test/verify-ai-e2e.mjs
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import http from 'node:http';
 import net from 'node:net';
@@ -25,7 +26,7 @@ const req = createRequire('C:/Users/Administrator/.workbuddy/binaries/node/works
 const { chromium } = req('playwright-core');
 const EXE = 'C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
 const PY = 'C:/Users/Administrator/AppData/Local/Programs/Python/Python310/python.exe';
-const ROOT = 'C:/Users/Administrator/Desktop/hmi/hmi-designer-v2';
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const freePort = () => new Promise(res => {
   const s = net.createServer();
@@ -40,7 +41,7 @@ const ok = (cond, name, extra) => {
 const section = t => console.log(`\n== ${t} ==`);
 
 // ── 假小米模型（OpenAI 兼容 SSE） ─────────────────────────────────────────────
-const fake = { calls: [], toolPayload: { name: 'AI测试页' }, toolText: '', pairs: [{ k: 'e1', v: 'Start' }] };
+const fake = { calls: [], toolPayload: { name: 'AI测试页' }, pagePlan: null, pairs: [{ k: 'e1', v: 'Start' }] };
 function fakeModel() {
   const srv = http.createServer((rq, rs) => {
     let raw = '';
@@ -83,10 +84,15 @@ function fakeModel() {
       }
       // 对话：第一轮 → 工具调用（参数故意分片，模拟真实流式）
       if (hasTools) {
-        chunk({ choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: 'call_fake1', type: 'function', function: { name: 'add_page', arguments: '' } }] }, finish_reason: null }] });
-        const args = JSON.stringify(fake.toolPayload);
-        for (let i = 0; i < args.length; i += 9) {
-          chunk({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: args.slice(i, i + 9) } }] }, finish_reason: null }] });
+        const plan = fake.pagePlan || [['add_page', fake.toolPayload]];
+        chunk({ choices: [{ index: 0, delta: { role: 'assistant', tool_calls: plan.map(([name], index) => ({
+          index, id: 'call_fake' + index, type: 'function', function: { name, arguments: '' },
+        })) }, finish_reason: null }] });
+        for (const [index, [, payload]] of plan.entries()) {
+          const args = JSON.stringify(payload);
+          for (let i = 0; i < args.length; i += 9) {
+            chunk({ choices: [{ index: 0, delta: { tool_calls: [{ index, function: { arguments: args.slice(i, i + 9) } }] }, finish_reason: null }] });
+          }
         }
         return finish('tool_calls', { prompt_tokens: 200, completion_tokens: 30 });
       }
@@ -185,7 +191,8 @@ try {
   ok(fake.calls.length >= 2, '假模型至少被调 2 轮（工具结果回灌）', fake.calls.length);
   ok(fake.calls.some(c => c.body.stream === true), '后端用 stream:true 调模型');
   ok(fake.calls[0].body.thinking?.type === 'disabled', '关思维链参数 thinking:{type:"disabled"} 发出去了', fake.calls[0].body.thinking);
-  ok(!!fake.calls[0].body.tools && fake.calls[0].body.tools.length >= 10, 'tools 清单发给了模型', fake.calls[0].body.tools?.length);
+  const names = fake.calls[0].body.tools?.map(tool => tool.function.name) || [];
+  ok(names.includes('add_page') && names.length <= 6, '建页请求只携带页面所需工具', names);
 
   // ── 3. Ctrl+Z 撤销 ────────────────────────────────────────────────────────
   section('3. Ctrl+Z：AI 的改动一步撤销');
@@ -198,8 +205,72 @@ try {
   ok(!!undo.label, '撤销栈顶有标签（AI 的 commit 自带 label）', undo.label);
   ok(!undo.pages.includes('AI测试页'), '撤销后页面不在了', undo.pages);
 
-  // ── 4. 全工程翻译 ─────────────────────────────────────────────────────────
-  section('4. 全工程翻译：collectEntries → JSON → dict → setLang');
+
+  const retained = await page.evaluate(async () => (await import('/js/editor/aiTools.js')).conversationLength());
+  ok(retained === 1, '撤销工程操作后仍可接着聊');
+
+  section('4. 上传截图和点表，一批完成整页组态');
+  const imageData = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 120;
+    canvas.height = 80;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#163446';
+    ctx.fillRect(0, 0, 120, 80);
+    return canvas.toDataURL('image/png').split(',')[1];
+  });
+  await page.evaluate(async () => (await import('/js/editor/aiPanel.js')).openAiSide());
+  const picker = page.locator('#aiAttachmentPicker');
+  const attachStart = fake.calls.length;
+  await picker.setInputFiles({ name: 'remove.txt', mimeType: 'text/plain', buffer: Buffer.from('should-not-be-sent') });
+  await page.getByRole('button', { name: '移除附件 remove.txt' }).click();
+  await picker.setInputFiles([
+    { name: '组态参考.png', mimeType: 'image/png', buffer: Buffer.from(imageData, 'base64') },
+    { name: '点表.csv', mimeType: 'text/csv', buffer: Buffer.from([0xb2, 0xe2, 0xca, 0xd4, 0x2c, 0x69, 0x6e, 0x74]) },
+  ]);
+  await page.locator('#aiAttachments .ai-file-chip').nth(1).waitFor();
+  ok(fake.calls.length === attachStart, '选取、移除附件期间没有发送模型请求');
+  const board = '给水总览';
+  fake.toolPayload = { name: board };
+  fake.pagePlan = [
+    ['add_page', { name: board }],
+    ['add_widget', { page: board, items: [
+      { type: 'label', x: 40, y: 40, w: 160, h: 32, props: { text: '给水系统' } },
+      { type: 'number', x: 40, y: 96, w: 160, h: 48, props: { editable: false } },
+    ] }],
+    ['tidy_layout', { page: board }],
+    ['inspect_layout', { page: board }],
+  ];
+  await page.fill('#aiInput', '根据截图画整页');
+  ok(await page.locator('#aiScope').getAttribute('data-scope') === 'project', '带截图的整页指令进入工程模式');
+  await page.press('#aiInput', 'Enter');
+  await page.locator('#aiStopBtn').waitFor({ state: 'hidden' });
+  const layoutCalls = fake.calls.slice(attachStart);
+  const first = layoutCalls[0]?.body;
+  const firstUser = first?.messages.at(-1)?.content;
+  ok(Array.isArray(firstUser) && firstUser.some(part => part.type === 'image_url' && part.image_url.url.startsWith('data:image/jpeg;base64,')), '截图经压缩后用图文消息送到模型');
+  ok(firstUser?.[0].text.includes('测试,int') && !firstUser?.[0].text.includes('should-not-be-sent'), 'CSV 按 GBK 解码，移除的附件没有发送');
+  const widgetTypes = await page.evaluate(board => window.app.project.pages().find(p => p.name === board)?.widgets.map(w => w.type), board);
+  ok(JSON.stringify(widgetTypes) === JSON.stringify(['label', 'number']), '批量创建的整页控件已落到画布', widgetTypes);
+  ok(layoutCalls.length === 2 && layoutCalls[1]?.body.messages.filter(m => m.role === 'tool').length === 4, '一批执行建页、加控件、整理、检查，第二轮只汇报结果', layoutCalls.length);
+  ok(await page.locator('#aiAttachments').isHidden(), '发送后清空待发送附件');
+  fake.pagePlan = null;
+  fake.toolPayload = { name: '验下一条' };
+  const next = fake.calls.length;
+  await page.fill('#aiInput', '新建一页记录');
+  await page.press('#aiInput', 'Enter');
+  await page.locator('#aiStopBtn').waitFor({ state: 'hidden' });
+  const nextRequest = fake.calls[next]?.body;
+  const nextInput = JSON.stringify(nextRequest || {});
+  ok(nextRequest?.tools && !nextInput.includes('image_url') && !nextInput.includes('测试,int') && !nextInput.includes('should-not-be-sent'), '下一次工程提问不会自动重发附件内容');
+  const reset = await page.evaluate(async () => {
+    window.app.project.newProject();
+    return (await import('/js/editor/aiTools.js')).conversationLength();
+  });
+  ok(reset === 0, '打开新工程会清除上一个工程的 AI 上下文');
+
+  // ── 5. 全工程翻译 ─────────────────────────────────────────────────────────
+  section('5. 全工程翻译：collectEntries → JSON → dict → setLang');
   const tr = await page.evaluate(async () => {
     const project = window.app.project;
     const i18n = await import('/js/core/i18n.js');
@@ -246,7 +317,7 @@ try {
   ok(tr.lang === 'en', 'setLang(en) 触发 i18n:lang 重画', tr.lang);
 
   // ── 5. 错误面：没 key 要给出可读错误 ──────────────────────────────────────
-  section('5. 收尾检查（控制台 / 网络）');
+  section('6. 收尾检查（控制台 / 网络）');
   const errs = await page.evaluate(() => (window.__appErrors || []).slice());
   ok(errs.length === 0, 'window.__appErrors 为空', errs);
   const realBad = bad.filter(b => !/favicon|net::ERR_ABORTED/.test(b));

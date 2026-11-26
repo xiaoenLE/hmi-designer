@@ -1,6 +1,7 @@
 /**
  * toolbar.js — 顶部工具栏 + 通用对话框
  */
+import { addressHelpFor } from '../core/addrInput.js';
 import { bus } from '../core/eventBus.js';
 import { project, PAD_EDIT, PAD_REPLACE, PAD_LABELS, PAD_LABEL_VAR, PAD_LABEL_WIDGET, PAD_LABEL_NONE } from '../core/project.js';
 import { history } from '../core/history.js';
@@ -15,7 +16,6 @@ import { protocols as catalogProtocols, defaultAddress, probeAddress,
 import { obfuscate, deobfuscate } from '../core/sha256.js';
 import { openAt } from '../core/contextMenu.js';
 
-let gridBtnRef = null;   // 画布设置对话框里改网格时要同步工具条按钮的激活态
 const esc = escapeHtml;  // 对话框里拼 HTML 一律转义（工程名/页名都是用户随手输入的）
 
 /** 换工程后把运行态变量值重置成新工程的初值（否则画布上预览的还是上一个工程的值） */
@@ -67,8 +67,7 @@ export async function saveToFile(asNew = false) {
       <div class="f-row"><span class="f-label">位置</span><span style="font-size:12px">${where}</span></div>
       <div class="f-row"><span class="f-label">内容</span><span style="font-size:12px">「${esc(meta.name || '未命名工程')}」 · ${project.pages().length} 个页面 · ${project.variables().length} 个变量 · ${widgets} 个控件 · 约 ${kb} KB</span></div>
       <div class="f-row"><span class="f-label">PLC</span><span style="font-size:12px">${plc ? `已带上：${esc(plcText(plc))}` : '这份工程里没记 PLC 配置（在工具栏 🔌 PLC 里连一次就会记进来）'}</span></div>
-      <div class="f-row"><span class="f-label">时间</span><span style="font-size:12px">${time}</span></div>
-      <div class="dlg-hint" style="margin-top:8px">以后再点「保存」（或 Ctrl+S）就直接写这个文件，不再打扰你；想换个文件用菜单里的「另存为…」。</div>`,
+      <div class="f-row"><span class="f-label">时间</span><span style="font-size:12px">${time}</span></div>`,
   });
   return res;
 }
@@ -236,22 +235,16 @@ export function openKeypadDialog() {
     okText: '保存',
     body: `
       <div class="f-row"><span class="f-label">起手方式</span>
-        <select class="f-input" id="kpMode" style="flex:1">
+        <select class="f-input" id="kpMode" style="flex:1" title="按键清空重输：第一个字符键替换原值。接着原值改：按键追加，退格可修改。两种模式均可直接用退格或清除键。">
           <option value="${PAD_REPLACE}" ${mode === PAD_REPLACE ? 'selected' : ''}>按键清空重输（默认）</option>
           <option value="${PAD_EDIT}" ${mode === PAD_EDIT ? 'selected' : ''}>接着原值改（老行为）</option>
         </select></div>
       <div class="f-row"><span class="f-label">标题显示</span>
-        <select class="f-input" id="kpLabel" style="flex:1">
+        <select class="f-input" id="kpLabel" style="flex:1" title="都不显示：隐藏标题，保留关闭按钮（✕）。">
           <option value="${PAD_LABEL_VAR}" ${label === PAD_LABEL_VAR ? 'selected' : ''}>变量名</option>
           <option value="${PAD_LABEL_WIDGET}" ${label === PAD_LABEL_WIDGET ? 'selected' : ''}>控件名</option>
           <option value="${PAD_LABEL_NONE}" ${label === PAD_LABEL_NONE ? 'selected' : ''}>都不显示</option>
-        </select></div>
-      <div class="dlg-hint" style="margin-top:8px">
-        <b>按键清空重输</b>（默认）：打开时照样显示原值，按第一个字符键就清掉它，直接输新的。<br>
-        <b>接着原值改</b>（老行为）：按的键接在原值后面，想改哪一位先按 ⌫。<br>
-        两种都不吃 ⌫ / C（按了就是改原值）。保存后对所有输入控件生效。<br>
-        标题显示选<b>都不显示</b>的话，键盘顶上那一条只剩右上角的 ✕（点它关闭键盘）。
-      </div>`,
+        </select></div>`,
     onOk: () => {
       const v = document.getElementById('kpMode')?.value === PAD_EDIT ? PAD_EDIT : PAD_REPLACE;
       const picked = document.getElementById('kpLabel')?.value;
@@ -326,44 +319,44 @@ export function openProjectMenu() {
   const r = btn.getBoundingClientRect();
   const info = storage.backupInfo();
   openAt(r.left, r.bottom + 4, [
-    { header: `工程：${project.data?.meta?.name || '未命名'}` },
-    { label: '新建工程…', onClick: openNewProjectDialog },
-    { label: '打开工程…', onClick: openProjectFile },
+    { header: '工程文件' },
+    { label: '新建工程…', icon: 'add', onClick: openNewProjectDialog },
+    { label: '打开本地工程…', icon: 'folder', onClick: openProjectFile },
+    { label: '保存到本地', icon: 'save', key: 'Ctrl+S', description: '写入当前工程文件，首次保存时选择位置。', onClick: () => saveToFile() },
+    { label: '另存为…', icon: 'save', description: '将当前工程保存为新的文件。', onClick: () => saveToFile(true) },
+    { label: '保存到服务器', icon: 'server', description: '更新服务器上的工程，供运行画面读取。', onClick: serverSave },
+    { label: '读取服务器工程…', icon: 'server', description: '将服务器保存的工程载入编辑器。', onClick: serverLoad },
+    ...(info ? [{ label: '恢复上一个工程', icon: 'history', description: '恢复本机保留的上一份工程。', onClick: restorePrevProject }] : []),
     { sep: true },
-    { label: '保存', key: 'Ctrl+S', onClick: () => saveToFile() },
-    { label: '另存为…', onClick: () => saveToFile(true) },
+    { header: '设置' },
+    { label: '配方地址配置…', icon: 'settings', description: '设置配方字段与 PLC 地址的对应关系。',
+      onClick: () => import('./recipeConfig.js').then(m => m.openRecipeConfig())
+        .catch(e => alert('打不开配方地址配置：' + (e?.message || e))) },
+    { label: '操作权限…', icon: 'lock', description: '配置运行画面的权限等级与自动锁定。', onClick: openPermDialog },
+    { label: '用户与角色…', icon: 'group', description: '管理登录账号及其角色。',
+      onClick: () => import('./usersPanel.js').then(m => m.openUsersPanel()).catch(e => alert('打不开用户与角色：' + (e?.message || e))) },
+    { label: '软键盘设置…', icon: 'settings', description: '设置数值输入时软键盘如何处理原值。', onClick: openKeypadDialog },
+    { label: '多语言与翻译…', icon: 'page', description: '管理工程语言、翻译表和预览语言。',
+      onClick: () => import('./i18nPanel.js').then(m => m.openI18nPanel()).catch(e => alert('打不开多语言设置：' + (e?.message || e))) },
+    { label: '日志设置…', icon: 'settings', description: '调整本机日志的保留时间与大小上限。',
+      onClick: () => import('./logSettings.js').then(m => m.openLogSettings()) },
     { sep: true },
-    { label: '存到服务器', onClick: serverSave },
-    { label: '从服务器读取…', onClick: serverLoad },
-    { sep: true },
-    // 操作权限：现场分级密码（等级表 + 控件上的「权限等级」）
-    { label: '权限管理…', onClick: openPermDialog },
-    // 账号表：管理员/操作员/观察员三种角色（登录页可以填账号；密码只存哈希）
-    { label: '用户与角色…', onClick: () => import('./usersPanel.js').then(m => m.openUsersPanel()).catch(e => alert('打不开用户与角色：' + ((e && e.message) || e))) },
-    // 软键盘起手方式：一处设置管所有输入控件（接着原值改 / 首键清空重输）
-    { label: '软键盘设置…', onClick: openKeypadDialog },
-    // 多语言 / 翻译：语言表 + 翻译表导出导入 + 预览语言（改完关对话框才提交一次，能撤销）
-    { label: '多语言 / 翻译…', onClick: () => import('./i18nPanel.js').then(m => m.openI18nPanel()).catch(e => alert('打不开多语言设置：' + (e?.message || e))) },
-    // 日志设置：**这台机器**的（保留几天 / 脚本日志每天多大），改完立刻生效
-    { label: '日志设置…', onClick: () => import('./logSettings.js').then(m => m.openLogSettings()) },
-    // 历史记录：**服务器侧**按周期采样 + 挑时间段导出 CSV 报表（追溯/做报表用）
-    { label: '历史记录…', onClick: () => import('./historyPanel.js').then(m => m.openHistoryPanel()).catch(e => alert('打不开历史记录：' + ((e && e.message) || e))) },
-    // FRP 内网穿透：**这台机器**的（自己的 frps 服务器 + 映射端口）——给"在外面用手机看画面"用
-    { label: 'FRP 内网穿透…', onClick: () => import('./frpSettings.js').then(m => m.openFrpSettings()) },
-    // AI 助手：对话式组态（建页面 / 画控件 / 加变量 / 写脚本 / 全工程翻译）
-    // 面板**固定在最右边**（不是停靠面板）：这里只是把它打开/切到前面。
-    { label: 'AI 助手…', onClick: () => import('./aiPanel.js').then(m => m.openAiSide()).catch(e => alert('打不开 AI 助手：' + ((e && e.message) || e))) },
+    { header: '工具' },
+    { label: 'AI 助手…', icon: 'ai', description: '显示或收起通过对话编辑工程的侧栏。',
+      check: document.getElementById('aiSide')?.classList.contains('hidden') === false,
+      onClick: () => import('./aiPanel.js').then(m => m.toggleAiSide()).catch(e => alert('打不开 AI 助手：' + (e?.message || e))) },
+    { label: '历史数据…', icon: 'history', description: '设置变量采样并导出历史数据。',
+      onClick: () => import('./historyPanel.js').then(m => m.openHistoryPanel()).catch(e => alert('打不开历史数据：' + (e?.message || e))) },
+    { label: 'FRP 内网穿透…', icon: 'network', description: '管理用于远程访问运行画面的端口映射。',
+      onClick: () => import('./frpSettings.js').then(m => m.openFrpSettings()) },
+    { label: '检查更新…', icon: 'refresh', onClick: () => import('./updateCheck.js').then(m => m.checkUpdateNow()) },
     ...(backend.auth?.enabled ? [
       { sep: true },
-      { label: '去运行画面', onClick: gotoRuntimePage },
-      { label: '退出登录', onClick: logout },
+      { header: '运行与登录' },
+      { label: '打开运行画面', icon: 'play', onClick: gotoRuntimePage },
+      { label: '退出登录', icon: 'logout', onClick: logout },
     ] : []),
-    { sep: true },
-    // 版本常显在状态栏，这里给一个"主动去问一次"的入口
-    // （点了忽略后端缓存当场拉一次；现场没外网会明确说"没查到"，不是静默失败）
-    { label: '检查更新…', onClick: () => import('./updateCheck.js').then(m => m.checkUpdateNow()) },
-    ...(info ? [{ sep: true }, { label: '恢复上一个工程', onClick: restorePrevProject }] : []),
-  ]);
+  ], { anchor: btn, align: 'end' });
 }
 
 /** 打开工程：能用系统文件选择器就用（这样「保存」才知道往哪个文件写回） */
@@ -498,7 +491,6 @@ export function openCanvasSetting() {
       const grid = document.getElementById('csGrid').checked;
       project.updateCanvas({ w, h, bg });
       setGrid(grid);
-      (gridBtnRef || document.getElementById('btnGrid'))?.classList.toggle('active', grid);
       return true;
     },
   });
@@ -516,20 +508,6 @@ function protoList() {
   // 地址写法改在紧挨着的那行小字里说（见 PROTO_ADDR_HINT）。
   return list.map(p => ({ id: p.id, cn: protocolCn(p.id) || p.name || p.id }));
 }
-/** 协议 → 地址写法提示（对话框里下拉旁边那行，**只留一句短语**；详细写法在变量表的地址格里）。
- *  TS600 绝不能推荐 %MX/%QX/%QW —— 它没有字内取位 */
-const PROTO_ADDR_HINT = {
-  modbus: '%MW/%MD/%QX 写法',
-  ts600: 'D/M/X/Y… 元件写法',
-  opcua: 'NodeId 写法',
-};
-/** 一句话地址提示（对话框里**只用短语**）。
- *  目录里的 protocol.help 是给变量表地址格看的完整说明（「写 %MW/%MD/%MB/%MX、%QW/%QB/%QD…」），
- *  塞进这行会把下拉挤成「M」、又把整行撑爆（现场反馈：这个地方不用显示这么多）。 */
-const protoHintFor = (proto) => {
-  const id = protocolId(proto) || 'modbus';
-  return PROTO_ADDR_HINT[id] || PROTO_ADDR_HINT.modbus;
-};
 /** 「测试连接 / 字序体检」的默认地址：按目录的探测地址（modbus %MW0 / ts600 D0 / opcua 无） */
 const probeAddrFor = (proto) => {
   const id = protocolId(proto) || 'modbus';
@@ -741,13 +719,12 @@ export async function openPlcDialog() {
         <select class="f-select" id="plcProto" style="flex:0 0 200px;max-width:200px">
           ${protoList().map(p => `<option value="${esc(p.id)}" ${s.protocol === p.id ? 'selected' : ''}>${esc(p.cn)}</option>`).join('')}
         </select>
-        <span id="plcProtoHint" style="color:var(--text-2);font-size:11px;flex:none;white-space:nowrap"></span></div>
+        </div>
       <div id="plcModbus">
       <div class="f-row"><span class="f-label">IP 地址</span>
         <input class="f-input" id="plcIp" value="${s.ip}" placeholder="192.168.1.10"></div>
       <div class="f-row"><span class="f-label">端口</span>
-        <input class="f-input" id="plcPort" type="number" min="1" max="65535" value="${s.port}">
-        <span style="color:var(--text-2);font-size:11px;flex:none">PLC 从站端口（模拟器默认 502）</span></div>
+        <input class="f-input" id="plcPort" type="number" min="1" max="65535" value="${s.port}" title="PLC 从站端口，模拟器默认 502"></div>
       <div class="f-row"><span class="f-label">站号</span>
         <input class="f-input" id="plcUnit" type="number" min="1" max="255" value="${s.unit}"></div>
       <div class="f-row"><span class="f-label">双字字序</span>
@@ -763,31 +740,24 @@ export async function openPlcDialog() {
       <div id="plcOpcua" style="display:none">
         <div class="f-row"><span class="f-label">端点</span>
           <input class="f-input" id="plcEndpoint" value="${esc(s.endpoint || 'opc.tcp://127.0.0.1:4840')}"
-                 placeholder="opc.tcp://192.168.1.10:4840">
-          <span style="color:var(--text-2);font-size:11px;flex:none">CODESYS 内置 OPC UA Server 默认 4840</span></div>
-        <div class="f-row"><span class="f-label">安全策略</span>
+                 placeholder="opc.tcp://192.168.1.10:4840" title="CODESYS OPC UA 服务器默认端口 4840"></div>
+        <div class="f-row"><span class="f-label" title="当前仅支持 None。加密连接需配置证书。">安全策略</span>
           <select class="f-select" id="plcSecurity">
             <option value="none">None（不加密 + 匿名，CODESYS 默认）</option>
           </select>
-          <span style="color:var(--text-2);font-size:11px;flex:none">Sign&amp;Encrypt 要证书，暂未做</span></div>
+        </div>
         <div class="f-row"><span class="f-label">用户名</span>
           <input class="f-input" id="plcUser" value="${esc(s.username || '')}" placeholder="留空 = 匿名">
-          <span style="color:var(--text-2);font-size:11px;flex:none">密码</span>
+        </div>
+        <div class="f-row"><span class="f-label">密码</span>
           <input class="f-input" id="plcPass" type="password" value="${esc(s.password || '')}" placeholder="留空 = 匿名"></div>
         <div class="f-row"><span class="f-label">默认命名空间</span>
-          <input class="f-input" id="plcNs" type="number" min="1" max="65535" value="${s.default_ns || 4}" style="width:80px">
-          <span style="color:var(--text-2);font-size:11px;flex:none">NodeId 没写 <code>ns=</code> 时按它补（CODESYS 应用符号一般是 4）</span></div>
-        <div id="plcMsgUa" style="color:var(--text-2);font-size:12px;line-height:1.7;margin:8px 0 0">
-          <div>地址写法：<code>ns=4;s=|var|CODESYS Control Win V3.Application.PLC_PRG.bRun</code>（完整 NodeId）</div>
-          <div style="margin-top:6px"><b>NodeId 没规律、手敲容易错</b> —— 点下面「<b>从服务器导入变量</b>」：
-            连上后浏览节点树，勾几个就把「名称 / 类型 / NodeId」一起带进变量表（只读，不写 PLC）。<br>
-            变量表 <b>${project.variables().length}</b> 个变量；类型由服务器给（Float/Double/Int16…），
-            <b>没有字序这回事</b>。</div>
-        </div>
+          <input class="f-input" id="plcNs" type="number" min="1" max="65535" value="${s.default_ns || 4}" style="width:80px" title="NodeId 省略 ns= 时使用此值。CODESYS 应用符号通常为 4。"></div>
+        <div id="plcMsgUa" class="pane-msg"></div>
       </div>
-      <div class="f-row"><span class="f-label">轮询周期</span>
+      <div class="f-row"><span class="f-label" title="1 ms 表示尽快轮询，实际周期仍受通信往返耗时限制。">轮询（ms）</span>
         <input class="f-input" id="plcPoll" type="number" min="1" max="5000" value="${s.poll_ms}">
-        <span style="color:var(--text-2);font-size:11px;flex:none">ms（最小 1 = 尽可能快：一轮读完立刻读下一轮，实际不会短于一帧往返；两种协议一样按页采集）</span></div>
+      </div>
       <div class="f-row" style="margin-top:10px">
         <span class="f-label"></span>
         <button class="tb-btn" id="plcTest">测试连接</button>
@@ -801,8 +771,7 @@ export async function openPlcDialog() {
            border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.8;margin:8px 0 0">
         <div id="plcBadAddr" style="white-space:pre-wrap"></div>
         <div style="margin-top:4px">
-          <button class="tb-btn sm" id="plcFixAddr">按服务器实际符号纠正地址</button>
-          <span style="color:var(--text-2)">← 设备名/命名空间写错时点这个；纠正不了就用「从服务器导入变量…」重新导</span>
+          <button class="tb-btn sm" id="plcFixAddr" title="按服务器上的设备名和命名空间纠正。找不到符号时请重新导入。">纠正变量地址</button>
         </div>
       </div>
       <div class="f-row" id="plcOrderRow"><span class="f-label">字序体检</span>
@@ -930,7 +899,7 @@ export async function openPlcDialog() {
   const applyProto = () => {
     const proto = curProto();
     const ua = proto === 'opcua';
-    $('plcProtoHint').textContent = protoHintFor(proto);
+    $('plcProto').title = addressHelpFor(proto);
     $('plcModbus').style.display = ua ? 'none' : '';
     $('plcOpcua').style.display = ua ? '' : 'none';
     $('plcOrderRow').style.display = ua ? 'none' : '';
@@ -1121,7 +1090,7 @@ export function openDuplicateDialog() {
     body: `
       <div class="f-row"><span class="f-label">复制份数</span>
         <input class="f-input" id="dupCount" type="number" min="1" max="100" value="${s.count}">
-        <span style="color:var(--text-2);font-size:11px;flex:none">份（新的那几份）</span></div>
+        </div>
       <div class="f-row"><span class="f-label">排列方式</span>
         <select class="f-select" id="dupMode">
           <option value="right">向右排列</option>
@@ -1137,31 +1106,26 @@ export function openDuplicateDialog() {
       <div class="f-row"><span class="f-label">名称递增</span>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
           <input class="f-check" id="dupNameSeq" type="checkbox" ${s.nameSeq ? 'checked' : ''}>
-          <span style="color:var(--text-2);font-size:12px">名称末尾数字 +1、+2…（指示灯1 → 指示灯2）</span></label></div>
+          <span style="color:var(--text-2);font-size:12px">递增末尾序号</span></label></div>
       <div class="f-row"><span class="f-label">序号步长</span>
         <input class="f-input" id="dupSeqStep" type="number" min="-999" max="999" value="${s.seqStep}"
-               title="每复制一份，名称/变量名末尾的数字加多少">
-        <span style="color:var(--text-2);font-size:11px;flex:none">可填负数（-1 = 倒着排：bAlarm5→bAlarm4）</span></div>
+               title="每份增加的序号。可填负数，0 表示不递增。"></div>
       <div class="f-row"><span class="f-label">变量递增</span>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
           <input class="f-check" id="dupVarSeq" type="checkbox" ${s.varSeq ? 'checked' : ''}>
-          <span style="color:var(--text-2);font-size:12px">每份用各自的变量（rSpeed1 → rSpeed2…）</span></label></div>
+          <span style="color:var(--text-2);font-size:12px">每份使用递增的变量名</span></label></div>
       <div class="f-row" id="dupVarModeRow"><span class="f-label">名字没数字</span>
         <select class="f-select" id="dupVarMode">
           <option value="always">也自动加序号（rSpeed → rSpeed1/rSpeed2…）</option>
           <option value="digit">保持同一个变量（只给带数字的名字递增）</option>
         </select></div>
-      <div class="f-row" id="dupAddrRow"><span class="f-label">地址间隔</span>
+      <div class="f-row" id="dupAddrRow"><span class="f-label">间隔（字）</span>
         <input class="f-input" id="dupAddrStep" type="number" min="-1000" max="1000" value="${s.addrStep}"
-               title="每个新变量的地址往后挪几个寄存器（负数 = 往前挪）">
-        <span style="color:var(--text-2);font-size:11px;flex:none">字（0 = 按类型自动，可填负数）</span></div>
+               title="地址间隔按寄存器计。0 按变量类型自动计算，负数向前分配。"></div>
       <div class="f-row" id="dupAutoVarRow"><span class="f-label">自动建变量</span>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
           <input class="f-check" id="dupAutoVar" type="checkbox" ${s.autoVar ? 'checked' : ''}>
-          <span style="color:var(--text-2);font-size:12px">新变量直接写进变量表（类型/初值照抄，地址按上面的间隔往后排）</span></label></div>
-      <div style="color:var(--text-2);font-size:11px;line-height:1.7;border-top:1px dashed var(--border);padding-top:7px">
-        源 <code>rSpeed real %MW100</code> 复制 3 份 → 自动建 <code>rSpeed1 %MW102</code>、<code>rSpeed2 %MW104</code>、<code>rSpeed3 %MW106</code>。
-      </div>`,
+          <span style="color:var(--text-2);font-size:12px">创建缺少的变量</span></label></div>`,
     onOk: () => {
       const opts = {
         count: Math.max(1, Math.min(100, +document.getElementById('dupCount').value || 1)),
@@ -1273,7 +1237,28 @@ export function showDialog({ title, body, onOk, wide = false, okText, aboveEdito
 }
 
 
+function initAlignGroupLayout() {
+  const alignGroup = document.getElementById('alignGroup');
+  const toolbar = alignGroup.parentElement;
+  const mainGroups = [...toolbar.children].filter(group => group !== alignGroup);
+  const clusters = [...alignGroup.children];
+  const widthOf = groups => groups.reduce((sum, group) => sum + group.getBoundingClientRect().width, 0);
+
+  const update = () => {
+    const style = getComputedStyle(toolbar);
+    const available = toolbar.getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const selectionWidth = widthOf(clusters) + (clusters.length - 1) * parseFloat(getComputedStyle(alignGroup).columnGap);
+    const required = widthOf(mainGroups) + selectionWidth + mainGroups.length * parseFloat(style.columnGap);
+    toolbar.classList.toggle('align-inline', required <= available);
+  };
+
+  const observer = new ResizeObserver(update);
+  [toolbar, ...mainGroups, ...clusters].forEach(el => observer.observe(el));
+  update();
+}
+
 export function initToolbar() {
+  initAlignGroupLayout();
   /* 运行 / 退出 */
   document.getElementById('btnRun').addEventListener('click', async () => {
     const { enterRun } = await import('../runtime/runtime.js');
@@ -1308,37 +1293,43 @@ export function initToolbar() {
   document.getElementById('btnUngroup')?.addEventListener('click', () => ungroupSelection());
 
   /* 层级 */
-  document.getElementById('btnZTop').addEventListener('click', () => {
-    const ids = getSelection(); if (ids.length) project.setZ(ids, 'top');
-  });
-  document.getElementById('btnZBottom').addEventListener('click', () => {
-    const ids = getSelection(); if (ids.length) project.setZ(ids, 'bottom');
-  });
+  const layerButtons = {
+    top: document.getElementById('btnZTop'),
+    up: document.getElementById('btnZUp'),
+    down: document.getElementById('btnZDown'),
+    bottom: document.getElementById('btnZBottom'),
+  };
+  for (const [where, button] of Object.entries(layerButtons)) {
+    button.addEventListener('click', () => {
+      const ids = getSelection();
+      if (ids.length) project.setZ(ids, where);
+    });
+  }
 
   /* 锁定 / 解锁 */
   const lockBtn = document.getElementById('btnLock');
-  const updateLockBtn = () => {
+  const updateLayerAndLockButtons = () => {
     const ids = getSelection();
-    if (!ids.length) {
-      lockBtn.disabled = true;
-      lockBtn.classList.remove('active');
-      lockBtn.innerHTML = '🔒 锁定';
-      return;
-    }
-    lockBtn.disabled = false;
-    const allLocked = ids.every(id => project.getWidget(id)?.locked);
+    const hasSelection = ids.length > 0;
+    const allLocked = hasSelection && ids.every(id => project.getWidget(id)?.locked);
+    const step = project.zStepAvailability(ids);
+    layerButtons.top.disabled = !hasSelection;
+    layerButtons.bottom.disabled = !hasSelection;
+    layerButtons.up.disabled = !step.up;
+    layerButtons.down.disabled = !step.down;
+    lockBtn.disabled = !hasSelection;
     lockBtn.classList.toggle('active', allLocked);
-    lockBtn.innerHTML = allLocked ? '🔓 解锁' : '🔒 锁定';
+    lockBtn.setAttribute('aria-pressed', String(allLocked));
+    lockBtn.setAttribute('aria-label', allLocked ? '解锁' : '锁定');
+    lockBtn.querySelector('use').setAttribute('href', allLocked ? '#ui-unlock' : '#ui-lock');
+    lockBtn.title = allLocked ? '解锁选中控件' : '锁定选中控件';
   };
-  lockBtn.addEventListener('click', () => { toggleLock(); updateLockBtn(); });
-  bus.on('selection:changed', updateLockBtn);
-  bus.on('project:changed', updateLockBtn);
+  lockBtn.addEventListener('click', () => { toggleLock(); updateLayerAndLockButtons(); });
+  bus.on('selection:changed', updateLayerAndLockButtons);
+  bus.on('project:changed', updateLayerAndLockButtons);
 
   /* 网格 */
-  const gridBtn = document.getElementById('btnGrid');
-  gridBtn.addEventListener('click', () => {
-    gridBtn.classList.toggle('active', toggleGrid());
-  });
+  document.getElementById('btnGrid').addEventListener('click', toggleGrid);
 
   /* 画布缩放的快捷键（按钮/滚轮在 canvas.js 里接线） */
   document.getElementById('zoomLabel').addEventListener('click', () => setZoom(1));
@@ -1353,7 +1344,6 @@ export function initToolbar() {
 
   /* 画布设置（尺寸 / 背景 / 网格）—— 按钮和右键菜单都用这个函数 */
   document.getElementById('btnCanvasSetting').addEventListener('click', () => openCanvasSetting());
-  gridBtnRef = document.getElementById('btnGrid');
 
   /* 工程名 / 新建 / 打开 / 保存 */
   const fileInput = document.getElementById('fileImport');

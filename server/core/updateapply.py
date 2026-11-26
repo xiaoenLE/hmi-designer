@@ -58,6 +58,11 @@ def _update_launcher() -> str:
     return (os.environ.get("HMI_LAUNCH") or "console").strip() or "console"
 
 
+def _is_packaged_launcher() -> bool:
+    # 已安装的 Nuitka 壳没有 sys.frozen，但和 PyInstaller 一样会传入 app 目录。
+    app_dir = os.environ.get("HMI_APP_DIR")
+    return bool(getattr(sys, "frozen", False) or (app_dir and Path(app_dir).resolve() == ROOT))
+
 
 def _restart_helper_cmd(pending_file: Path):
     """拉起重启助手用的命令。
@@ -66,7 +71,7 @@ def _restart_helper_cmd(pending_file: Path):
     · 打包成 exe 跑：**程序目录里没有 python 解释器**，但 exe 自己带着 —— 所以让 exe
       用 `--hmi-update-helper` 再起一个自己（见 packaging/launcher.py 里那个模式）。
       这也顺带解决了"exe 不能覆盖自己"：助手是另一个进程，等老进程退出才动手。"""
-    if getattr(sys, "frozen", False):
+    if _is_packaged_launcher():
         return [sys.executable, "--hmi-update-helper", str(pending_file)]
     return [sys.executable, str(ROOT / "server" / "_restart.py"), str(pending_file)]
 
@@ -83,24 +88,24 @@ def _spawn_restart_helper(pending_file: Path, log_path: Path):
     cmd = _restart_helper_cmd(pending_file)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     child_log = log_path.with_name(log_path.stem + "-child.log")
-    out = open(child_log, "a", encoding="utf-8")
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
-    kw = {"cwd": str(ROOT), "env": env, "stdout": out, "stderr": out, "stdin": subprocess.DEVNULL}
+    kw = {"cwd": str(ROOT), "env": env, "stderr": subprocess.STDOUT, "stdin": subprocess.DEVNULL}
     if os.name == "nt":
         kw["creationflags"] = 0x00000008 | 0x00000200     # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
     else:
         kw["start_new_session"] = True
-    subprocess.Popen(cmd, **kw)
-    print(f"[update] 已拉起重启助手（{'exe 自带解释器' if getattr(sys, 'frozen', False) else sys.executable}）"
+    with open(child_log, "a", encoding="utf-8") as out:
+        proc = subprocess.Popen(cmd, stdout=out, **kw)
+    print(f"[update] 已拉起重启助手（{cmd[0]}）"
           f"，它的原始输出在 {child_log.name}")
+    return proc
 
 
 
-def _exit_for_update(pending_file: Path, log_path: Path):
-    """响应发出去之后再退出。先停轮询、把变量落盘 —— 跟正常关闭一样的收尾顺序。
-    然后**一定**拉起重启助手（它才带回滚；这是唯一一条把服务带回来的路）。"""
-    time.sleep(1.0)                       # 让 HTTP 响应先到前端（否则界面只看到"连接被断开"）
+def _exit_for_update():
+    """助手已经启动。先给调用方时间收到应答，再停轮询、落盘并退出。"""
+    time.sleep(1.0)
     print("[update] 正在退出，准备用新代码重启 …")
     try:
         if isinstance(datasource.get_source(), _REMOTE_SRC):
@@ -111,11 +116,6 @@ def _exit_for_update(pending_file: Path, log_path: Path):
         datasource.get_source().flush()                   # 合并窗口里没落盘的变量写下去
     except Exception as e:                                      # noqa: BLE001
         print(f"[update] 变量落盘出错（继续退出）：{e}")
-    try:
-        _spawn_restart_helper(pending_file, log_path)
-        print("[update] 服务稍后由助手用新代码拉起（起不来会自动回滚；本窗口可以关掉）")
-    except Exception as e:                                      # noqa: BLE001
-        print(f"[update] 拉起重启助手失败：{type(e).__name__}: {e} —— 请手动重新运行 start_server.bat")
     try:
         sys.stdout.flush()
     except Exception:                                           # noqa: BLE001
@@ -147,8 +147,7 @@ def apply_update(host: str = "127.0.0.1", port: int = 8866):
     """「立即更新」：下载 + 覆盖代码 + 准备重启。返回给前端的 dict。
 
     ⚠ 返回之后进程会在 ~1 秒内退出 → 调用方（do_POST）必须**先把结果发出去**。
-    ⚠ 任何一步失败都只是"没更新成"，代码保持原样（覆盖中途失败会自动回滚）——
-      现场不能因为点了更新就变成半新半旧。"""
+    覆盖或安排重启失败时尝试回滚，并如实报告回滚结果。"""
     global _apply_running
     if not UPDATE_ARCHIVE_URL:
         return {"ok": False, "error": "「立即更新」已关闭（启动时 HMI_UPDATE_ARCHIVE 设成了空串）"}
@@ -190,23 +189,24 @@ def apply_update(host: str = "127.0.0.1", port: int = 8866):
         if isinstance(pkg, dict):
             want_sha = str(pkg.get("sha256") or "")
         zip_path = updater.temp_download_path()
-        dl = updater.download_archive(url, zip_path)
-        if not dl.get("ok"):
-            return {"ok": False, "error": f"下载代码包失败：{dl.get('error')}"}
-
-        # 3) 覆盖代码（白名单 + 先备份；**数据目录一个字节都不动** —— updater 里有硬断言）
-        res = updater.apply_archive(zip_path, ROOT, DATA_DIR, lv, expect_version=rv,
-                                   expect_sha256=want_sha)
         try:
-            zip_path.unlink(missing_ok=True)
-        except Exception:                                       # noqa: BLE001
-            pass
+            dl = updater.download_archive(url, zip_path)
+            if not dl.get("ok"):
+                return {"ok": False, "error": f"下载代码包失败：{dl.get('error')}"}
+            res = updater.apply_archive(zip_path, ROOT, DATA_DIR, lv, expect_version=rv,
+                                       expect_sha256=want_sha)
+        finally:
+            try:
+                zip_path.unlink(missing_ok=True)
+            except OSError as e:
+                print(f"[update] 清理下载文件失败：{e}")
         if not res.get("ok"):
-            return {"ok": False, "error": f"更新失败（代码没动）：{res.get('error')}",
-                    "rollback": res.get("rollback")}
+            rb = res.get("rollback")
+            detail = "已恢复旧版文件" if rb and rb.get("ok") else (
+                "部分文件恢复失败，请查看更新日志" if rb else "程序文件未替换")
+            return {"ok": False, "error": f"更新失败（{detail}）：{res.get('error')}", "rollback": rb}
 
         # 4) 安排重启：状态文件写进 data（它不会被更新覆盖），然后退出
-        _apply_running = True
         launcher = _update_launcher()
         use_helper = True        # 一律走助手 —— 它是唯一带回滚的那条路（见上面那段说明）
         pending = {
@@ -221,16 +221,30 @@ def apply_update(host: str = "127.0.0.1", port: int = 8866):
             "root": str(ROOT), "data_dir": str(DATA_DIR), "use_helper": use_helper,
             # 打包成 exe 时：助手由 exe 自己当（程序目录里没有 python），重启也重启 exe。
             # frozen/exe 这两个字段就是给 server/_restart.py 的 spawn() 看的。
-            "frozen": bool(getattr(sys, "frozen", False)),
+            "frozen": _is_packaged_launcher(),
             "exe": sys.executable,
         }
-        pending_file = updater.write_state(DATA_DIR, "pending.json", pending)
-        (updater.state_dir(DATA_DIR) / updater.RESTART_FLAG).write_text("1", encoding="utf-8")
-        # 更新日志跟 hmi 日志放一起（LOG_DIR 认 HMI_LOG_DIR）——
-        # 打包成 exe 时程序目录在 Program Files 下写不进去，写那儿等于把线索丢了
-        log_path = LOG_DIR / f"update-{time.strftime('%Y-%m-%d')}.log"
-        threading.Thread(target=_exit_for_update, args=(pending_file, log_path),
-                         name="update-exit", daemon=True).start()
+        helper = None
+        try:
+            pending_file = updater.write_state(DATA_DIR, "pending.json", pending)
+            (updater.state_dir(DATA_DIR) / updater.RESTART_FLAG).write_text("1", encoding="utf-8")
+            log_path = LOG_DIR / f"update-{time.strftime('%Y-%m-%d')}.log"
+            helper = _spawn_restart_helper(pending_file, log_path)
+            _apply_running = True
+            threading.Thread(target=_exit_for_update, name="update-exit", daemon=True).start()
+        except Exception as e:                                   # noqa: BLE001
+            if helper is not None:
+                try:
+                    helper.terminate()
+                except OSError:
+                    pass
+            print(f"[update] 安排重启失败：{e}")
+            rb = updater.rollback(Path(pending["backup_dir"]), ROOT, discard=True)
+            _apply_running = False
+            updater.clear_state(DATA_DIR, "pending.json")
+            updater.clear_state(DATA_DIR, updater.RESTART_FLAG)
+            detail = "已恢复旧版文件" if rb.get("ok") else "部分文件恢复失败，请查看更新日志"
+            return {"ok": False, "error": f"安排重启失败（{detail}）：{e}", "rollback": rb}
         print(f"[update] 代码已覆盖：V{lv} → V{pending['to_version']}（备份 {pending['backup_dir']}），准备重启")
         return {"ok": True, "from_version": lv, "to_version": pending["to_version"],
                 "copied": res.get("copied"), "created": res.get("created"),

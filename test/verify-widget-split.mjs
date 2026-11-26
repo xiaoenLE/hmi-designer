@@ -137,11 +137,10 @@ const snap = await page.evaluate(async () => {
 });
 
 const live = snap.widgets;
-// ⚠ 同样不写死总数（加了新控件不算错），守的是"两个隐藏兼容控件还在"这条硬约定 ——
-//   它们不列在工具箱里，但老工程里还有 value/input 的实例，删了那些工程就打不开了
+// 隐藏兼容控件不出现在工具箱，旧工程仍要能读取它们的定义。
 const hidden = live.filter(w => w.hidden).map(w => w.type).sort();
-ok('隐藏兼容控件 value / input 仍在注册表里',
-  hidden.join(',') === 'input,value', `隐藏：${hidden.join(',') || '（无）'}`);
+ok('隐藏兼容控件 barcode / value / input 仍在注册表里',
+  hidden.join(',') === 'barcode,input,value', `隐藏：${hidden.join(',') || '（无）'}`);
 ok('可见控件数 = 总数 - 隐藏数', live.filter(w => !w.hidden).length === live.length - hidden.length,
   `共 ${live.length} 个（可见 ${live.length - hidden.length}）`);
 const renderBad = live.filter(w => !w.render.edit.ok || !w.render.run.ok);

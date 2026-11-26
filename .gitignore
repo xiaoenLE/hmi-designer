@@ -43,6 +43,8 @@ hmi_project.json
 
 # 配方（现场数据：配方名 + 变量值，一台一份，不进版本库）
 server/data/recipes.json
+server/data/operations.jsonl
+server/data/operations.tmp
 
 # 多用户账号表（现场数据：账号/角色/密码哈希，一台一份，不进版本库）
 server/data/users.json

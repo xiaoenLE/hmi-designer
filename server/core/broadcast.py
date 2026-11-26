@@ -24,7 +24,7 @@ _ws_clients = []
 _ws_lock = threading.Lock()
 
 
-def broadcast(payload: dict):
+def broadcast(payload: dict, *, allow=None):
     """一条消息 = 发给所有在线前端。
 
     ⚠ JSON 只序列化**一次**，所有连接共用同一个字符串：
@@ -34,4 +34,5 @@ def broadcast(payload: dict):
     with _ws_lock:
         conns = list(_ws_clients)
     for c in conns:
-        c.send(text)
+        if allow is None or allow(c):
+            c.send(text)

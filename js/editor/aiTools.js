@@ -2,7 +2,7 @@
  * aiTools.js — AI 助手的「手」：工具定义 + 工具执行 + 多轮对话编排
  *
  * 三层：
- *   ① TOOL_DEFS  给模型看的 24 个工具（OpenAI function-calling schema）
+ *   ① TOOL_DEFS  组态工具定义（OpenAI function-calling schema）
  *   ② TOOL_IMPL  真正干活的执行器：全部走 project / canvas / registry 的公开 API，
  *                所以改动天然进撤销栈、天然触发 project:changed（画布/面板自动刷新）
  *   ③ runAssistant()  一轮 = 发请求 → 有 tool_calls 就执行 → 把结果回灌 → 再发；轮数默认不限（max_rounds=0）
@@ -24,7 +24,8 @@ import { registry, ACTION_DEFS } from '../widgets/registry.js';
 import { history } from '../core/history.js';
 import { getSelection, select } from '../editor/canvas.js';
 import { i18nState } from '../core/i18n.js';
-import { aiClient } from '../api/ai.js';
+import { aiClient, AI_DEFAULTS } from '../api/ai.js';
+import { messageWithAttachments } from './aiAttachments.js';
 
 /* ════════════════════════════════════════════════════════════════
  * 0. 小工具 / 常量
@@ -50,7 +51,7 @@ function slimData(v, depth = 0) {
     return v.length > SLIM_STR ? v.slice(0, SLIM_STR) + `…（共 ${v.length} 字）` : v;
   }
   if (typeof v !== 'object') return v;
-  if (depth >= 6) return Array.isArray(v) ? `[…${v.length} 项]` : '{…}';
+  if (depth >= 7) return Array.isArray(v) ? `[…${v.length} 项]` : '{…}';
   if (Array.isArray(v)) {
     const head = v.slice(0, SLIM_ARR).map(x => slimData(x, depth + 1));
     if (v.length > SLIM_ARR) head.push(`…（省略 ${v.length - SLIM_ARR} 项）`);
@@ -724,29 +725,42 @@ function t_set_current_page(a = {}) {
 
 /* ── 2.3 控件 ─────────────────────────────────────────────────── */
 
-/** 把模型给的动作数组规范成工程真格式；顺手校验页面/变量 */
-function normalizeActions(list, warnings) {
-  if (!Array.isArray(list)) return null;
-  const out = [];
-  list.forEach(raw => {
-    if (!raw || typeof raw !== 'object') return;
-    const type = String(raw.type || '');
-    if (!ACTION_DEFS[type]) { warnings.push(`动作类型「${type}」不认识，已忽略`); return; }
-    const params = { ...(raw.params && typeof raw.params === 'object' ? { ...raw.params } : {}) };
-    if (params.page !== undefined) {
-      if (type === 'gotoPage' || type === 'showPopup') {
-        const pg = findPage(params.page);
-        if (!pg) { warnings.push(`动作 ${type} 的页面「${params.page}」不存在，已忽略`); return; }
-        params.page = pg.id;
+/** 动作必须在落盘前解析成属性面板和运行态共用的格式。 */
+function normalizeActions(list, def, binding = '') {
+  if (list === undefined) return {};
+  if (!Array.isArray(list)) return { error: 'actions 必须是数组' };
+  const actions = [];
+  for (const raw of list) {
+    const type = String(raw?.type || '');
+    const schema = Object.hasOwn(ACTION_DEFS, type) ? ACTION_DEFS[type].params : null;
+    if (!schema || !def?.actions?.includes(type)) return { error: '此控件不支持动作「' + type + '」' };
+    if (raw.trigger && raw.trigger !== 'click') return { error: '动作 ' + type + ' 的 trigger 应为 click' };
+    const input = raw.params && typeof raw.params === 'object' ? raw.params : {};
+    const params = {};
+    if (schema.page) {
+      const ref = input.page || input.pageId || input.targetPage || input.targetPageId || input.target
+        || raw.page || raw.pageId || raw.targetPage || raw.targetPageId || raw.target;
+      const pg = ref && findPage(String(ref).trim());
+      const kind = type === 'showPopup' ? 'popup' : 'page';
+      if (!pg || pg.type !== kind) return { error: type + ' 需要 params.page 指向已存在的' + (kind === 'popup' ? '弹窗' : '普通页') + (ref ? '，收到「' + ref + '」' : '') };
+      params.page = pg.id;
+    }
+    if (schema.variable) {
+      const variable = String(input.variable || input.variableName || raw.variable || raw.variableName || binding || '').trim();
+      if (!varNames().includes(variable)) return { error: type + ' 需要 params.variable 为已存在的变量名' + (variable ? '，收到「' + variable + '」' : '') };
+      params.variable = variable;
+    }
+    if (schema.value) {
+      const value = input.value ?? raw.value;
+      const scalar = item => ['string', 'number', 'boolean'].includes(typeof item);
+      if (!scalar(value) && !(Array.isArray(value) && value.every(scalar))) {
+        return { error: type + ' 需要 params.value，可填写数字、布尔值、文本或数组' };
       }
+      params.value = value;
     }
-    if (params.variable !== undefined && !varNames().includes(String(params.variable))) {
-      warnings.push(`动作 ${type} 的变量「${params.variable}」不在变量表，已忽略`);
-      return;
-    }
-    out.push({ trigger: raw.trigger || 'click', type, params });
-  });
-  return out;
+    actions.push({ trigger: 'click', type, params });
+  }
+  return { actions };
 }
 
 function applyWidgetProps(widget, def, props, warnings) {
@@ -831,6 +845,8 @@ function t_add_widget(a = {}) {
         channels.push(vr.name);
       }
     }
+    const actionResult = normalizeActions(spec.actions, def, varName);
+    if (actionResult.error) { warnings.push('第 ' + (idx + 1) + ' 个：' + actionResult.error); return null; }
     const widget = project.addWidget(type, x, y);   // 内部 commit('添加控件')，外层 batchCommit 会吞掉
     if (!widget) { warnings.push(`第 ${idx + 1} 个：添加「${type}」失败`); return null; }
     project.updateWidgets([widget.id], { w, h });
@@ -842,8 +858,7 @@ function t_add_widget(a = {}) {
       project.updateWidgetField(widget.id, 'bindings.variables', channels);
       if (!varName && channels[0]) project.updateWidgetField(widget.id, 'bindings.startVar', channels[0]);
     }
-    const acts = normalizeActions(spec.actions, warnings);
-    if (acts) project.updateWidgetActions(widget.id, acts);
+    if (actionResult.actions) project.updateWidgetActions(widget.id, actionResult.actions);
     if (spec.locked !== undefined) project.updateWidgets([widget.id], { locked: !!spec.locked });
     const row = { id: widget.id, type, name: widget.name || '', x: widget.x, y: widget.y };
     created.push(row);
@@ -940,19 +955,28 @@ function t_update_widget(a = {}) {
   if (a.name !== undefined) geo.name = String(a.name);
   if (a.locked !== undefined) geo.locked = !!a.locked;
 
-  list.forEach(w => {
+  const actionPlans = list.map(w => normalizeActions(a.actions, registry.get(w.type),
+    a.variable === undefined ? w.bindings?.variable : String(a.variable || '')));
+  const invalid = actionPlans.findIndex(item => item.error);
+  if (invalid >= 0) return badRes('控件「' + list[invalid].name + '」：' + actionPlans[invalid].error,
+    { hint: '跳转用 {type:"gotoPage",params:{page:"页面名或ID"}}；赋值用 {type:"setValue",params:{variable:"变量名",value:0}}。' });
+  list.forEach((w, i) => {
     if (Object.keys(geo).length) project.updateWidgets([w.id], geo);
     const def = registry.get(w.type);
     if (a.props && typeof a.props === 'object') applyWidgetProps(w, def || { type: w.type, props: [], defaults: {} }, a.props, warnings);
     if (a.variable !== undefined) project.updateWidgetField(w.id, 'bindings.variable', String(a.variable || ''));
     if (channels) project.updateWidgetField(w.id, 'bindings.variables', channels);
-    if (a.actions !== undefined) {
-      const acts = normalizeActions(a.actions, warnings);
-      if (acts) project.updateWidgetActions(w.id, acts);
+    const { actions } = actionPlans[i];
+    if (actions) {
+      const bound = w.bindings?.variable;
+      if (w.followBind && bound && actions.some(act => act.params.variable && act.params.variable !== bound)) {
+        w.followBind = false;
+      }
+      project.updateWidgetActions(w.id, actions);
     }
   });
   project.commit(`AI 修改${list.length > 1 ? ` ${list.length} 个控件` : '控件'}`);
-  return okRes(`改了 ${list.length} 个控件`, { pageId: page.id, widgets: list.map(w => ({ id: w.id, type: w.type, name: w.name })) }, { warnings: warnings.length ? warnings : undefined });
+  return okRes(`改了 ${list.length} 个控件`, { pageId: page.id, widgets: list.map(w => ({ id: w.id, type: w.type, name: w.name, ...(a.actions !== undefined ? { actions: w.actions } : {}) })) }, { warnings: warnings.length ? warnings : undefined });
 }
 
 function t_delete_widgets(a = {}) {
@@ -1221,6 +1245,18 @@ const N = { type: 'number' };
 const B = { type: 'boolean' };
 const O = { type: 'object', additionalProperties: true };
 const STR = { type: 'array', items: { type: 'string' } };
+const ACTIONS = {
+  type: 'array',
+  description: '替换点击动作，按执行顺序填。例：[{"type":"setValue","params":{"variable":"运行模式","value":0}},{"type":"gotoPage","params":{"page":"手动画面"}}]',
+  items: { type: 'object', properties: {
+    type: { type: 'string', enum: Object.keys(ACTION_DEFS) },
+    params: { type: 'object', properties: {
+      page: { type: 'string', description: 'gotoPage / showPopup 的页面名称或 ID' },
+      variable: { type: 'string', description: 'setValue / toggle / tap 的变量名' },
+      value: { description: 'setValue 的赋值，支持数字、布尔、文本或数组' },
+    } },
+  }, required: ['type'] },
+};
 const ANY = { type: 'array', items: {} };
 const str = (description, extra) => ({ type: 'string', description, ...(extra || {}) });
 const num = (description, extra) => ({ type: 'number', description, ...(extra || {}) });
@@ -1237,9 +1273,9 @@ function tool(name, description, properties, required) {
 }
 
 export const TOOL_DEFS = [
-  tool('get_project', '看工程现状。给 page = 一次读整页（含每个控件的几何、属性值、绑定、动作），别再逐个控件查；给 widgetId 只查单个控件；都不给 = 工程清单。detail=full|brief 控制是否带属性值。',
+  tool('get_project', '读工程清单、指定页控件或指定控件。detail 控制是否带属性值。',
     { page: S, widgetId: S, detail: str('full|brief，默认 full') }),
-  tool('get_widget_catalog', '查控件库：不给 type 给简表；给 type 给完整属性白名单（props 键必须来自这里）。',
+  tool('get_widget_catalog', '列控件类型，传 type 查尺寸、属性和动作。',
     { type: S }),
   tool('list_pages', '列页面（类型/控件数）。', {}),
   tool('add_page', '新建页面。type: page=普通页 popup=弹窗 base=公共底。',
@@ -1251,11 +1287,11 @@ export const TOOL_DEFS = [
   tool('add_widget', '画控件。整页一次画完用 items（一个调用画任意多个/任意类型，只占 1 步撤销）；单画一个用 type+坐标。props 键须来自 get_widget_catalog。variable 可以是变量名，也可以写 {"name":"x","type":"real"} 顺手建变量。',
     {
       page: S, type: S, name: S, x: N, y: N, w: N, h: N,
-      props: O, variable: O, channels: ANY, actions: ANY, items: ANY,
+      props: O, variable: { anyOf: [S, O] }, channels: ANY, actions: ACTIONS, items: ANY,
       count: N, layout: str('row|col|grid'), gap: N, cols: N, locked: B,
-    }, ['type']),
+    }),
   tool('update_widget', '改控件：几何/名称/props/绑定/动作。定位优先级 ids > name > type > 当前选中。',
-    { page: S, ids: STR, name: S, type: S, x: N, y: N, w: N, h: N, props: O, variable: S, channels: STR, actions: ANY, locked: B }),
+    { page: S, ids: STR, name: S, type: S, x: N, y: N, w: N, h: N, props: O, variable: S, channels: STR, actions: ACTIONS, locked: B }),
   tool('delete_widgets', '删控件（破坏性，需勾允许破坏性操作）。', { page: S, ids: STR }, ['ids']),
   tool('select_widgets', '在画布上选中控件（方便用户微调）。', { ids: STR }, ['ids']),
   tool('list_vars', '列变量表：名字/类型/地址/当前值/保持。', {}),
@@ -1287,8 +1323,8 @@ export const TOOL_DEFS = [
   tool('delete_alarm', '删报警（破坏性，需勾允许破坏性操作）。', { id: S }, ['id']),
   tool('apply_layout_recipe', '套现成版式骨架（推荐第一步）：overview=总览 dashboard=看板 control=操作页，坐标已按 8px 栅格排好，套完再改内容/绑变量。',
     { recipe: str('overview|dashboard|control'), page: S, title: S, subtitle: S, tag: S, kpis: STR, values: STR, units: STR }, ['recipe']),
-  tool('tidy_layout', '排版整理（画完必调）：对齐 8px、收进画布、同行对齐、重叠推开。一步撤销。', { page: S }),
-  tool('inspect_layout', '排版自检（只读）：出界/重叠/栅格/字号/配色/密度。交付前必调，有 error 先修。', { page: S }),
+  tool('tidy_layout', '排版整理（整页排版用）：对齐 8px、收进画布、同行对齐、重叠推开。一步撤销。', { page: S }),
+  tool('inspect_layout', '排版自检（只读）：出界/重叠/栅格/字号/配色/密度。整页修改后检查。', { page: S }),
 ];
 
 /* 工具名 → 执行器（顺序和 TOOL_DEFS 无关，按名字查） */
@@ -1324,8 +1360,8 @@ const TOOL_IMPL = {
 
 /** 同步执行一个工具（不抛异常：任何意外都变成 {ok:false,error}，让模型有机会自己纠正） */
 export function runTool(name, args) {
+  if (!Object.hasOwn(TOOL_IMPL, name)) return badRes(`没有工具「${name}」`);
   const impl = TOOL_IMPL[name];
-  if (!impl) return badRes(`没有工具「${name}」`);
   let a = args;
   if (typeof a === 'string') {
     try { a = JSON.parse(a); } catch { return badRes(`参数不是合法 JSON：${String(args).slice(0, 200)}`); }
@@ -1340,174 +1376,109 @@ export function runTool(name, args) {
 
 export function toolNames() { return TOOL_DEFS.map(t => t.function.name); }
 
-/* ── 按需下发工具（省 token）：外部 MCP agent 便宜，是因为它常驻工具少；
- *    我们 27 个工具的 schema 每轮都要重发 8.4k 字符。做法：每句话只下发"可能用到"的工具组，
- *    一轮对话内工具集保持不变（放请求最前面，厂商侧缓存才可能命中）。
- *    cfg.tool_mode === 'full' 时才下发全部 27 个。 */
-const TOOL_GROUP = {
-  page: ['list_pages', 'add_page', 'update_page', 'delete_page', 'set_current_page', 'get_project'],
-  widget: ['add_widget', 'update_widget', 'delete_widgets', 'select_widgets', 'get_widget_catalog'],
-  vars: ['list_vars', 'add_vars', 'update_var', 'delete_vars'],
-  scripts: ['list_scripts', 'add_script', 'update_script', 'delete_script', 'check_script'],
-  alarms: ['list_alarms', 'add_alarm', 'update_alarm', 'delete_alarm'],
-  layout: ['apply_layout_recipe', 'tidy_layout', 'inspect_layout'],
-};
-const BASE_TOOLS = ['get_project', 'get_widget_catalog', 'list_pages', 'list_vars', 'add_page', 'set_current_page',
-  'add_widget', 'update_widget', 'delete_widgets', 'apply_layout_recipe', 'tidy_layout', 'inspect_layout'];
-const GROUP_HINTS = [
-  ['widget', /控件|按钮|标签|文本|数值|表格|波形|曲线|仪表|管道|管道图|画面元素|输入框|下拉|开关|指示|报警条|报警列表|配方|班次|图片|箭头|棒图|滑动条|lamp|label|button|trend|gauge/i],
-  ['page', /页面|页|画面|弹窗|公共底|底图|切换页/i],
-  ['vars', /变量|点位|信号|地址|plc|modbus|读写|置位|复位|初值|类型/i],
-  ['scripts', /脚本|逻辑|定时|循环|周期|仿真|开机|初始化|on\s?init|script/i],
-  ['alarms', /报警|告警|故障|越限|alarm/i],
-  ['layout', /排版|对齐|美观|好看|布局|版式|整理|重叠|间距|栅格/i],
+// 自动模式只在识别到工程任务时开放工具，显式选择优先。
+const TOOL_GROUPS = [
+  { key: 'page', hint: /页|画面|弹窗|公共底|底图|page/i,
+    names: ['list_pages', 'add_page', 'update_page', 'delete_page', 'set_current_page'] },
+  { key: 'widget', hint: /控件|按钮|标签|文本|文字|数值|表格|波形|曲线|仪表|管道|输入框|下拉|开关|指示灯|报警条|报警列表|配方|班次|图片|箭头|棒图|滑动条|选中|widget|lamp|label|button|trend|gauge/i,
+    names: ['get_widget_catalog', 'add_widget', 'update_widget', 'delete_widgets', 'select_widgets'] },
+  { key: 'vars', hint: /变量|点位|信号|地址|绑定|初值|tag|\bplc\b/i,
+    names: ['list_vars', 'add_vars', 'update_var', 'delete_vars'] },
+  { key: 'scripts', hint: /脚本|定时任务|初始化|script/i,
+    names: ['list_scripts', 'add_script', 'update_script', 'delete_script', 'check_script'] },
+  { key: 'alarms', hint: /报警|告警|越限|alarm/i,
+    names: ['list_alarms', 'add_alarm', 'update_alarm', 'delete_alarm'] },
+  { key: 'layout', hint: /排版|对齐|美观|好看|布局|版式|重叠|间距|栅格|总览|看板|操作页|整页|画(?:一|个|整).{0,4}(?:页|画面)|复刻|还原|(?:按|照着|根据).*(?:图|附件).*(?:画|做|搭)/i,
+    names: ['apply_layout_recipe', 'tidy_layout', 'inspect_layout'] },
 ];
-/** 按用户这句话挑工具（auto 模式）；不认识就只给基础集 */
-export function pickTools(text = '', mode = 'auto') {
-  if (mode === 'full') return TOOL_DEFS;
-  const want = new Set(BASE_TOOLS);
-  const t = String(text || '');
-  GROUP_HINTS.forEach(([g, re]) => { if (re.test(t)) (TOOL_GROUP[g] || []).forEach(n => want.add(n)); });
-  const out = TOOL_DEFS.filter(d => want.has(d.function.name));
-  return out.length ? out : TOOL_DEFS;
+const PROJECT_HINT = /工程|项目|组态|画布/;
+const PROJECT_ACTION = /新建|创建|建一个|建个|添加|加点|加到|帮我做|移到|移动|换到|打开|新增|增加|建立|加上|加个|加一|放个|放一|放几|放上|画个|画一|画整|画出|画面上|复刻|还原|(?:按|照着|根据).*(?:截图|图片|附件).*(?:画|做|搭)|套用|删除|删掉|改一下|改成|改为|调整|修改|更改|改造|换个|换成|替换|检查|查看|看看|查询|查一下|列出|列一下|选中|切换|整理|排版|对齐|写个|写一|写.*脚本|做个|做一|做得|设计|绑定|\b(?:add|create|update|delete|list|inspect)\b/i;
+const ACTION_HINT = /跳转|置变量值|赋值|点击动作|导航按钮|gotoPage|setValue/i;
+const PROJECT_SCOPE = /当前|选中|这个|这些|这页|本页|我的|我们(?:的)?|现有|工程里|上面/;
+const EXPLAIN = /怎么|怎样|如何|啥是|什么是|为什么|讲讲|解释|介绍一下|举例|请教|^(?:what|how|why)\b/i;
+const FOLLOW_UP = /^(?:请)?(?:继续|接着|然后|再|那就|照着|按这个|按上面)|(?:改成|改为|换成|移到|缩小|放大|往[上下左右]移)/;
+
+function topicsFor(text) {
+  const keys = new Set(TOOL_GROUPS.filter(g => g.hint.test(text)).map(g => g.key));
+  if (ACTION_HINT.test(text)) keys.add('widget');
+  if (/跳转|导航|gotoPage/i.test(text)) keys.add('page');
+  if (/置变量值|赋值|setValue/i.test(text)) keys.add('vars');
+  if (keys.has('layout')) {
+    keys.add('page');
+    keys.add('widget');
+  }
+  return keys;
 }
 
-/* ════════════════════════════════════════════════════════════════
- * 4. 提示词
- * ════════════════════════════════════════════════════════════════ */
+export function assistantMode(text, preference = 'auto') {
+  if (preference === 'chat' || preference === 'project') return preference;
+  const ask = String(text || '').trim();
+  if (!ask || EXPLAIN.test(ask)) return 'chat';
+  const mentionsProject = PROJECT_HINT.test(ask) || topicsFor(ask).size > 0;
+  if (mentionsProject && (PROJECT_ACTION.test(ask) || PROJECT_SCOPE.test(ask) || ACTION_HINT.test(ask))) return 'project';
+  const previous = turns.at(-1);
+  return previous?.mode === 'project' && FOLLOW_UP.test(ask) ? 'project' : 'chat';
+}
 
-/** 给模型看的「当前工程简报」——每轮都重算（上一轮改了什么，下一轮立刻知道） */
-/** 统计工程里现有的颜色/字号（给提示词当"这个工程长什么样"的参考，新页面要跟着走） */
-function styleSnapshot() {
-  const colors = new Map();
-  const fonts = new Map();
-  allPages().forEach(p => (p.widgets || []).forEach(w => {
-    const pr = w.props || {};
-    Object.keys(pr).forEach(k => {
-      const v = pr[k];
-      if (/color/i.test(k) && /^#[0-9a-fA-F]{6}$/.test(String(v || ''))) {
-        const c = String(v).toLowerCase();
-        colors.set(c, (colors.get(c) || 0) + 1);
-      }
-      if (k === 'fontSize' && Number(v) > 0) fonts.set(Number(v), (fonts.get(Number(v)) || 0) + 1);
-    });
-  }));
-  const topC = [...colors.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(x => x[0]);
-  const topF = [...fonts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(x => x[0]);
-  return { colors: topC, fonts: topF };
+export function pickTools(text = '') {
+  const topics = topicsFor(text);
+  if (!topics.size) return TOOL_DEFS;
+  const names = new Set(['get_project']);
+  for (const { key, names: group } of TOOL_GROUPS) {
+    if (topics.has(key)) group.forEach(name => names.add(name));
+  }
+  if (topics.has('alarms')) names.add('list_vars');
+  return TOOL_DEFS.filter(def => names.has(def.function.name));
+}
+
+const CHAT_PROMPT = '你是 HMI 组态设计器的助手。按用户的语言简明回答；如果用户要求读取或修改当前工程，提示使用「工程」模式。';
+const PROJECT_PROMPT = [
+  '你是 HMI 组态助手。按用户要求读取或修改当前工程，结果用简短中文说明。',
+  '局部修改直接操作；需要真实 ID 或属性时，先集中查询，只用已确认的引用。不要重复读取。',
+  '工具按给出的次序执行。同一批先建页面或变量，再加控件、绑定或跳转。整页控件用 add_widget.items 批量创建。',
+  '整页设计尽量同批建页、批量加控件、整理并检查出界和重叠。删除被拒绝时说明如何启用删除。批量翻译使用面板的「翻译」。',
+  '布局沿用原有风格，8px 对齐、16px 边距；空白页可用 overview 总览、dashboard 看板、control 操作页。',
+].join('\n');
+
+export function buildSystemPrompt(tools = TOOL_DEFS) {
+  const names = new Set(tools.map(def => def.function.name));
+  const notes = [PROJECT_PROMPT];
+  if (names.has('add_widget') || names.has('update_widget')) {
+    notes.push('控件类型：' + registry.list().map(def => `${def.type}=${def.title}`).join('、'));
+    notes.push('看控件属性前先查对应类型；数值显示用 number，editable:false。');
+  }
+  if (names.has('add_script') || names.has('update_script')) {
+    notes.push('脚本 API：hmi.get/set/has/vars/log/warn/page/popup/hidePopup/back/alarms/permLevel/can/lock/now/time/fmtTime/sim/project，hmi.v.变量名和 hmi.v.数组名[2] 可读写，hmi.g 存跨调用状态。使用 let/const，无 DOM、import 或 async。');
+  }
+  return notes.join('\n');
 }
 
 export function projectBrief() {
   const meta = project.data?.meta || {};
-  const cur = project.currentPage();
-  const lines = [];
-  lines.push(`工程：${meta.name || '(未命名)'}｜画布 ${meta.canvas?.w || 1024}×${meta.canvas?.h || 600}`);
-  const ps = allPages().map(p => `${p.name}[${PAGE_TYPES[p.type] || p.type},${(p.widgets || []).length}控件,${p.id}]`);
-  lines.push(`页面(${ps.length})：${ps.join(' ') || '（空）'}`);
-  if (cur) {
-    const sel = getSelection();
-    const selNames = (cur.widgets || []).filter(w => sel.includes(w.id)).map(w => `${w.name || w.type}(${w.id})`);
-    lines.push(`当前页：${cur.name}（${(cur.widgets || []).length} 控件）｜选中：${selNames.join('、') || '无'}`);
-  }
-  const vs = allVars();
-  // 变量只报"名字:类型"，不报 PLC 地址（地址模型基本用不到，几十个变量光地址就几百字）；超过 24 个只列前 24 个
-  const vsShown = vs.slice(0, 24).map(v => `${v.name}:${v.type}`).join(' ');
-  lines.push(`变量(${vs.length})：${vsShown || '（空）'}${vs.length > 24 ? ` …（还有 ${vs.length - 24} 个，用 list_vars 查）` : ''}`);
-  lines.push(`报警 ${allAlarms().length} 条｜脚本 ${allScripts().length} 个${allScripts().length ? '（' + allScripts().map(s => `${s.name}:${s.trig}`).join(' ') + '）' : ''}`);
-  try {
-    const st = i18nState();
-    const langs = (st.langs || []).map(l => l.code);
-    lines.push(`语言：默认 ${st.default || ''}｜其它 ${langs.join(',') || '（无，要翻译先加语言）'}`);
-  } catch { /* ignore */ }
-  const st = styleSnapshot();
-  if (st.colors.length || st.fonts.length) {
-    lines.push(`视觉风格（已有页面在用的，新页面必须沿用）：颜色 ${st.colors.join(' ') || '—'}｜字号 ${st.fonts.join('/') || '—'}`);
-  } else {
-    lines.push('视觉风格：工程还是空的 → 用内置工控色板（#11283f 深色条 / #35c8d2 强调 / #ffffff 卡片 / #d8e2eb 描边 / #eaf1f6 浅底 / #24518f 主按钮 / #173550 标题 / #4b657a 正文）');
-  }
-  lines.push(`危险操作闸门：${allowDestructive ? '已打开' : '已关闭（删东西会被拒绝，只能改/加）'}`);
-  return lines.join('\n');
+  const page = project.currentPage();
+  const ids = getSelection();
+  const selected = (page?.widgets || []).filter(w => ids.includes(w.id))
+    .slice(0, 5).map(w => [shorten(w.name || w.type, 80), w.id]);
+  return JSON.stringify({
+    工程: shorten(meta.name || '未命名', 80),
+    画布: [meta.canvas?.w || 1024, meta.canvas?.h || 600],
+    当前页: page && { 名称: shorten(page.name, 80), id: page.id, 控件数: page.widgets?.length || 0 },
+    选中: selected,
+    允许删除: allowDestructive,
+  });
 }
 
-/** 控件速查表（写进 system prompt，省得每个都去查 catalog） —— 只列 type=中文名，默认尺寸由 catalog 提供 */
-function widgetCheatSheet() {
-  return registry.list().map(def => `${def.type}=${def.title}`).join(' ');
-}
-
-const SCRIPT_API_DOC = [
-  'hmi.get(名)、hmi.set(名, 值)、hmi.has(名)、hmi.vars()、hmi.log(...)、hmi.warn(...)、hmi.logNo(...)',
-  'hmi.page(页名或id)、hmi.popup(页名或id)、hmi.hidePopup()、hmi.back()、hmi.alarms()',
-  'hmi.permLevel()、hmi.can(级别)、hmi.lock()、hmi.now()、hmi.time(fmt)、hmi.sim()、hmi.fmtTime(ts, fmt)',
-  'hmi.project.name()、hmi.project.pageId()、hmi.project.pageName()',
-  'hmi.v：属性写法 hmi.v.变量名（读写，打错名字会抛异常）；hmi.g：跨次调用/跨脚本的临时对象（不落盘）',
-  '代码是严格模式（strict）：必须用 let/const，不能用隐式全局；每次执行是新的 let/const 作用域，所以跨调用状态放 hmi.g',
-  '没有 async/await、没有 import/require、没有 DOM、没有超时中断（死循环会卡死界面）',
-].join('\n');
-
-export function buildSystemPrompt() {
-  return [
-    '你是「HMI 组态设计器」内置的 AI 助手，直接操作当前工程；用户是工控/电气工程师，说话简短。你要动手干活，不要长篇解释。',
-    '',
-    '【工作方式】',
-    '1) 先看后改，但"看"要一次看全：读整页用 get_project{page}（一次回整页的几何+属性值+绑定+动作，别再按控件逐个查）；工程清单用 get_project{}；配属性前先 get_widget_catalog 查白名单（同一个 type 查一次就够）。',
-    '2) 一轮可以发多个工具调用：能并行的合并到同一轮（同时查多个控件/同时建多个控件），不要一个动作一轮、不要问一句等一句。改完用一两句中文说清"改了什么、在哪个页面、怎么验证"，不要贴 JSON、不要复述工具结果。',
-    '3) 变量、页面先建后用：绑变量必须先 add_vars；跳转引用的页面必须先 add_page（同一轮里建完再引用）。',
-    '4) 脚本触发按意图选：init=开机一次；interval=每 ms；cycle=每 50ms；change=变量变了才跑；cond=条件成立才跑。只用 hmi 那套 API。',
-    '5) 用户要"整站翻译"时，让他点面板「翻译」按钮（专门的多语言批量流程）；你只负责界面文字本身写对。',
-    '6) 删除类操作被安全闸拒绝时不要重试，直接请用户勾「允许破坏性操作」。',
-    '7) 工具返回 ok:false 时按 error 改参数重试最多 2 次，再不行就说明原因。',
-    '8) 中文回答，简洁具体，带页面名和控件名；不要 markdown 表格，代码只给必要几行。',
-    '9) 新建页面/大改版面，交付前必须 tidy_layout → inspect_layout；有 error（出界、重叠）必须修掉才能说完成。',
-    '10) 同一个查询（同样参数的 get_project / list_* / get_widget_catalog / check_script）在一次任务里只调一次：拿到结果就直接动手改；重复调用不会得到新信息，系统会直接判"原地打转"，连续 3 轮就停手。',
-    '',
-    '',
-    '【一轮干完】（最重要：每多一轮 = 整套上下文再付一次钱）',
-    '工具在一次回复里按顺序依次执行，所以"建页面→画控件→排版→自检"可以全部放进同一轮：',
-    '· 新建整页：同一轮发 [add_page(...), add_widget({page, items:[{type,x,y,w,h,props,variable}, …整页所有控件…]}), apply_layout_recipe 或 tidy_layout, inspect_layout]；variable 可以直接写 {"name":"x","type":"real"}，不存在的变量会顺手建好，不用先 add_vars。',
-    '· 改造现有页：同一轮发 [get_project(page) 拿真实 id/名称, update_widget(...) ×N 或 add_widget(items) 补控件]。',
-    '· 只有"必须先看到真实数据才能决定下一步"时才分两轮（例如用户没说清要改哪一页）；能一次发齐却分成多轮，属于错误用法。',
-    '· 局部任务（加 1~2 个控件）就一个 add_widget 或 update_widget 调用，不要先查工程、也不要逐个试。',
-    '· 不重复读：同样参数的查询一次就够，已经拿到的内容在历史里，再查一遍既没新信息又多付一轮钱。',    '【视觉规范】栅格 8px；页边距 16；卡片 gap 16、内边距 16；x/y/w/h 都取 8 的倍数。字号 24/16/14/12（≥10，同页 ≤4 种）。一页 ≤15 控件；配色 ≤3 类、含描边 ≤6 色。工控色板：#11283f 深条 / #f7fbff 条上字 / #35c8d2 强调 / #ffffff 卡片 / #d8e2eb 描边 / #eaf1f6 浅底 / #24518f 主按钮 / #173550 标题 / #4b657a 正文 / #718497 次要。结构：顶部深色标题条（标题+副标题+右上标签）→ 中间 2~4 张白卡（radius 14、1px 描边）→ 底部浅底条；KPI 上排、报警放顶部或右侧显眼处。禁止：重叠、出界、塞满、渐变、文字压边框。',
-    '',
-    '【布局配方】新做一页先 apply_layout_recipe（overview=总览 / dashboard=看板 / control=操作页）铺骨架，再改文字、绑变量；铺几十个控件只占 1 步撤销。套完 tidy_layout → inspect_layout → 按 issues 修。只要加一个按钮/数值这类局部改动，别套整页，直接对齐进已有卡片的 8px 网格。',
-    '',
-    '【工程数据模型】page: {id,name,type:"page|popup|base",title,popupW,popupH,showClose,baseIds?,widgets[]}｜widget: {id,type,name,x,y,w,h,z,locked,props{},bindings{variable?|variables?|startVar?},actions[{trigger:"click",type,params}]}｜variable: {name,type:"bool|int|real|string",address,value,len}｜alarm: {id,name,variable,op,value,level:"info|warn|alarm|urgent",delaySec,enabled,text}｜script: {id,name,trig,ms,variable,op,value,code,enabled}｜多语言译文 meta.i18n.dict[语言][原文]（整句共享）。',
-    '',
-    '【控件速查】' + widgetCheatSheet(),
-    '',
-    '【脚本可用 API】',
-    SCRIPT_API_DOC,
-    '',
-    '【摆放约定】原点左上；起摆取 16/24 倍数、间距 16；按钮 110×46；波形/仪表盘单独占卡，别压别的控件。',
-  ].join('\n');
-}
-
-/* ════════════════════════════════════════════════════════════════
- * 5. 多轮对话编排
- * ════════════════════════════════════════════════════════════════ */
-
-/** 会话历史（只存 user / assistant / tool 三类消息，滚动保留最近若干条） */
-const _conv = [];
-const MAX_HISTORY = 400;
-// 省 token：最近 8 条消息保持原文（含刚拿到的工具结果），更早的降级（工具结果换占位、长正文截断）
-const KEEP_FULL = 8;
-const OLD_TOOL_STUB = '（早期工具结果已省略：内容太多，需要时用更精确的参数重新调用）';
-const OLD_TEXT_MAX = 500;
-/** 单条工具结果写进历史的字数上限（超出就只留 ok/summary/warnings + 截断提示） */
+const turns = [];
+const HISTORY_TURNS = 6;
+const HISTORY_CHARS = 3600;
 const TOOL_MSG_MAX = 1200;
-// 会话压缩：历史估算超过这个字数（≈2.5k token），就把更早的对话压成一段"前情提要"
-const CONV_CHAR_BUDGET = 9000;
-const CONV_MSG_MAX = 40;
-const AGGR_KEEP = 6;
-const SUMMARY_MAX = 2600;
-/** 更早对话压缩成的一段提要（跟着系统提示一起发，不进 _conv） */
-let _convSummary = '';
-// 工具失败保护：第一批就失败 → 立刻注入纠偏提示；同类错误连续 3 批还不停 → 直接停手，别烧 token
-const FAIL_HINT_AT = 1;
-const FAIL_STOP_AT = 3;
-// 不思考（thinking=disabled）时模型容易原地打转、反复发同样的查询：同参数只查询一次，重复的直接回提示
-const DUP_STOP_AT = 3;              // 连续这么多轮全是重复查询就停手
+const TOOL_HISTORY_CHARS = 9000;
+const TOOL_HISTORY_BATCHES = 6;
+const ROUND_STOP = 3;
 const READ_TOOLS = new Set(['get_project', 'get_widget_catalog', 'list_pages', 'list_vars', 'list_scripts', 'list_alarms', 'check_script']);
+const STABLE_READ_TOOLS = new Set(['get_widget_catalog', 'check_script']);
+let activeTurn = null;
+
 /** 失败结果里最值得回给模型的"可执行纠正信息"字段（清单/候选人/建议） */
 const FAIL_KEEP = ['hint', 'widgets', 'ids', 'pages', 'variables', 'types', 'recipes', 'props', 'actions', 'name', 'pageId', 'pageName'];
 
@@ -1533,13 +1504,6 @@ function failedFixText(r, max = 600) {
   return s.length > max ? s.slice(0, max) + '…' : s;
 }
 
-export function resetConversation() { _conv.length = 0; _convSummary = ''; }
-export function conversationLength() { return _conv.length; }
-/** 诊断用：当前会话的估算字符数 / 是否已压缩过 */
-export function conversationStats() {
-  return { messages: _conv.length, chars: convChars(), summarized: !!_convSummary };
-}
-
 /**
  * 把工具执行结果压成「够模型判断、又不会撑爆上下文」的一段 JSON 字符串。
  * 面板显示用的是 onToolEnd 的完整结果，不受这里影响。
@@ -1556,6 +1520,7 @@ export function compactToolMessage(name, r) {
       const rowOf = (w, withProps) => {
         const bits = [w.name || '', w.id, w.type, `${w.x},${w.y}`, `${w.w}x${w.h}`];
         if (w.bindings && typeof w.bindings === 'object' && Object.keys(w.bindings).length) bits.push('v:' + JSON.stringify(slimData(w.bindings)).slice(0, 160));
+        if (w.actions?.length) bits.push('a:' + JSON.stringify(w.actions).slice(0, 360));
         if (withProps) {
           const pv = (w.props && typeof w.props === 'object' && !Array.isArray(w.props)) ? w.props : null;
           if (pv && Object.keys(pv).length) bits.push('p:' + JSON.stringify(pv).slice(0, 400));
@@ -1637,328 +1602,287 @@ export function compactToolMessage(name, r) {
   }
 }
 
-function msgChars(m) {
-  if (!m) return 0;
-  let n = typeof m.content === 'string' ? m.content.length : 0;
-  if (Array.isArray(m.tool_calls)) {
-    for (const c of m.tool_calls) {
-      const raw = c && c.function && c.function.arguments;
-      if (typeof raw === 'string') n += raw.length;
-    }
+function shorten(text, limit) {
+  const value = String(text || '');
+  return value.length > limit ? value.slice(0, limit) + '…' : value;
+}
+
+function historyFor(mode) {
+  const recent = [];
+  let chars = 0;
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const turn = turns[i];
+    if (turn.mode !== mode) continue;
+    const user = shorten(turn.text, 900);
+    const reply = [shorten(turn.reply, 930), shorten(turn.activity, 420)].filter(Boolean).join('\n');
+    if (chars + user.length + reply.length > HISTORY_CHARS) break;
+    chars += user.length + reply.length;
+    recent.unshift(...(reply ? [{ role: 'user', content: user }, { role: 'assistant', content: reply }] : [{ role: 'user', content: user }]));
   }
-  return n;
-}
-function convChars() {
-  let n = _convSummary.length;
-  for (const m of _conv) n += msgChars(m);
-  return n;
+  return recent;
 }
 
-function oneLine(s, max) {
-  const t = String(s || '').replace(/\s+/g, ' ').trim();
-  return t.length > max ? t.slice(0, max) + '…' : t;
+export function resetConversation() {
+  activeTurn?.cancel();
+  turns.length = 0;
+}
+export function restoreConversation(history) {
+  resetConversation();
+  turns.push(...history.slice(-HISTORY_TURNS));
+}
+export function conversationLength() { return turns.length; }
+
+function stableJson(value) {
+  if (!value || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map(stableJson).join(',') + ']';
+  return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + stableJson(value[key])).join(',') + '}';
 }
 
-/** 把一批较早的消息压成一段"前情提要"（纯本地规则，不花 token） */
-function summarizeOlder(msgs) {
-  const asks = [];
-  const dids = [];
-  let toolCount = 0;
-  for (const m of msgs) {
-    if (!m) continue;
-    if (m.role === 'user') {
-      const t = oneLine(m.content, 100);
-      if (t) asks.push(t);
-    } else if (m.role === 'assistant') {
-      if (typeof m.content === 'string' && m.content.trim()) {
-        const t = oneLine(m.content, 110);
-        if (t && dids[dids.length - 1] !== t) dids.push(t);
-      }
-    } else if (m.role === 'tool') {
-      toolCount++;
-    }
+function parseCall(call, round, index) {
+  const raw = typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments || {});
+  let args = null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) args = parsed;
+  } catch { /* 执行前报参数错误 */ }
+  return { id: call.id || `call_${round}_${index}`, name: call.name, args, raw };
+}
+
+function toolBatch(calls, content, results) {
+  return [
+    {
+      role: 'assistant', content: content || null,
+      tool_calls: calls.map(c => ({
+        id: c.id, type: 'function', function: { name: c.name, arguments: c.args ? c.raw : '{}' },
+      })),
+    },
+    ...results.map(r => ({ role: 'tool', tool_call_id: r.id, content: compactToolMessage(r.name, r.result) })),
+  ];
+}
+
+function requestRound(ctl, body, emit) {
+  return new Promise((resolve, reject) => {
+    let text = '';
+    let outputStarted = false;
+    ctl.chat = aiClient.chat(body, {
+      onDelta: delta => {
+        outputStarted ||= !!(delta.text || delta.reasoning);
+        text += delta.text || '';
+        emit('onDelta', delta);
+      },
+      onDone: info => resolve({ ...info, content: (info.content || text).trim() }),
+      onError: (message, code) => reject(Object.assign(new Error(message), { code, outputStarted })),
+    });
+  });
+}
+
+/** 完整执行一次提问。工具消息只在本次任务内使用，按整批保留协议配对。 */
+export function runAssistant({ text, mode = 'auto', attachments = [], handlers = {} } = {}) {
+  const ask = String(text || '').trim();
+  if (!ask || activeTurn) return { cancel() {} };
+
+  const scope = assistantMode(ask, mode);
+  const previous = turns.findLast(turn => turn.mode === 'project');
+  const intent = scope === 'project' && previous && FOLLOW_UP.test(ask) && !topicsFor(ask).size
+    ? previous.intent : ask;
+  const tools = scope === 'project' ? pickTools(intent) : [];
+  const allowed = new Set(tools.map(def => def.function.name));
+  const system = [
+    { role: 'system', content: scope === 'chat' ? CHAT_PROMPT : buildSystemPrompt(tools) },
+    ...(tools.length ? [{ role: 'system', content: '当前工程：' + projectBrief() }] : []),
+  ];
+  const user = { role: 'user', content: messageWithAttachments(ask, attachments) };
+  let history = historyFor(scope);
+
+  const batches = [];
+  const activity = [];
+  const earlier = [];
+  const ctl = { chat: null, cancel };
+  const usage = { prompt_tokens: 0, cached_tokens: 0, completion_tokens: 0 };
+  let reply = '';
+  let activeRound = 0;
+  let started = 0;
+  let elapsed = 0;
+  let toolChars = 0;
+  let retriedContext = false;
+  function emit(name, ...args) {
+    try { handlers[name]?.(...args); } catch (error) { console.warn('[aiTools] 回调失败', error); }
   }
-  const tail = a => (a.length > 4 ? a.slice(-4) : a);
-  const lines = [];
-  lines.push(`【前情提要（更早的 ${msgs.length} 条对话为省 token 已压缩，其中 ${toolCount} 次工具调用）】`);
-  lines.push('用户先后要求：' + (asks.length ? tail(asks).join('；') : '—'));
-  if (dids.length) lines.push('已经做过/说过：' + tail(dids).join('；'));
-  return lines.join('\n');
-}
-
-function trimHistory() {
-  if (_conv.length > MAX_HISTORY) _conv.splice(0, _conv.length - MAX_HISTORY);
-
-  // 第一级：滑动窗口 —— 最近 KEEP_FULL 条原样；更早的降级（历史每轮都要重发，这是"省钱"关键）
-  const cut = _conv.length - KEEP_FULL;
-  for (let i = 0; i < cut; i++) {
-    const m = _conv[i];
-    if (!m) continue;
-    if (m.role === 'tool') {
-      if (m.content !== OLD_TOOL_STUB) m.content = OLD_TOOL_STUB;
-    } else if (m.role === 'assistant' && typeof m.content === 'string' && m.content.length > OLD_TEXT_MAX) {
-      m.content = m.content.slice(0, OLD_TEXT_MAX) + '…（后文省略）';
-    } else if (m.role === 'system' && typeof m.content === 'string' && m.content.length > 400) {
-      m.content = m.content.slice(0, 400) + '…';
-    }
+  function finish(name, ...args) {
+    if (activeTurn !== ctl) return;
+    activeTurn = null;
+    const context = {
+      mode: scope, text: shorten(ask, 1350), intent: shorten(intent, 900),
+      reply: shorten(reply, 1350), activity: activity.length ? '已执行：' + activity.join('；') : '',
+    };
+    turns.push(context);
+    if (turns.length > HISTORY_TURNS) turns.shift();
+    emit('onTurn', context);
+    emit(name, ...args);
+  }
+  function roundEnd(info = {}) {
+    if (!activeRound) return;
+    const ms = Number(info.elapsed_ms) || Date.now() - started;
+    elapsed += ms;
+    emit('onRoundEnd', { round: activeRound, elapsed_ms: ms, finish_reason: info.finish_reason, usage: info.usage });
+    activeRound = 0;
+  }
+  function cancel() {
+    if (activeTurn !== ctl) return;
+    ctl.chat?.cancel();
+    roundEnd();
+    finish('onError', '已取消', 'cancel');
   }
 
-  // 第二级：还是太长（或消息太多）→ 把更早的整段压成"前情提要"，只留最近 AGGR_KEEP 条
-  if (convChars() <= CONV_CHAR_BUDGET && _conv.length <= CONV_MSG_MAX) return;
-  let keepFrom = Math.max(0, _conv.length - AGGR_KEEP);
-  // 不能把 assistant(tool_calls) 和它对应的 tool 结果切开，也不能让历史以 tool 开头
-  while (keepFrom < _conv.length && _conv[keepFrom] && _conv[keepFrom].role === 'tool') keepFrom++;
-  if (keepFrom <= 0) return;
-  const older = _conv.slice(0, keepFrom);
-  const summary = summarizeOlder(older);
-  if (!summary) return;
-  _convSummary = (_convSummary ? _convSummary + '\n' + summary : summary).slice(-SUMMARY_MAX);
-  _conv.splice(0, keepFrom);
-}
-
-// 稳定序列化：同样的查询参数永远得到同一个签名（去重用，键顺序不影响）
-function stableJson(v) {
-  if (v === null || typeof v !== 'object') return JSON.stringify(v);
-  if (Array.isArray(v)) return '[' + v.map(stableJson).join(',') + ']';
-  const keys = Object.keys(v).sort();
-  return '{' + keys.map(k => JSON.stringify(k) + ':' + stableJson(v[k])).join(',') + '}';
-}
-
-function callSig(name, args) { return String(name) + '|' + stableJson(args || {}); }
-
-function parseArgs(raw) {
-  if (raw === undefined || raw === null || raw === '') return {};
-  if (typeof raw === 'object') return raw;
-  try { return JSON.parse(String(raw)); } catch { return { __raw: String(raw) }; }
-}
-
-/**
- * 跑一轮完整对话（内部自己决定要不要继续调模型）。
- *
- * @param {object} opt
- * @param {string} [opt.text] 用户新消息（省略 = 只继续跑上一轮没做完的工具循环，目前用不到）
- * @param {object} opt.handlers 面板回调：
- *   onUser(text) onRound(n) onRoundEnd({round,elapsed_ms,finish_reason,usage})
- *   onDelta({text,reasoning}) onToolStart(list) onToolEnd(list)
- *   onDone({content, rounds, usage, elapsed_ms}) onError(message, code)
- * @returns {{cancel:()=>void}} 立即返回，方便面板绑"停止"按钮
- */
-export function runAssistant(opt = {}) {
-  const text = (opt.text === undefined || opt.text === null) ? '' : String(opt.text);
-  const handlers = opt.handlers || {};
-  const ctl = { cancelled: false, chat: null };
-  const h = (name, ...args) => {
-    const fn = handlers[name];
-    if (typeof fn === 'function') { try { fn(...args); } catch (e) { console.warn('[aiTools] handler 出错：' + name, e); } }
-  };
-
-  const cancel = () => {
-    ctl.cancelled = true;
-    try { ctl.chat?.cancel(); } catch { /* 已经结束了 */ }
-  };
-
-  (async () => {
-    if (text.trim()) {
-      _conv.push({ role: 'user', content: text });
-      h('onUser', text);
-    }
+  activeTurn = ctl;
+  emit('onUser', ask);
+  void (async () => {
     try {
-      const cfg = await aiClient.getConfig().catch(() => null);
-      // 对话轮次**不限**：工具调用属于内部往返，不消耗轮次预算。
-      // max_rounds 只当"工具批次保险"用：>0 时，一次提问里工具批次达到上限就停（并提示可以再发「继续」）。
-      const rawBatches = Number(cfg?.max_rounds);
-      const maxBatches = Number.isFinite(rawBatches) && rawBatches > 0 ? Math.round(rawBatches) : 0;
-      // 单次提问的输入 token 预算：每轮 prompt_tokens 已含"重发的全部历史"，累加就是真实输入花费
-      const rawBudget = Number(cfg?.budget_tokens);
-      const budget = Number.isFinite(rawBudget) && rawBudget > 0 ? Math.round(rawBudget) : 0;
-      let lastContent = '';
-      let totalUsage = { prompt_tokens: 0, completion_tokens: 0 };
-      let elapsed = 0;
-      let roundNo = 0;
-      let batchCount = 0;   // 已经执行过的工具批次
-      let failStreak = 0;   // 连续失败的工具批次（一旦成功就清零）
-  let dupStreak = 0;   // 连续「整轮都是重复查询」的轮数（模型原地打转）
-  const seenReads = new Map();   // 本回合已执行过的只读查询（同参数不重复执行）
-      let lastFailMsg = '';
-      // 工具集在整轮对话内保持一致（放请求最前面，厂商侧前缀缓存才可能命中）
-      const tools = pickTools(opt.text, cfg?.tool_mode === 'full' ? 'full' : 'auto');
-      for (let round = 1; ; round++) {
-        if (maxBatches > 0 && batchCount >= maxBatches) break;
-        roundNo = round;
-        if (ctl.cancelled) return;
-        h('onRound', round);
-        trimHistory();
-        const messages = [
-          { role: 'system', content: buildSystemPrompt() },
-          { role: 'system', content: '【当前工程简报】\n' + projectBrief() },
-          ...(_convSummary ? [{ role: 'system', content: _convSummary }] : []),
-          ..._conv,
-        ];
-        let streamed = '';
-        let finish = '';
-        let toolCalls = null;
-        let usage = null;
-        let errMsg = '';
-        let errCode = '';
-        const t0 = Date.now();
-        let roundMs = 0;
-        const res = await new Promise(resolve => {
-          const pending = { done: false };
-          const finishOnce = payload => { if (pending.done) return; pending.done = true; resolve(payload); };
-          ctl.chat = aiClient.chat({ messages, tools, tool_choice: 'auto' }, {
-            onDelta: d => {
-              if (ctl.cancelled) return;
-              if (d && d.text) { streamed += d.text; }
-              if (d) h('onDelta', d);
-            },
-            onTool: calls => { toolCalls = calls; },
-            onDone: info => {
-              finish = info?.finish_reason || '';
-              if (info?.content) streamed = info.content;
-              toolCalls = (info && Array.isArray(info.tool_calls) && info.tool_calls.length) ? info.tool_calls : toolCalls;
-              usage = info?.usage || null;
-              roundMs = Number(info?.elapsed_ms) || 0;
-              elapsed += Number(info?.elapsed_ms) || 0;
-              finishOnce({ ok: true });
-            },
-            onError: (msg, code) => {
-              errMsg = String(msg || '未知错误');
-              errCode = String(code || '');
-              finishOnce({ ok: false, code: errCode, message: errMsg });
-            },
-          });
-          if (ctl.cancelled) { try { ctl.chat?.cancel(); } catch { /* ignore */ } finishOnce({ ok: false, code: 'cancel', message: '已取消' }); }
-        });
-        // 这一轮模型请求的用时（后端测的 elapsed_ms；取消/报错时用本地墙钟兜底）
-        h('onRoundEnd', { round, elapsed_ms: roundMs || (Date.now() - t0), finish_reason: finish, usage });
-        if (!res.ok) {
-          // 取消：也要通知面板一声，它才知道这次是"用户按了停止"（好画「（已停止）」）
-          if (res.code === 'cancel' || ctl.cancelled) { h('onError', '已取消', 'cancel'); return; }
-          h('onError', res.message, res.code || 'http');
+      const cfg = aiClient.config || await aiClient.getConfig().catch(() => AI_DEFAULTS);
+      const { budget_tokens: budget, max_rounds: maxBatches } = { ...AI_DEFAULTS, ...cfg };
+      const seen = new Set();
+      let readVersion = 0;
+      let repeats = 0;
+      let failures = 0;
+      let failedSignature = '';
+      const archiveBatch = () => {
+        const old = batches.shift();
+        toolChars -= old.chars;
+        old.reads.forEach(signature => seen.delete(signature));
+        if (old.summary) earlier.push(shorten(old.summary, 325));
+        if (earlier.length > 4) earlier.shift();
+      };
+      const nextContext = () => [
+        ...system, ...history, user,
+        ...(earlier.length ? [{ role: 'assistant', content: '本次任务前面已处理：' + earlier.join('；') }] : []),
+        ...(retriedContext && activity.length ? [{ role: 'assistant',
+          content: '已执行的修改：' + activity.join('；') + '。请只继续未完成的部分。' }] : []),
+        ...batches.flatMap(batch => batch.messages),
+      ];
+      const request = messages => requestRound(ctl, tools.length ? { messages, tools } : { messages }, emit);
+      for (let round = 1; activeTurn === ctl; round++) {
+        activeRound = round;
+        started = Date.now();
+        emit('onRound', round);
+        if (activeTurn !== ctl) return;
+        const done = extra => finish('onDone', { content: reply, rounds: round, elapsed_ms: elapsed, usage, ...extra });
+        const context = nextContext();
+        let info;
+        try {
+          info = await request(context);
+        } catch (error) {
+          if (error.code !== 'context_limit' || error.outputStarted || retriedContext || activeTurn !== ctl) throw error;
+          // 用户这条指令和原附件完整保留，压缩已发送过的对话和已执行的工具记录。
+          const i = history.findLastIndex(message => message.role === 'user');
+          if (i >= 0) history = history.slice(i).map(message => ({ ...message, content: shorten(message.content, 240) }));
+          while (batches.length) archiveBatch();
+          retriedContext = true;
+          const compacted = nextContext();
+          if (JSON.stringify(compacted).length >= JSON.stringify(context).length) {
+            retriedContext = false;
+            throw error;
+          }
+          emit('onCompact');
+          if (activeTurn !== ctl) return;
+          info = await request(compacted);
+          info.elapsed_ms = Date.now() - started;
+        }
+        if (activeTurn !== ctl) return;
+        ctl.chat = null;
+        roundEnd(info);
+        for (const key of Object.keys(usage)) usage[key] += Number(info.usage?.[key]) || 0;
+        if (info.content) {
+          reply = info.content;
+          emit('onContent', reply);
+        }
+        if (info.finish_reason === 'length' || info.finish_reason === 'max_tokens') {
+          done({ finish_reason: 'length' });
           return;
         }
-        if (usage) {
-          totalUsage.prompt_tokens += Number(usage.prompt_tokens) || 0;
-          totalUsage.completion_tokens += Number(usage.completion_tokens) || 0;
+        if (!tools.length && info.tool_calls?.length && !info.content) {
+          finish('onError', '模型返回了工程操作。需要执行时，请切换到「工程」模式。', 'tool');
+          return;
         }
-        if (streamed.trim()) { lastContent = streamed.trim(); h('onContent', lastContent); }
-
-        if (!toolCalls || !toolCalls.length) {
-          _conv.push({ role: 'assistant', content: lastContent || '' });
-          h('onDone', { content: lastContent || '', rounds: round, usage: totalUsage, elapsed_ms: elapsed, finish_reason: finish });
+        if (!tools.length || !info.tool_calls?.length) {
+          done({ finish_reason: info.finish_reason });
+          return;
+        }
+        if (budget > 0 && usage.prompt_tokens >= budget) {
+          done({ truncated: true, budget_limit: budget });
           return;
         }
 
-        // 预算到量：本轮工具结果先别丢，但不再继续下一轮（防长任务无声烧钱）
-        if (budget > 0 && totalUsage.prompt_tokens >= budget) {
-          _conv.push({ role: 'assistant', content: lastContent || '' });
-          h('onDone', { content: lastContent || '', rounds: round, usage: totalUsage, elapsed_ms: elapsed, truncated: true, budget_limit: budget });
-          return;
-        }
-
-        // 1) 把助手的 tool_calls 记进历史（OpenAI 格式，arguments 保持字符串）
-        _conv.push({
-          role: 'assistant',
-          content: lastContent || '',
-          tool_calls: toolCalls.map(c => ({
-            id: String(c.id || ''), type: 'function',
-            function: { name: String(c.name || ''), arguments: typeof c.arguments === 'string' ? c.arguments : JSON.stringify(c.arguments || {}) },
-          })),
-        });
-        const calls = toolCalls.map(c => ({ id: String(c.id || ''), name: String(c.name || ''), args: parseArgs(c.arguments) }));
-        h('onToolStart', calls.map(c => ({ id: c.id, name: c.name, args: c.args })));
-        if (ctl.cancelled) return;
-
-        // 2) 顺序执行（工具会改工程，并发执行顺序不可控；也便于面板逐条显示结果）
-        const results = [];
-        for (const call of calls) {
-          if (ctl.cancelled) return;
+        const calls = info.tool_calls.map((call, index) => parseCall(call, round, index));
+        emit('onToolStart', calls);
+        if (activeTurn !== ctl) return;
+        const reads = [];
+        const results = calls.map(call => {
+          let result;
           const isRead = READ_TOOLS.has(call.name);
-          const sig = isRead ? callSig(call.name, call.args) : '';
-          let r;
-          if (isRead && seenReads.has(sig)) {
-            // 同一个查询本回合已经跑过了：别再执行一遍、别再塞一份大结果（不思考时模型就是这么原地打转的）
-            r = {
-              ok: true,
-              duplicate: true,
-              summary: '这个查询本回合已经执行过，结果在前面那条 tool 结果里，直接用它。',
-              hint: '不要重复读同样的内容：拿到的信息够用就直接动手改；要更多信息就换参数或换别的工具。',
-            };
+          const version = STABLE_READ_TOOLS.has(call.name) ? 0 : readVersion;
+          const signature = isRead && call.args ? stableJson([call.name, version, call.args]) : '';
+          if (!allowed.has(call.name)) result = badRes('当前任务没有开放此工具：' + call.name);
+          else if (!call.args) result = badRes('参数必须是合法的 JSON 对象');
+          else if (signature && seen.has(signature)) {
+            result = { ok: true, duplicate: true, summary: '已经执行过此查询，请使用前面的结果。需要新信息时缩小或调整查询范围。' };
           } else {
-            r = runTool(call.name, call.args);
-            if (isRead && r && r.ok !== false) seenReads.set(sig, true);
+            result = runTool(call.name, call.args);
+            if (result.ok && signature) {
+              seen.add(signature);
+              reads.push(signature);
+            }
+            if (result.ok && !isRead) {
+              readVersion++;
+              activity.push(shorten(result.summary || call.name, 120));
+              if (activity.length > 6) activity.shift();
+            }
           }
-          results.push({ id: call.id, name: call.name, result: r, duplicate: !!r.duplicate });
-          // 进历史的工具结果先瘦身（原样塞进去，之后每轮都要重发、重复付费）
-          _conv.push({ role: 'tool', tool_call_id: call.id, content: compactToolMessage(call.name, r) });
-        }
-        h('onToolEnd', results);
+          return { id: call.id, name: call.name, result, duplicate: !!result.duplicate };
+        });
+        emit('onToolEnd', results);
+        if (activeTurn !== ctl) return;
 
-        // ---- 原地打转保护：连续整轮都是重复查询（常见于 thinking=disabled）----
-        const allDup = calls.length > 0 && results.every(x => x.duplicate);
-        if (allDup) {
-          dupStreak += 1;
-          if (dupStreak >= DUP_STOP_AT) {
-            h('onError', `连续 ${dupStreak} 轮都在重复查同一批内容，模型一直没往前走，我先停下。\n`
-              + '建议：① 把设置里的「思考过程」改成「交给模型（auto）」再试 —— 不思考时模型很容易原地打转；'
-              + '② 或者直接说清要改哪里、改成什么（比如"给主画面的报警条换个颜色"）。', 'tool');
-            return;
-          }
-          _conv.push({
-            role: 'system',
-            content: '【系统提示】你这一轮调用的全是"本回合已经查过"的查询，结果在历史里。'
-              + '不要再读同样的内容：直接基于已有结果动手改；确实缺信息就换参数/换工具；也可以先问用户要改什么。',
-          });
-        } else {
-          dupStreak = 0;
+        repeats = results.every(r => r.duplicate) ? repeats + 1 : 0;
+        if (repeats >= ROUND_STOP) {
+          finish('onError', `连续 ${repeats} 轮都在重复查同一批内容，已停止。可在设置里将「思考过程」改为「交给模型（auto）」，或指定要处理的页面和控件。`, 'tool');
+          return;
         }
-        batchCount += 1;
+        const failed = results.find(r => !r.result.ok);
+        const error = failed?.result.error || '';
+        const sig = error.replace(/「[^」]*」|[\da-f]{6,}|\d+/gi, '#');
+        failures = sig ? (sig === failedSignature ? failures + 1 : 1) : 0;
+        failedSignature = sig;
+        if (failures >= ROUND_STOP) {
+          const fix = failedFixText(failed.result);
+          finish('onError', `连续 ${failures} 次工具调用都失败了。\n${error}${fix ? '\n' + fix : ''}\n可换个说法，或指定要处理的页面和控件。`, 'tool');
+          return;
+        }
+        if (maxBatches > 0 && round >= maxBatches) {
+          done({ truncated: true, batch_limit: maxBatches });
+          return;
+        }
 
-        // ---- 失败纠偏：工具连续失败时，先把错误亮给模型，再考虑停手 ----
-        const failed = results.filter(r => r.result && r.result.ok === false);
-        if (failed.length) {
-          const rawErr = String((failed[0].result && (failed[0].result.error || failed[0].result.summary)) || '工具执行失败');
-          // 失败结果里的可执行信息（真实控件清单 / 候选人 / 建议）单独抠出来，明确塞回给模型和用户
-          const fix = failedFixText(failed[0].result);
-          // 报错里常带 id/名字/数字（"没有控件 lbl_title_8" vs "…_9"），不归一化就会被当成"新错误"永远清零 —— 于是死循环
-          const sig = rawErr
-            .replace(/[0-9a-f]{6,}/gi, '#')
-            .replace(/[A-Za-z_]*\d+[A-Za-z0-9_]*/g, '#')
-            .replace(/「[^」]*」/g, '「X」')
-            .replace(/\d+/g, 'N');
-          if (lastFailMsg && sig !== lastFailMsg) failStreak = 0;
-          lastFailMsg = sig;
-          failStreak += 1;
-          if (failStreak >= FAIL_STOP_AT) {
-            h('onError', `连续 ${failStreak} 次工具调用都失败了，我先停下（最后一次：${rawErr}）。`
-              + (fix ? `\n可用的真实信息：${fix}` : '')
-              + '\n建议：① 换个说法或换个思路让我重做；② 你先手动改一下那部分，再让我接着做；③ 把这条报错发给我，我针对性修。', 'tool');
-            return;
-          }
-          if (failStreak >= FAIL_HINT_AT) {
-            _conv.push({
-              role: 'system',
-              content: `【系统提示】最近连续 ${failStreak} 次工具调用失败，最后一次报错：${rawErr}\n`
-                + (fix ? `这页/这次真实的可用信息：${fix}\n` : '')
-                + '不要再重复同样的调用和参数，也不要再猜 id —— 直接用上面给出的真实名字和 id，不要自己拼；'
-                + '要更多清单就用 list_pages / list_vars / get_project（不带 widgetId）查。改参数、换工具或换个做法；确实做不到就直接告诉用户哪一步需要人工处理。',
-            });
-          }
-        } else {
-          failStreak = 0;
-          lastFailMsg = '';
+        const current = toolBatch(calls, info.content, results);
+        const chars = JSON.stringify(current).length;
+        const summary = results.filter(r => !r.duplicate).map(r => {
+          const note = r.result.summary || r.result.error || '';
+          return shorten(r.name + ' ' + note, 100);
+        }).slice(0, 6).join('，');
+        batches.push({ messages: current, chars, summary, reads });
+        toolChars += chars;
+        while (batches.length > 1 && (toolChars > TOOL_HISTORY_CHARS || batches.length > TOOL_HISTORY_BATCHES)) {
+          archiveBatch();
         }
-        // 下一轮：模型看到工具结果，继续说话或继续调工具
       }
-      // 到达用户设的"工具批次"保险上限：收尾并告诉用户怎么接着做
-      h('onDone', { content: lastContent || '', rounds: roundNo, usage: totalUsage, elapsed_ms: elapsed, truncated: true, batch_limit: maxBatches });
-    } catch (e) {
-      if (ctl.cancelled) return;
-      h('onError', `AI 助手内部错误：${e && e.message ? e.message : e}`, 'http');
-    } finally {
-      ctl.chat = null;
+    } catch (error) {
+      if (activeTurn !== ctl) return;
+      roundEnd();
+      const message = error.code === 'context_limit'
+        ? (retriedContext ? '压缩历史后仍超过模型上下文。请缩短本条指令或附件，再试一次。'
+          : '模型上下文超限，请缩短本条指令或附件，或改用支持更长上下文的模型。')
+        : (error.message || 'AI 请求失败');
+      finish('onError', message, error.code || 'http');
     }
   })();
-
   return { cancel };
 }

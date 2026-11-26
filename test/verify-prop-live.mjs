@@ -67,7 +67,7 @@ for (let i = 0; i < 4; i++) {
 const emptyHint = await page.evaluate(() => document.querySelector('#actList')?.textContent || '');
 ok('全部删除后行数与数据都归零', (await rowCount()) === 0 && (await actCount()) === 0,
   `rows=${await rowCount()} actions=${await actCount()}`);
-ok('空列表显示提示文案', emptyHint.includes('暂无动作'), emptyHint.slice(0, 20));
+ok('空动作组只显示添加入口', !emptyHint.trim() && await page.locator('#actAdd').isVisible());
 
 /* ══════ 4. 删除后残留行不能把已删动作写回去（旧下标错位）══════ */
 await page.click('#actAdd'); await page.waitForTimeout(80);
@@ -140,7 +140,9 @@ ok('输入过程中输入框保持焦点（没有被重建顶掉）', liveText.f
 const onTextInput = page.locator('#propBody [data-prop="onText"]').first();
 await onTextInput.click();
 await onTextInput.press('Control+a');
-await page.keyboard.type('满足后显示');
+await page.keyboard.type('满足后');
+await onTextInput.press('Enter');
+await page.keyboard.type('显示');
 await page.waitForTimeout(420);
 const bothStates = await page.evaluate(async id => {
   const { project } = await import('/js/core/project.js');
@@ -149,12 +151,12 @@ const bothStates = await page.evaluate(async id => {
   w.bindings.variable = 'testBoolean';
   const read = (active) => {
     const html = registry.get('button').render(w, 'run', { get: () => active });
-    return html.match(/>([^<]*)<\/button>/)?.[1];
+    return new DOMParser().parseFromString(html, 'text/html').querySelector('.w-btn-text')?.textContent;
   };
   return { on: read(true), off: read(false), onProp: w.props.onText };
 }, wid2);
 ok('满足文字属性修改后满足态立即使用新文字',
-  bothStates.on === '满足后显示' && bothStates.onProp === '满足后显示', JSON.stringify(bothStates));
+  bothStates.on === '满足后\n显示' && bothStates.onProp === '满足后\n显示', JSON.stringify(bothStates));
 ok('同一按钮未满足态仍显示已修改的未满文字', bothStates.off === '立即生效', bothStates.off);
 
 /* ══════ 7. 数值属性：输入即改，且不会回写顶掉正在输入的内容 ══════ */
@@ -206,7 +208,89 @@ const liveColor = await page.evaluate(async (id) => {
 ok('色板拖动/选色立刻应用到画布', liveColor.prop === '#ff8800' && liveColor.style.includes('#ff8800'),
   liveColor.style.match(/background:[^;]+/)?.[0] || liveColor.prop);
 
-/* ══════ 9. 名称属性：清单面板同步 ══════ */
+await page.evaluate(() => { globalThis.pywebview = { api: {} }; });
+const desktopPicker = page.locator('.desktop-colors');
+const colorInput = page.locator('#propBody [data-prop="offColor"]');
+await colorInput.focus();
+await page.waitForTimeout(650);   // 前面的属性测试排队提交完毕，再测试桌面取色。
+await colorInput.click();
+await desktopPicker.locator('[data-hex]').fill('bad');
+await desktopPicker.getByRole('button', { name: '应用', exact: true }).click();
+ok('桌面取色器可打开并检查颜色代码', await desktopPicker.locator('[data-error]').isVisible());
+await desktopPicker.getByRole('button', { name: '取消', exact: true }).click();
+ok('取消取色保留已有颜色', await colorInput.inputValue() === '#ff8800');
+await colorInput.click();
+await page.evaluate(() => window.app.project.touch());
+await desktopPicker.getByRole('button', { name: '#2563eb' }).click();
+await desktopPicker.getByRole('button', { name: '应用', exact: true }).click();
+const desktopColor = await page.evaluate(id => ({
+  value: window.app.project.getWidget(id).props.offColor,
+  style: document.querySelector(`#canvas .wd[data-id="${id}"] .w-btn`).getAttribute('style'),
+}), wid2);
+ok('桌面取色器应用后更新控件及画布', desktopColor.value === '#2563eb' && desktopColor.style.includes('#2563eb'),
+  JSON.stringify(desktopColor));
+await page.evaluate(() => { delete globalThis.pywebview; });
+
+/* ══════ 8b. 桌面吸管：WebView2 里 EyeDropper「有函数、吸不到色」，改走后端采屏 ══════ */
+await page.evaluate(() => {
+  globalThis.__pick = { reads: 0, stopped: 0 };
+  globalThis.pywebview = { api: {
+    pick_color_start() { return { ok: true, state: 'active', hex: '' }; },
+    pick_color_read() {
+      const p = globalThis.__pick;
+      p.reads += 1;
+      return p.reads < 2
+        ? { ok: true, state: 'active', hex: '#123456' }   // 第一轮：还在采，先给实时颜色
+        : { ok: true, state: 'done', hex: '#abcdef' };    // 第二轮：用户按了左键
+    },
+    pick_color_stop() { globalThis.__pick.stopped += 1; return { ok: true, state: 'cancelled', hex: '' }; },
+  } };
+});
+await colorInput.click();
+const sampleBtn = desktopPicker.locator('[data-sample]');
+ok('桌面吸管按钮出现（后端有采色接口）', await sampleBtn.isVisible());
+await sampleBtn.click();
+ok('吸管采样时让出画布并移除暗色遮罩', await desktopPicker.evaluate(el =>
+  getComputedStyle(el).visibility === 'hidden' && getComputedStyle(el, '::backdrop').backgroundColor === 'rgba(0, 0, 0, 0)'));
+await page.waitForTimeout(400);
+ok('采到的颜色实时写回颜色框', await desktopPicker.locator('[data-hex]').inputValue() === '#abcdef');
+ok('取色完成后收起提示', !(await desktopPicker.locator('[data-hint]').isVisible()));
+await desktopPicker.getByRole('button', { name: '应用', exact: true }).click();
+const sampled = await page.evaluate(id => window.app.project.getWidget(id).props.offColor, wid2);
+ok('吸管取色应用后更新控件属性', sampled === '#abcdef', String(sampled));
+
+// 采色中途取消：既要通知后端停，也要把提示收掉
+await colorInput.click();
+await sampleBtn.click();
+await page.waitForTimeout(120);
+await desktopPicker.getByRole('button', { name: '取消', exact: true }).click();
+const stopped = await page.evaluate(() => globalThis.__pick.stopped);
+ok('取消取色会通知后端停止采屏', stopped > 0, String(stopped));
+await page.evaluate(() => { delete globalThis.pywebview; });
+
+/* ══════ 8c. 网页取色器直接使用同样的最近颜色 ══════ */
+await page.evaluate(() => {
+  localStorage.removeItem('hmi-recent-colors');
+});
+await colorInput.click();
+ok('没有桌面桥接时，网页点击色块也打开同一套取色框', await desktopPicker.isVisible());
+ok('网页没有记录时不显示「最近用过」', !(await desktopPicker.locator('[data-recent-box]').isVisible()));
+await desktopPicker.locator('[data-hex]').fill('#0ea5e9');
+await desktopPicker.getByRole('button', { name: '应用', exact: true }).click();
+const recent = await page.evaluate(() => JSON.parse(localStorage.getItem('hmi-recent-colors') || '[]'));
+ok('网页应用的颜色保存在浏览器的「最近用过」', Array.isArray(recent) && recent[0] === '#0ea5e9', JSON.stringify(recent));
+await colorInput.click();
+ok('再打开时「最近用过」出现', await desktopPicker.locator('[data-recent-box]').isVisible());
+const recentBtn = desktopPicker.locator('[data-recent]').first();
+ok('最近用过里第一个就是刚用的颜色', await recentBtn.getAttribute('data-recent') === '#0ea5e9',
+  await recentBtn.getAttribute('data-recent'));
+await recentBtn.click();
+ok('网页点最近用过直接选中那个颜色', await desktopPicker.locator('[data-hex]').inputValue() === '#0ea5e9');
+await desktopPicker.locator('[data-hex]').fill('#aabbcc');
+await desktopPicker.getByRole('button', { name: '取消', exact: true }).click();
+await page.waitForFunction(() => document.querySelector('#propBody [data-prop="offColor"]')?.value === '#0ea5e9');
+ok('网页取消时恢复原色且不把预览记进历史', await colorInput.inputValue() === '#0ea5e9'
+  && await page.evaluate(() => localStorage.getItem('hmi-recent-colors')) === '["#0ea5e9"]');
 const liveName = await page.evaluate(async () => {
   const sel = document.querySelector('#canvas .wd.selected')?.dataset.id;
   const inp = document.querySelector('#propBody [data-fld="name"]');
@@ -220,6 +304,154 @@ const liveName = await page.evaluate(async () => {
   };
 });
 ok('改名称立刻同步到控件清单', liveName.name === '启动按钮A' && liveName.listHas, JSON.stringify(liveName));
+
+const multi = await page.evaluate(async buttonId => {
+  const { select } = await import('/js/editor/canvas.js');
+  const { project } = window.app;
+  const number = project.addWidget('number', 620, 420);
+  const button = project.getWidget(buttonId);
+  select([button.id, number.id]);
+  return [button.id, number.id];
+}, wid2);
+const batch = key => page.locator(`#propBody [data-prop="${key}"]`);
+ok('混合选中按钮和数值时显示共同属性', await batch('fontSize').isVisible() && await batch('textColor').isVisible()
+  && await batch('offColor').count() === 0);
+await batch('fontSize').fill('24');
+await batch('fontSize').press('Tab');
+await batch('align').selectOption('right');
+await batch('textColor').evaluate(input => {
+  input.value = '#123456';
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+});
+const combined = await page.evaluate(ids => ids.map(id => {
+  const w = window.app.project.getWidget(id);
+  const el = document.querySelector(`#canvas [data-id="${id}"] .w-btn, #canvas [data-id="${id}"] .wn-val`);
+  const style = getComputedStyle(el);
+  return [w.props.fontSize, w.props.textColor, w.props.align, style.fontSize, style.color, style.textAlign];
+}), multi);
+ok('字号、文字色和右对齐同时应用到两个控件和画布', combined.every(row =>
+  JSON.stringify(row) === JSON.stringify([24, '#123456', 'right', '24px', 'rgb(18, 52, 86)', 'right'])), JSON.stringify(combined));
+
+const sameButtons = await page.evaluate(async ([id]) => {
+  const { select } = await import('/js/editor/canvas.js');
+  const { project } = window.app;
+  const first = project.getWidget(id);
+  const second = project.addWidget('button', 520, 380);
+  project.addVariable();
+  const bound = project.variables().at(-1);
+  project.updateVariable(bound.name, { type: 'int' });
+  for (const w of [first, second]) project.updateWidgetField(w.id, 'bindings.variable', bound.name);
+  select([first.id, second.id]);
+  return [first.id, second.id];
+}, multi);
+ok('同类型按钮显示两态文字和底色、不一致文字显示不同值',
+  await batch('onText').getAttribute('placeholder') === '不同值' && await batch('offText').isVisible()
+    && await batch('onColor').isVisible() && await batch('offColor').isVisible());
+ok('共同字号显示在两态属性之前', await batch('fontSize').evaluate(el =>
+  !!(el.compareDocumentPosition(document.querySelector('#propBody [data-prop="onText"]')) & Node.DOCUMENT_POSITION_FOLLOWING)));
+await batch('fontSize').fill('33');
+await page.waitForFunction(ids => ids.every(id => (
+  window.app.project.getWidget(id).props.fontSize === 33
+  && getComputedStyle(document.querySelector(`#canvas [data-id="${id}"] .w-btn`)).fontSize === '33px'
+)), sameButtons, { timeout: 2000 });
+ok('输入字号后不必失焦，两只按钮画布同时更新', await batch('fontSize').evaluate(el => document.activeElement === el));
+await batch('onText').fill('启动\n运行中');
+await batch('offText').fill('停止\n待机');
+await batch('threshold').fill('5');
+await batch('op').selectOption('>');
+await batch('onColor').evaluate(el => {
+  el.value = '#147a52';
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+});
+await page.evaluate(() => { globalThis.pywebview = { api: {} }; });
+const beforeOffColors = await page.evaluate(ids => ids.map(id => window.app.project.getWidget(id).props.offColor), sameButtons);
+await batch('offColor').click();
+await desktopPicker.locator('[data-hex]').fill('#364152');
+await desktopPicker.getByRole('button', { name: '取消', exact: true }).click();
+const cancelledOffColors = await page.evaluate(ids => ids.map(id => window.app.project.getWidget(id).props.offColor), sameButtons);
+ok('桌面取色取消后保留每只按钮原来的未满底色', JSON.stringify(beforeOffColors) === JSON.stringify(cancelledOffColors));
+await batch('offColor').click();
+await desktopPicker.locator('[data-hex]').fill('#364152');
+await desktopPicker.getByRole('button', { name: '应用', exact: true }).click();
+await page.evaluate(() => { delete globalThis.pywebview; });
+const buttonProps = await page.evaluate(ids => ids.map(id => {
+  const p = window.app.project.getWidget(id).props;
+  return [p.onText, p.offText, p.text, p.onColor, p.offColor, p.op, p.threshold];
+}), sameButtons);
+ok('两态文字、颜色和比较条件分别批量更新，并保留未满文字兼容字段',
+  buttonProps.every(row => JSON.stringify(row) === JSON.stringify(
+    ['启动\n运行中', '停止\n待机', '停止\n待机', '#147a52', '#364152', '>', '5'])), JSON.stringify(buttonProps));
+await page.evaluate(async ([a, b]) => {
+  const { select } = await import('/js/editor/canvas.js');
+  const { project } = window.app;
+  project.updateWidgetField(a, 'bindings.variable', '');
+  select([a, b]);
+}, sameButtons);
+ok('选中不满足比较条件显示规则的按钮时，不出现批量比较配置',
+  await batch('op').count() === 0 && await batch('threshold').count() === 0);
+
+const decimals = await page.evaluate(async () => {
+  const { select } = await import('/js/editor/canvas.js');
+  const { project } = window.app;
+  const widgets = [project.addWidget('number', 520, 450), project.addWidget('number', 690, 450)];
+  for (const w of widgets) {
+    project.updateWidgetField(w.id, 'bindings.variable', '');
+    project.updateWidgetProp(w.id, 'dispType', 'float');
+  }
+  const ids = widgets.map(w => w.id);
+  select(ids);
+  return ids;
+});
+await batch('decimals').fill('3');
+await batch('decimals').press('Tab');
+const formats = await page.evaluate(ids => ids.map(id => {
+  const p = window.app.project.getWidget(id).props;
+  return [p.decimals, p.fmt];
+}), decimals);
+ok('相同数值控件的批量小数位同步更新显示格式', formats.every(row => row[0] === 3 && row[1] === '%.3f'),
+  JSON.stringify(formats));
+await batch('rangeOn').check();
+await batch('rangeMinValue').fill('10');
+await batch('rangeMaxValue').fill('80');
+await batch('rangeMaxValue').press('Tab');
+const ranges = await page.evaluate(ids => ids.map(id => {
+  const p = window.app.project.getWidget(id).props;
+  return [p.rangeOn, p.rangeMinMode, p.rangeMinValue, p.rangeMaxMode, p.rangeMaxValue];
+}), decimals);
+ok('批量启用范围后可共同设置固定上下限', ranges.every(row =>
+  JSON.stringify(row) === JSON.stringify([true, 'fixed', '10', 'fixed', '80'])), JSON.stringify(ranges));
+
+const decorations = await page.evaluate(async () => {
+  const { select } = await import('/js/editor/canvas.js');
+  const { project } = window.app;
+  const ids = [project.addWidget('rect', 310, 450).id, project.addWidget('circle', 310, 560).id];
+  select(ids);
+  return ids;
+});
+const commonGroup = page.locator('#propBody .prop-group-title').filter({ hasText: /^共同属性$/ });
+ok('仅选装饰控件时显示批量几何', await commonGroup.count() === 0 && await page.locator('#mW').isVisible());
+
+const selectWidgets = ids => page.evaluate(async selected => {
+  (await import('/js/editor/canvas.js')).select(selected);
+}, ids);
+await selectWidgets([sameButtons[0], ...decorations]);
+ok('只有一个非装饰控件时不生成共同属性', await commonGroup.count() === 0);
+await selectWidgets([sameButtons[0], ...decorations, sameButtons[1]]);
+ok('混选仍可编辑两个按钮的字号与两态属性',
+  await batch('fontSize').isVisible() && await batch('onText').isVisible());
+const decorationWidthBefore = await page.evaluate(ids =>
+  ids.map(id => window.app.project.getWidget(id).props.borderWidth), decorations);
+await batch('borderWidth').fill('4');
+await batch('borderWidth').press('Tab');
+const borderWidths = await page.evaluate(ids =>
+  ids.map(id => window.app.project.getWidget(id).props.borderWidth), [...sameButtons, ...decorations]);
+ok('应用共同的边框宽度时仅修改按钮',
+  JSON.stringify(borderWidths) === JSON.stringify([4, 4, ...decorationWidthBefore]), JSON.stringify(borderWidths));
+await page.locator('#mW').fill('140');
+await page.locator('#mW').press('Tab');
+const geometry = await page.evaluate(ids =>
+  ids.map(id => window.app.project.getWidget(id).w), [...sameButtons, ...decorations]);
+ok('混选时批量几何包含按钮和装饰控件', geometry.every(w => w === 140), JSON.stringify(geometry));
 
 ok('全程无未捕获 JS 异常', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '));
 

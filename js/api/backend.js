@@ -306,14 +306,34 @@ export const backend = {
       : { state: 'unsupported', pageId: PAGE_ID };
   },
 
-  /**
-   * 调一个后端接口 —— **通过长连接**（后端借道 HTTP 路由那套实现，见 server/core/rpc.py）。
-   *
-   * 语义与以前的 fetch 对齐：非 2xx / ok:false 就抛错，错误消息用后端给的那句
-   * （现场排查最需要的就是那句话："地址无效" / "从站异常" / "需要管理员登录"）。
-   * 连接本身出问题（断了 / 等超时）抛 ChannelDown —— 调用方据此区分
-   * "不是接口报错，是连接的事"。
-   */
+  /** 单独发送按钮触发，PLC 写入阻塞时也能及时留痕。 */
+  startButtonAudit() {
+    if (!this.expectsServer() || !WsChannel.supported()) return null;
+    let token = '';
+    try { token = localStorage.getItem(TOKEN_KEY) || ''; } catch { /* 会话 Cookie 仍然可用 */ }
+    if (!this._buttonAudit || this._buttonAuditToken !== token) {
+      this.stopButtonAudit();
+      this._buttonAuditToken = token;
+      this._buttonAudit = new WsChannel({ quiet: true }).start();
+    }
+    return this._buttonAudit;
+  },
+
+  stopButtonAudit() {
+    this._buttonAudit?.stop();
+    this._buttonAudit = null;
+  },
+
+  async recordButton(name, text) {
+    const ch = this.startButtonAudit();
+    if (!ch) return;
+    const reply = await ch.request({
+      t: 'call', path: '/api/operations/button', method: 'POST', body: { name, text },
+    });
+    if (!reply.ok && reply.status !== 404) throw new Error(reply.data?.error || '保存操作记录失败');
+  },
+
+  /** 调用后端接口。失败时区分服务端拒绝与长连接故障。 */
   async rpc(path, { method = 'POST', body = null, timeout = RPC_TIMEOUT } = {}) {
     const ch = this._ensureChannel();
     if (!ch) throw new Error('这个浏览器不支持 WebSocket');
@@ -324,6 +344,7 @@ export const backend = {
       const e = new Error((d && (d.error || d.message)) || `HTTP ${j ? j.status : '?'}`);
       e.status = j ? j.status : 0;
       e.needLogin = !!(d && d.need_login);
+      e.data = d;
       throw e;
     }
     return d;
@@ -667,13 +688,19 @@ export const backend = {
 
   /* ════════════════════════ 登录 / 会话 ════════════════════════ */
 
+  canEdit(session = this.auth) {
+    return (session?.auth_enabled ?? session?.enabled) === false
+      || (session?.logged_in === true && (session.role || 'admin') === 'admin');
+  },
+
   /** 现在登录着没（2.0 的登录态绑在这条长连接上） */
   async session() {
     try {
       const ch = this._ensureChannel();
       if (!ch || !ch.isOpen()) return { auth_enabled: !!this.auth?.enabled, logged_in: false };
       const j = await ch.request({ t: 'session' });
-      this.auth = { ...(this.auth || {}), enabled: !!j.auth_enabled, logged_in: !!j.logged_in };
+      this.auth = { ...(this.auth || {}), enabled: !!j.auth_enabled, logged_in: !!j.logged_in,
+        role: j.role || '', user: j.user || '' };
       return j;
     } catch {
       return { auth_enabled: !!this.auth?.enabled, logged_in: false };
@@ -690,7 +717,7 @@ export const backend = {
     await ch.whenOpen(8000);
     const j = await ch.request({ t: 'login', password }, 10000);
     if (!j || j.ok === false) throw new Error((j && j.error) || '登录失败');
-    this.auth = { ...(this.auth || {}), logged_in: true };
+    this.auth = { ...(this.auth || {}), logged_in: true, role: j.role || 'admin', user: j.user || '' };
     if (j.token) {
       try { localStorage.setItem(TOKEN_KEY, j.token); } catch { /* 隐私模式：那就下次重输 */ }
     }
@@ -709,7 +736,7 @@ export const backend = {
       try { await ch.request({ t: 'logout', token: tok }, 5000); } catch { /* 连接没了也无所谓 */ }
     }
     try { localStorage.removeItem(TOKEN_KEY); } catch { /* 忽略 */ }
-    this.auth = { ...(this.auth || {}), logged_in: false };
+    this.auth = { ...(this.auth || {}), logged_in: false, role: '', user: '' };
     this._plcCfg = null;
     this._plcStatus = null;
     return true;

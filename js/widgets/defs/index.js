@@ -12,6 +12,7 @@ import './value.js';
 import './input.js';
 import './number.js';
 import './clock.js';
+import './line.js';            // 直线（分割线 / 边框线：实线、虚线、点线）
 import './rect.js';
 import './circle.js';
 import './image.js';
@@ -37,10 +38,12 @@ import './multiPosition.js';
 // 输入类交互控件：条码输入 → 参数表
 import './barcode.js';
 import './paramTable.js';
-// 配方：保存/应用整套参数（后端 /api/recipes）
+// 配方：查看、应用和独立编辑（后端 /api/recipes）
 import './recipe.js';
+import './recipeEditor.js';
 // 班次产量：总产量 / OK / NG / 每小时计数（运行态每秒采样）
 import './shift.js';
+import './operations.js';
 
 // ⚠ 上面这一串 import **全部执行完**之后才轮到这两行 —— 把内置的 16 种类型记成「内置快照」：
 //   之后导入控件包时，包里跟内置重名的定义一律拒绝（不许别人用假控件顶掉真控件）。

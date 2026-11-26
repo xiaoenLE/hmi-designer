@@ -10,8 +10,9 @@
  */
 import { bus } from '../core/eventBus.js';
 import { project, SCRIPT_TRIG_CN } from '../core/project.js';
-import { varSnippet } from '../core/utils.js';
-import { attachVarPick } from './varPick.js';import { runScriptOnce, scriptLog } from '../runtime/scriptEngine.js';
+import { isIdentName, varSnippet } from '../core/utils.js';
+import { attachVarPick } from './varPick.js';
+import { runScriptOnce, scriptLog } from '../runtime/scriptEngine.js';
 import { backend } from '../api/backend.js';
 import { highlightJS } from './jsHighlight.js';
 import { showDialog } from './toolbar.js';
@@ -49,7 +50,10 @@ const API_DOC = [
 ];
 
 let mask, box, ta, gutter, statusEl, logEl, nameEl, trigEl, paramEl;
-let hl, wrap, curLine;
+let hl, wrap, curLine, suggestEl, restoreEl;
+let variableChoices = [];
+let suggestion = null;
+let minimizedScroll;
 let curId = null;      // 正在编辑哪条（null = 新建）
 let dirty = false;
 let inited = false;    // 已经建过一次了（见 initScriptEditor 的说明）
@@ -68,6 +72,8 @@ export function initScriptEditor() {
   gutter = document.getElementById('seGutter');
   hl = document.getElementById('seHl');
   wrap = ta.closest('.se-editwrap');
+  suggestEl = document.getElementById('seVarSuggest');
+  restoreEl = document.getElementById('seRestore');
   curLine = document.createElement('div');
   curLine.className = 'se-curline';
   statusEl = document.getElementById('seStatus');
@@ -84,6 +90,17 @@ export function initScriptEditor() {
       <code>${esc(sig)}</code><span>${esc(d)}</span></div>`).join('');
 
   document.getElementById('seClose').addEventListener('click', closeScriptEditor);
+  document.getElementById('seMinimize').addEventListener('click', () => {
+    closeSuggestions();
+    minimizedScroll = { top: ta.scrollTop, left: ta.scrollLeft };
+    restoreEl.textContent = '继续编辑 · ' + (nameEl.value.trim() || '脚本');
+    mask.classList.add('minimized');
+    restoreEl.focus({ preventScroll: true });
+  });
+  restoreEl.addEventListener('click', restoreScriptEditor);
+  bus.on('project:replaced', ({ fromHistory } = {}) => {
+    if (!fromHistory) closeScriptEditor();
+  });
   document.getElementById('seSave').addEventListener('click', save);
   document.getElementById('seRun').addEventListener('click', tryRun);
   document.getElementById('seClearLog').addEventListener('click', () => { logEl.innerHTML = ''; setStatus(''); });
@@ -94,15 +111,27 @@ export function initScriptEditor() {
   paramEl.addEventListener('input', () => { dirty = true; });
 
   // 代码区：高亮层、行号、Tab 缩进、Esc 关闭（Ctrl+S / Ctrl+Enter 绑在浮层上，焦点在哪都管用）
-  ta.addEventListener('input', () => { dirty = true; renderHl(); renderGutter(); });
-  ta.addEventListener('scroll', syncScroll);
+  ta.addEventListener('input', e => {
+    dirty = true;
+    renderHl();
+    renderGutter();
+    if (!e.isComposing) suggestVariables();
+  });
+  ta.addEventListener('scroll', () => { syncScroll(); positionSuggestions(); });
   ta.addEventListener('keyup', updateCaretLine);
-  ta.addEventListener('click', updateCaretLine);
+  ta.addEventListener('click', () => { updateCaretLine(); suggestVariables(); });
+  ta.addEventListener('blur', closeSuggestions);
+  suggestEl.addEventListener('pointerdown', e => e.preventDefault());
+  suggestEl.addEventListener('click', e => {
+    const option = e.target.closest('[data-choice]');
+    if (option) insertSuggestion(Number(option.dataset.choice));
+  });
   ta.addEventListener('select', updateCaretLine);
   // 输入法（中文注释）组字期间：把 textarea 的字显出来，不然候选框里的字看不见
   ta.addEventListener('compositionstart', () => wrap.classList.add('composing'));
-  ta.addEventListener('compositionend', () => { wrap.classList.remove('composing'); renderHl(); });
+  ta.addEventListener('compositionend', () => { wrap.classList.remove('composing'); renderHl(); suggestVariables(); });
   mask.addEventListener('keydown', e => {
+    if (mask.classList.contains('minimized')) return;
     if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'Enter')) {
       e.preventDefault();
       save();
@@ -111,6 +140,7 @@ export function initScriptEditor() {
     if (e.key === 'Escape') { e.preventDefault(); closeScriptEditor(); }
   });
   ta.addEventListener('keydown', e => {
+    if (!e.isComposing && e.keyCode !== 229 && handleSuggestionKey(e)) return;
     if (e.key === 'Tab') {                       // Tab 缩进而不是跳走
       e.preventDefault();
       const s = ta.selectionStart, en = ta.selectionEnd;
@@ -345,6 +375,11 @@ function openApiHelp() {
 
 /** 打开编辑器：传 id = 编辑已有，不传 = 新建 */
 export function openScriptEditor(id) {
+  if (mask.classList.contains('minimized')) {
+    restoreScriptEditor();
+    if ((id || null) !== curId) setStatus('请先保存或关闭当前脚本，再打开另一条。');
+    return;
+  }
   const sc = id ? project.getScript(id) : null;
   curId = sc ? sc.id : null;
   mask.classList.remove('hidden');
@@ -372,8 +407,19 @@ export function openScriptEditor(id) {
   setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 30);
 }
 
+function restoreScriptEditor() {
+  mask.classList.remove('minimized');
+  renderVars();
+  ta.focus({ preventScroll: true });
+  ta.scrollTop = minimizedScroll.top;
+  ta.scrollLeft = minimizedScroll.left;
+  syncScroll();
+}
+
 export function closeScriptEditor() {
+  closeSuggestions();
   mask.classList.add('hidden');
+  mask.classList.remove('minimized');
   curId = null;
   dirty = false;
 }
@@ -501,12 +547,87 @@ function updateCaretLine() {
  *  原来把变量表全列成按钮，变量一多就摊成一大片、还得自己找；变量名本来就是写字符串，
  *  给一条能直接用的例子 + 右边的 API 速查就够了。 */
 function renderVars() {
-  const name = project.variables()[0]?.name || 'bRunCmd';
+  variableChoices = project.variables();
+  const name = variableChoices[0]?.name || 'bRunCmd';
   // 例子直接给**属性写法**（最省字的那种）；名字不是合法标识符（数字开头/带横线）时自动改成方括号
   const snip = varSnippet(name);
   document.getElementById('seVarsWrap').innerHTML =
     `<button type="button" class="se-chip" data-insert="${esc(snip)}"
       title="点一下插到光标处：变量可以直接点出来（${esc(snip)}），也可以写成字符串（hmi.set('${esc(name)}', 值)）—— 两种完全等价">${esc(snip)}</button>`;
+}
+
+function closeSuggestions() {
+  suggestion = null;
+  if (suggestEl) suggestEl.hidden = true;
+}
+
+function positionSuggestions() {
+  if (!suggestion) return;
+  const y = PAD_TOP + (suggestion.line + 1) * LINE_H - ta.scrollTop;
+  const height = suggestEl.offsetHeight;
+  const top = y + height <= ta.clientHeight ? y : y - LINE_H - height;
+  suggestEl.style.top = Math.max(0, Math.min(top, ta.clientHeight - height)) + 'px';
+}
+
+function suggestVariables() {
+  if (ta.selectionStart !== ta.selectionEnd || wrap.classList.contains('composing')) return closeSuggestions();
+  const end = ta.selectionStart;
+  const before = ta.value.slice(0, end);
+  const lastLine = before.lastIndexOf('\n') + 1;
+  const match = /(?:^|[^\p{ID_Continue}$])(hmi\s*\.\s*v\s*\.\s*([\p{ID_Continue}$]*))$/u.exec(before.slice(lastLine));
+  if (!match) return closeSuggestions();
+  const prefix = match[2].toLowerCase();
+  const start = end - match[1].length;
+  const matches = [], also = [];
+  for (const variable of variableChoices) {
+    const name = variable.name.toLowerCase();
+    if (name.startsWith(prefix)) matches.push(variable);
+    else if (prefix && name.includes(prefix) && also.length < 10) also.push(variable);
+    if (matches.length === 10) break;
+  }
+  const options = matches.concat(also).slice(0, 10);
+  if (!options.length) return closeSuggestions();
+  suggestion = { options, start, end, line: before.split('\n').length - 1, active: 0 };
+  suggestEl.innerHTML = options.map((item, i) =>
+    `<button type="button" role="option" tabindex="-1" aria-selected="${i === 0}" data-choice="${i}" title="${esc(item.name)}">
+      <code>${esc(item.name)}</code><span>${esc(item.type || '')}</span></button>`).join('');
+  suggestEl.hidden = false;
+  suggestEl.scrollTop = 0;
+  positionSuggestions();
+}
+
+function insertSuggestion(index) {
+  const { options, start, end } = suggestion || {};
+  const name = options?.[index]?.name;
+  if (!name) return;
+  const text = isIdentName(name) ? 'hmi.v.' + name : 'hmi.v[' + JSON.stringify(name) + ']';
+  closeSuggestions();
+  ta.setRangeText(text, start, end, 'end');
+  ta.focus();
+  afterEdit();
+}
+
+function handleSuggestionKey(e) {
+  if (!suggestion || e.ctrlKey || e.metaKey || e.altKey) return false;
+  if (e.key === 'Escape') {
+    closeSuggestions();
+  } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    const { active, options } = suggestion;
+    const next = (active + (e.key === 'ArrowDown' ? 1 : options.length - 1)) % options.length;
+    suggestEl.children[active].setAttribute('aria-selected', 'false');
+    const option = suggestEl.children[next];
+    option.setAttribute('aria-selected', 'true');
+    option.scrollIntoView({ block: 'nearest' });
+    suggestion.active = next;
+  } else if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+    insertSuggestion(suggestion.active);
+  } else {
+    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) closeSuggestions();
+    return false;
+  }
+  e.preventDefault();
+  e.stopPropagation();
+  return true;
 }
 
 /* ── 保存（先做语法检查，错了不保存）── */

@@ -39,6 +39,7 @@ export function initCanvas() {
   canvasEl = document.getElementById('canvas');
   overlayEl = document.getElementById('selOverlay');
   wrapEl = document.getElementById('canvasWrap');
+  wrapEl.tabIndex = -1;
 
   bus.on('project:changed', () => {
     // 只改了属性/绑定这类「局部变化」时，别把上千个控件整块拆了重建：
@@ -220,7 +221,7 @@ export function renderAll() {
   project.takeDirty();          // 整块重建过了，脏标记一起清掉
   // 重建 DOM 会丢失选中态 class —— 必须恢复，否则改一次属性后面板就跳回画布属性
   applySelection([...selectedIds]);
-  layoutAlarmBars(canvasEl);   // 报警条：量一下要不要滚（画布上也照样滚）
+  layoutAlarmBars(canvasEl);   // 编辑画布也预览报警条滚动
   tickClocksNow();             // 时钟：新画出来的元素立刻显示"现在"
 
   // 顶部工具条信息
@@ -270,11 +271,18 @@ function applySelection(ids) {
   const grouped = project.isWholeGroup([...selectedIds]);
   document.getElementById('stSel').textContent = n === 0 ? '未选中'
     : (grouped ? `已选中 1 组（${n} 个控件）` : `已选中 ${n} 个控件`);
-  document.getElementById('alignGroup').style.display = n >= 2 ? 'flex' : 'none';
-  const gb = document.getElementById('btnGroup');
-  const ub = document.getElementById('btnUngroup');
-  if (gb) gb.disabled = n < 2;
-  if (ub) ub.disabled = ![...selectedIds].some(id => project.getWidget(id)?.group);
+  const unlocked = [...selectedIds].map(id => project.getWidget(id)).filter(w => w && !w.locked);
+  const units = selectionUnits();
+  const primary = primarySelectionUnit(units);
+  const canTransform = units.some(unit => unit !== primary && !unit.locked);
+  for (const btn of document.querySelectorAll('#alignGroup [data-align], #alignGroup [data-size]')) {
+    const type = btn.dataset.align;
+    btn.disabled = type === 'hdist' || type === 'vdist'
+      ? !distributionOrder(units, type).slice(1, -1).some(unit => !unit.locked)
+      : !canTransform;
+  }
+  document.getElementById('btnGroup').disabled = unlocked.length < 2 || grouped;
+  document.getElementById('btnUngroup').disabled = !unlocked.some(w => w.group);
 }
 
 /** 用户主动改变选择：更新 UI + 广播（触发属性面板实时刷新）
@@ -418,8 +426,10 @@ function bindPointer() {
   canvasEl.addEventListener('pointerdown', e => {
     if (e.button !== 0) return;
     const handle = e.target.closest('.sel-h')?.dataset.handle;
-    if (handle) return startResize(e, handle);
     const wdEl = e.target.closest('.wd');
+    // 拖动和框选会取消指针默认行为，主动把焦点从表格输入框移回画布。
+    wrapEl.focus({ preventScroll: true });
+    if (handle) return startResize(e, handle);
     if (wdEl) {
       // 公共底那一层：在 **别的页面** 上点不动（一改就是所有套用它的页面一起变，
       // 太容易在普通页里误改）→ 提示一句，想改就双击跳到底页去改
@@ -436,6 +446,7 @@ function bindPointer() {
     if (e.button !== 0) return;
     if (e.target.closest('#canvas')) return;
     if (onScrollbar(e)) return;          // 压在滚动条上的一下别当成框选（不然滚一下就把选择清了）
+    wrapEl.focus({ preventScroll: true });
     return startBoxSelect(e);
   });
 }
@@ -820,19 +831,30 @@ function resizeUnitTo(u, w, h) {
   });
 }
 
+function primarySelectionUnit(units) {
+  return units.find(u => u.ids.includes(primaryId)) || units.at(-1);
+}
+
+function distributionCenter(u, type) {
+  return type === 'hdist' ? u.x + u.w / 2 : u.y + u.h / 2;
+}
+
+function distributionOrder(units, type) {
+  return [...units].sort((a, b) => distributionCenter(a, type) - distributionCenter(b, type));
+}
+
 export function alignWidgets(type) {
   const units = selectionUnits();
   if (units.length < 2) return;
   // 基准 = 主控件所在的那个单位（组就按组外框算）
-  const primaryUnit = units.find(u => u.ids.includes(primaryId)) || units[units.length - 1];
+  const primaryUnit = primarySelectionUnit(units);
 
   // 水平/垂直均布：首尾中心不动，中间按等间距排列（≥3 个单位）
   if (type === 'hdist' || type === 'vdist') {
     if (units.length < 3) return;
-    const cx = (u) => (type === 'hdist' ? u.x + u.w / 2 : u.y + u.h / 2);
-    const sorted = [...units].sort((a, b) => cx(a) - cx(b));
-    const first = cx(sorted[0]);
-    const last = cx(sorted[sorted.length - 1]);
+    const sorted = distributionOrder(units, type);
+    const first = distributionCenter(sorted[0], type);
+    const last = distributionCenter(sorted.at(-1), type);
     sorted.forEach((u, i) => {
       if (u.locked || u === sorted[0] || u === sorted[sorted.length - 1]) return;
       const c = first + (last - first) * i / (sorted.length - 1);
@@ -864,8 +886,7 @@ export function alignWidgets(type) {
 export function makeSameSize(type) {
   const units = selectionUnits();
   if (units.length < 2) return;
-  const primaryUnit = units.find(u => u.ids.includes(primaryId));
-  if (!primaryUnit) return;
+  const primaryUnit = primarySelectionUnit(units);
   const tw = type === 'height' ? null : primaryUnit.w;
   const th = type === 'width' ? null : primaryUnit.h;
   units.forEach(u => {
@@ -888,6 +909,9 @@ export function getGrid() { return gridOn; }
 export function setGrid(on) {
   gridOn = !!on;
   canvasEl.classList.toggle('nogrid', !gridOn);
+  const gridButton = document.getElementById('btnGrid');
+  gridButton?.classList.toggle('active', gridOn);
+  gridButton?.setAttribute('aria-pressed', String(gridOn));
   return gridOn;
 }
 

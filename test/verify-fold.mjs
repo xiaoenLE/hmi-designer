@@ -49,7 +49,11 @@ await page.waitForTimeout(150);
 const geoTitle = page.locator('#propBody .prop-group-title', { hasText: '几何 / 名称' }).first();
 const geoGroup = page.locator('#propBody .prop-group', { has: page.locator('.prop-group-title', { hasText: '几何 / 名称' }) }).first();
 const xVisibleBefore = await page.locator('#propBody [data-fld="x"]').isVisible();
-await geoTitle.click();
+const [x, y, w, h] = await Promise.all(['x', 'y', 'w', 'h'].map(key =>
+  geoGroup.locator('[data-fld="' + key + '"]').boundingBox()));
+ok('几何组：坐标和宽高分成两排', x.y === y.y && w.y === h.y && w.y > x.y && y.x > x.x);
+ok('几何组：锁定标签可以直接操作复选框', await geoGroup.getByRole('checkbox', { name: '锁定' }).isVisible());
+await geoTitle.press('Space');
 const geoFolded = await geoGroup.evaluate(el => el.classList.contains('folded'));
 const xVisibleAfterFold = await page.locator('#propBody [data-fld="x"]').isVisible();
 ok('几何组：折叠前 X 输入框可见', xVisibleBefore);

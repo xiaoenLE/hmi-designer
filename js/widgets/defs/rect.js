@@ -16,7 +16,11 @@ register({
     { key: 'bgColor', label: '填充色', type: 'color', allowEmpty: true },
     { key: 'borderColor', label: '边框色', type: 'color' },
     { key: 'borderWidth', label: '边框宽', type: 'number', min: 0, max: 12 },
-    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 60 },
+    // 线型：默认实线（不写进 defaults，老工程没这个键也按实线画，像素不变）
+    { key: 'lineStyle', label: '线型', type: 'select', defVal: 'solid', options: [
+      { v: 'solid', t: '实线' }, { v: 'dashed', t: '虚线' }, { v: 'dotted', t: '点线' },
+    ] },
+    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 100 },
   ],
   binding: null,
   actions: [],
@@ -25,6 +29,8 @@ register({
     // 空色值兜底：拼进 CSS 会产生非法声明被浏览器整条丢弃（透明语义 = transparent）
     const bg = p.bgColor && p.bgColor !== 'transparent' ? p.bgColor : 'transparent';
     const bd = p.borderColor || 'transparent';
-    return `<div class="w-rect" style="background:${bg};border:${p.borderWidth}px solid ${bd};border-radius:${p.radius}px"></div>`;
+    // 线型：只认 实线/虚线/点线；旧工程没这个键、手改坏了都回落实线
+    const ls = ['dashed', 'dotted'].includes(p.lineStyle) ? p.lineStyle : 'solid';
+    return `<div class="w-rect" style="background:${bg};border:${p.borderWidth}px ${ls} ${bd};border-radius:${p.radius}px"></div>`;
   },
 });

@@ -28,6 +28,7 @@ from .paths import DATA_DIR
 import hashlib
 import json
 import os
+import re
 import socket
 import threading
 import time
@@ -438,29 +439,48 @@ class _Cancel:
             self._resp = None
 
 
+_CONTEXT_LIMIT_CODES = {
+    "context_length_exceeded", "context_window_exceeded", "max_context_length_exceeded",
+}
+_CONTEXT_LIMIT_TEXT = re.compile(
+    r"(?:maximum (?:model )?context (?:length|window|size)|"
+    r"context (?:length|window|size).{0,80}(?:exceed|too (?:long|large))|"
+    r"(?:exceed|too (?:long|large)).{0,80}context (?:length|window|size)|"
+    r"上下文.{0,24}(?:超[过出限]|过长))", re.IGNORECASE | re.DOTALL,
+)
+
+
+def _model_error_parts(obj):
+    if not isinstance(obj, dict):
+        return "", str(obj or "")
+    err = obj.get("error")
+    source = err if isinstance(err, dict) else obj
+    code = str(source.get("code") or source.get("type") or "").strip().lower()
+    detail = source.get("message") or (err if isinstance(err, str) else "") or obj.get("message")
+    return code, str(detail or "").strip()
+
+
+def _is_context_limit(code, detail):
+    return code in _CONTEXT_LIMIT_CODES or bool(_CONTEXT_LIMIT_TEXT.search(detail))
+
+
 def _map_http_error(e):
-    """HTTP 错误 → (code, 人话)。401/403/429 有专门文案。"""
+    """把模型的 HTTP 拒绝映射为前端可判断的错误。"""
     status = int(getattr(e, "code", 0) or 0)
     if status in (401, 403):
         return "http", "API Key 无效或无权限"
     if status == 429:
         return "http", "模型服务限流，请稍后再试"
-    detail = ""
+    code = detail = raw = ""
     try:
-        raw = e.read(1024)
-        if raw:
-            obj = json.loads(raw.decode("utf-8", "replace"))
-            if isinstance(obj, dict):
-                err = obj.get("error")
-                if isinstance(err, dict):
-                    detail = str(err.get("message") or "")
-                elif err:
-                    detail = str(err)
-                detail = detail or str(obj.get("message") or "")
-    except Exception:                                              # noqa: BLE001
-        detail = ""
-    detail = detail.strip()[:200]
-    return "http", f"模型服务返回 HTTP {status}" + (f"：{detail}" if detail else "")
+        raw = e.read(4096).decode("utf-8", "replace")
+        code, detail = _model_error_parts(json.loads(raw))
+    except (OSError, ValueError):
+        pass
+    if _is_context_limit(code, detail or (raw if status in (400, 413, 422) else "")):
+        return "context_limit", "模型上下文超限"
+    return "http", f"模型服务返回 HTTP {status}" + (f"：{detail[:200]}" if detail else "")
+
 
 
 def _is_local_thinking_model(cfg):
@@ -494,7 +514,11 @@ def _post_chat(cfg, body, on_event=None, cancel=None):
         msgs = [dict(m) for m in msgs]
         for _m in reversed(msgs):
             if _m.get("role") == "user":
-                _m["content"] = str(_m.get("content") or "") + "\n/no_think"
+                content = _m.get("content")
+                if isinstance(content, list):
+                    _m["content"] = [*content, {"type": "text", "text": "/no_think"}]
+                else:
+                    _m["content"] = str(content or "") + "\n/no_think"
                 break
     payload = {
         "model": str(body.get("model") or cfg.get("model") or DEFAULTS["model"]),
@@ -605,6 +629,11 @@ def _read_stream(resp, timeout, on_event, cancel):
             continue                    # 坏行忽略（有些服务会漏半行/注释行）
         if not isinstance(chunk, dict):
             continue
+        if chunk.get("error"):
+            code, detail = _model_error_parts(chunk)
+            if _is_context_limit(code, detail):
+                raise _AiErr("context_limit", "模型上下文超限")
+            raise _AiErr("http", "模型服务返回错误" + (f"：{detail[:200]}" if detail else ""))
         u = chunk.get("usage")
         if isinstance(u, dict) and u:
             usage = u                   # usage 块通常在最后（choices:[]），先收着
@@ -655,6 +684,7 @@ def _read_stream(resp, timeout, on_event, cancel):
         blob = " ".join(other_lines)
         if "error" in blob.lower():
             msg = blob
+            obj = None
             try:
                 obj = json.loads(blob) if blob.lstrip().startswith("{") else None
                 if isinstance(obj, dict) and obj.get("error") is not None:
@@ -662,6 +692,9 @@ def _read_stream(resp, timeout, on_event, cancel):
                     msg = err if isinstance(err, str) else json.dumps(err, ensure_ascii=False)
             except Exception:                                      # noqa: BLE001
                 pass
+            error_code, detail = _model_error_parts(obj)
+            if _is_context_limit(error_code, detail or blob):
+                raise _AiErr("context_limit", "模型上下文超限")
             raise _AiErr("http", "模型服务返回了错误而不是流式回复：" + str(msg)[:300]
                          + "｜接口地址可能不对：多数 OpenAI 兼容服务要以 /v1 结尾"
                            "（LM Studio 填 http://IP:1234/v1，小米填 https://api.xiaomimimo.com/v1）")

@@ -9,6 +9,7 @@
  *   widgets  [{ id, type, name, x, y, w, h, z, props:{...}, bindings:{variable}, actions:[...] }]
  *   variables[{ name, type:'bool|int|real|string', address, value }]
  *   alarms   [{ id, name, variable, op, value, level, delaySec, enabled, text }]
+ *   alarmLevels [{ v, t, color, rank }]   ← 工程自定义报警级别，规则与控件保存级别 ID
  *   scripts  [{ id, name, trig, ms, variable, op, value, code, enabled }]
  *   permissions { enabled, lockAfterMin, levels:[{ id, name, salt, hash, iter }] }
  *              ← 运行态**操作权限**：等级自己配（名字 + 密码，只存哈希）。数组顺序 = 等级高低
@@ -41,6 +42,7 @@
  *   · 改底 = 所有套用它的页面一起变，这就是"相同的只写一次"的意思。
  */
 import { bus } from './eventBus.js';
+import { normalizeAlarmLevels } from './alarmLevels.js';
 import { genId, deepClone, normAddr, bumpAddr, wordsFor, setProfile,
   protocolOfConfig, profileForProtocol,
   isArrayType, elemTypeOf, arrayLenOf, parseArrayText, isOpcAddr,
@@ -159,6 +161,7 @@ function normalize(data) {
     if (v.retain) v.retain = true; else delete v.retain;
   });
   if (!Array.isArray(data.alarms)) data.alarms = [];
+  if (data.alarmLevels !== undefined) data.alarmLevels = normalizeAlarmLevels(data.alarmLevels);
   // 操作权限：等级表跟着工程走（密码只存「盐 + 迭代哈希」，不存明文，见 core/sha256.js）
   if (!data.permissions || typeof data.permissions !== 'object') data.permissions = {};
   const pm = data.permissions;
@@ -446,6 +449,13 @@ function blankProject() {
 
 /* ─────────── 工程对象 ─────────── */
 const EMPTY_ARR = [];
+const widgetZ = widget => Number(widget.z) || 0;
+
+// 层级相同时按页面内的绘制顺序比较，和画布叠放顺序一致。
+function widgetsByZ(widgets) {
+  return [...widgets].sort((a, b) => widgetZ(a) - widgetZ(b));
+}
+
 export const project = {
   data: null,
   currentId: null,   // 当前编辑页 id
@@ -484,13 +494,13 @@ export const project = {
   needServerPull() {
     return !this.hadLocal || this.data?.meta?.autoSeed === true;
   },
-  replaceData(data) {
+  replaceData(data, { fromHistory = false } = {}) {
     this.data = normalize(data);
     if (!this.pages().find(p => p.id === this.currentId)) this.currentId = this.data.pages[0]?.id;
     this._widCache = null;                                        // 换工程了：控件索引缓存作废
     bus.emit('selection:changed', { ids: [] });                   // 选中的是老工程里的控件，清掉
     bus.emit('page:current', { pageId: this.currentId });
-    bus.emit('project:replaced', { data: this.data });             // 打开/新建/恢复：工程整份换掉了
+    bus.emit('project:replaced', { data: this.data, fromHistory });             // 打开/新建/恢复：工程整份换掉了
     this.touch();
   },
   /**
@@ -1400,7 +1410,7 @@ export const project = {
     this.touch();
   },
   /** 更新单个控件 props 键 */
-  updateWidgetProp(id, key, value) {
+  updateWidgetProp(id, key, value, { notify = true } = {}) {
     // 整数控件的小数位 = 定点缩放位数，fmt 才是缩放开关（见 utils.js 的 intDecimalsOf/fixedScaleOf）。
     // 属性面板改小数位时会同时写 fmt，但 MCP / AI / 外部脚本常常只写 decimals 或者只切 dispType，
     // 漏写 fmt 会让屏上的数值差 10 倍，所以这里按面板的同一套规则兜一手（浮点/字符串不碰）。
@@ -1412,7 +1422,7 @@ export const project = {
       const cur = String(w.props.operate || '');
       w.props.operate = value === true ? 'view' : (cur === 'view' || !cur ? 'pick' : cur);
       this.markDirty(id);
-      this.touch();
+      if (notify) this.touch();
       return;
     }
     if (w.type === 'button' && key === 'showState') {
@@ -1431,7 +1441,7 @@ export const project = {
       syncIntDecimalsFmt(w, key, wasInt);
     }
     this.markDirty(id);
-    this.touch();
+    if (notify) this.touch();
   },
   updateWidgetField(id, key, value) {
     const w = this.getWidget(id);
@@ -1456,7 +1466,50 @@ export const project = {
     this.markDirty(id);
     this.touch();
   },
+  zStepAvailability(ids) {
+    const available = { up: false, down: false };
+    if (!ids.length) return available;
+    const selected = new Set(ids);
+    const ordered = widgetsByZ(this.currentWidgets());
+    for (let i = 1; i < ordered.length; i++) {
+      const behind = selected.has(ordered[i - 1].id);
+      const ahead = selected.has(ordered[i].id);
+      if (behind && !ahead) available.up = true;
+      if (!behind && ahead) available.down = true;
+    }
+    return available;
+  },
+
+  stepZ(ids, where) {
+    const ordered = widgetsByZ(this.currentWidgets());
+    const layers = ordered.map(widgetZ);
+    const distinct = new Set(layers).size === layers.length;
+    const selected = new Set(ids);
+    const up = where === 'up';
+    const direction = up ? 1 : -1;
+    let moved = false;
+    // 从移动方向的前端遍历，每段选中的控件整体跨过紧邻的未选中控件。
+    for (let i = up ? ordered.length - 2 : 1; i >= 0 && i < ordered.length; i -= direction) {
+      const neighbor = i + direction;
+      if (!selected.has(ordered[i].id) || selected.has(ordered[neighbor].id)) continue;
+      [ordered[i], ordered[neighbor]] = [ordered[neighbor], ordered[i]];
+      moved = true;
+    }
+    if (!moved) return;
+
+    const dirty = [];
+    ordered.forEach((widget, i) => {
+      const z = distinct ? layers[i] : i + 1;
+      if (widget.z === z) return;
+      widget.z = z;
+      dirty.push(widget.id);
+    });
+    this.markDirty(dirty);
+    this.commit(up ? '上移一层' : '下移一层');
+  },
+
   setZ(ids, where) {
+    if (where === 'up' || where === 'down') return this.stepZ(ids, where);
     const page = this.currentPage();
     const zs = page.widgets.map(w => w.z);
     const top = Math.max(...zs, 0), bottom = Math.min(...zs, 100000);
@@ -1470,6 +1523,15 @@ export const project = {
 
   /* ── 变量 ── */
   variables() { return this.data.variables; },
+  recipeVariables() {
+    const names = new Set(Array.isArray(this.data.recipeVariables) ? this.data.recipeVariables : []);
+    return this.variables().filter(v => names.has(v.name));
+  },
+  setRecipeVariables(names) {
+    const selected = new Set(names);
+    this.data.recipeVariables = this.variables().filter(v => selected.has(v.name)).map(v => v.name);
+    this.commit('配置配方地址');
+  },
   addVariable() {
     // 新变量默认：无地址（**内部变量**，不下发 PLC）+ 不保持 ——
     // 内部变量就是"HMI 自己算的东西"，勾上「保持」才会落盘（见 varsPanel 的保持列）
@@ -1509,6 +1571,9 @@ export const project = {
     this.data.variables = this.data.variables.filter(v => !kill.has(v.name));
     const gone = before - this.data.variables.length;
     if (!gone) return 0;
+    if (Array.isArray(this.data.recipeVariables)) {
+      this.data.recipeVariables = this.data.recipeVariables.filter(name => !kill.has(name));
+    }
     this.data.pages.forEach(p => p.widgets.forEach(w => {
       if (kill.has(w.bindings?.variable)) w.bindings.variable = '';
       if (Array.isArray(w.bindings?.variables)) {
@@ -1526,7 +1591,7 @@ export const project = {
   },
   /** 变量被多少处引用（控件绑定 / 波形通道 / 动作 / 报警条件）——删除前用来提醒 */
   variableRefs(name) {
-    let n = 0;
+    let n = Array.isArray(this.data.recipeVariables) && this.data.recipeVariables.includes(name) ? 1 : 0;
     this.pages().forEach(p => p.widgets.forEach(w => {
       if (w.bindings?.variable === name) n++;
       if (Array.isArray(w.bindings?.variables) && w.bindings.variables.includes(name)) n++;
@@ -1564,8 +1629,10 @@ export const project = {
     const ua = isOpcAddr(v.address);
     const step = Math.max(1, wordsFor(elem, 0));
     const created = [];
+    const elements = [];
     for (let k = 1; k <= n; k++) {
       const elName = `${name}[${k}]`;
+      elements.push(elName);
       if (this.data.variables.some(x => x.name === elName)) continue;      // 已经有了就不动它
       let addr = '';
       if (v.address) addr = ua ? `${v.address}[${k}]` : bumpAddr(v.address, step * (k - 1));
@@ -1611,6 +1678,9 @@ export const project = {
       w.actions = keep;
     }));
     this.alarms().forEach(a => { if (a.variable === name) { a.variable = ''; cleared++; } });
+    if (Array.isArray(this.data.recipeVariables) && this.data.recipeVariables.includes(name)) {
+      this.data.recipeVariables = [...new Set(this.data.recipeVariables.flatMap(n => n === name ? elements : [n]))];
+    }
     // ③ 删掉原数组变量、一次提交（一步撤销）
     this.data.variables = this.data.variables.filter(x => x.name !== name);
     this.commit('展开数组');
@@ -1753,6 +1823,11 @@ export const project = {
 
   /* ── 报警表（报警编辑栏用）──
      每条报警 = 触发条件（变量 + 比较 + 阈值） + 内容（可写 {变量名} 关联变量） */
+  customAlarmLevels() { return this.data.alarmLevels || []; },
+  setCustomAlarmLevels(levels) {
+    this.data.alarmLevels = normalizeAlarmLevels(levels);
+    this.commit('修改报警级别');
+  },
   alarms() {
     if (!Array.isArray(this.data.alarms)) this.data.alarms = [];
     return this.data.alarms;
@@ -1822,6 +1897,9 @@ export const project = {
    */
   remapVarRefs(oldName, newName) {
     if (!oldName || !newName || oldName === newName) return false;
+    if (Array.isArray(this.data.recipeVariables)) {
+      this.data.recipeVariables = this.data.recipeVariables.map(name => name === oldName ? newName : name);
+    }
     this.data.pages.forEach(p => p.widgets.forEach(w => {
       if (w.bindings?.variable === oldName) w.bindings.variable = newName;
       if (Array.isArray(w.bindings?.variables)) {
@@ -1866,6 +1944,12 @@ export const project = {
     // ⚠ 正则不能提到外面共用：带 g 的正则有 lastIndex 状态，两处一起用会漏匹配
     const apiRe = () => /\bhmi\s*\.\s*(?:get|set|has)\s*\(\s*(['"])([^'"]+)\1/g;
     const propRe = () => scriptVarPropRe();
+    const variableNames = new Set(this.variables().map(v => v.name));
+    const indexedName = (name, index) => index === undefined ? '' : name + '[' + index + ']';
+    const isExpanded = (name, index) => {
+      const full = indexedName(name, index);
+      return full && (full === oldName || variableNames.has(full));
+    };
     const countApi = (code) => {
       const re = apiRe();
       let n = 0, m;
@@ -1875,25 +1959,29 @@ export const project = {
     const countProp = (code) => {
       const re = propRe();
       let n = 0, m;
-      while ((m = re.exec(code))) if ((m[1] || m[3]) === oldName) n++;
+      while ((m = re.exec(code))) {
+        const name = m[1] || m[3];
+        if ((isExpanded(name, m[4]) ? indexedName(name, m[4]) : name) === oldName) n++;
+      }
       return n;
     };
     this.scripts().forEach(s => {
       if (s.variable === oldName) { s.variable = newName; out.trig++; }
       const code = String(s.code || '');
-      if (!code.includes(oldName)) return;
+      if (!code.includes(oldName) && !code.includes(oldName.replace(/\[\d+\]$/, ''))) return;
       let next = code;
       let n = countApi(code);
       if (n) next = next.replace(apiRe(), (m, q, name) => (name === oldName ? m.replace(name, newName) : m));
       const np = countProp(next);
       if (np) {
         n += np;
-        next = next.replace(propRe(), (m, dotName, q, strName) => {
+        next = next.replace(propRe(), (m, dotName, q, strName, index) => {
           const name = dotName || strName;
-          if (name !== oldName) return m;
-          if (!dotName) return `hmi.v[${q}${newName}${q}]`;                 // 方括号写法：换个名字就好
-          // 点写法：新名字还是合法标识符就照旧点着写，否则退成方括号（点写法放不下这种名字）
-          return isIdentName(newName) ? `hmi.v.${newName}` : `hmi.v['${newName}']`;
+          const expanded = isExpanded(name, index);
+          if ((expanded ? indexedName(name, index) : name) !== oldName) return m;
+          const suffix = !expanded && index !== undefined ? '[' + index + ']' : '';
+          if (!dotName) return 'hmi.v[' + q + newName + q + ']' + suffix;
+          return (isIdentName(newName) ? 'hmi.v.' + newName : "hmi.v['" + newName + "']") + suffix;
         });
       }
       if (n) { s.code = next; out.code += n; }

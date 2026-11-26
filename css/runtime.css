@@ -17,9 +17,9 @@ body.run-only #toolbar,
 body.run-only #workspace,
 body.run-only #bottomPanel,
 body.run-only #seMask,
-body.run-only #ctxMenu,
 body.run-only .panel-resizer,
 body.run-only .dock-resizer-h { display: none !important; }
+body:has(#runtimeRoot:not(.hidden)) #ctxMenu { z-index: 100010; }
 /* 客户机上的提示框（比如「服务器上还没有工程」）走深色底，跟运行界面一套 */
 body.run-only #bootHint {
   background: #232831; color: #e5e7eb; border-color: rgba(255,255,255,.14);
@@ -402,6 +402,7 @@ body.run-only .rt-popup textarea {
 /* ── 全键盘（string / wstring 用）：英文 + 数字 + 符号 + 中文拼音 ──
    宽度跟着外面的 #numPad 走，这里只按「一行一个 flex 行」排键。 */
 #numPad.wide { width: 640px; }
+#numPad.np-field { max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); overflow: auto; }
 .np-text { display: flex; flex-direction: column; gap: 7px; }
 .np-text.hidden, .np-cand.hidden, .np-keys.hidden { display: none; }
 .np-row { display: flex; gap: 6px; justify-content: center; }
@@ -569,3 +570,149 @@ body.run-only .rt-popup textarea {
   font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
 }
 .rt-perm-toast.hidden { display: none; }
+
+/* 配方查看页及工程地址配置的表格。 */
+#recipeManager {
+  position: fixed; inset: 0; z-index: 110000; background: #edf2f7; color: var(--text);
+}
+.rm-shell { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.rm-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px clamp(12px, 3vw, 38px); background: #172a49; color: #fff;
+}
+.rm-header h1 { font-size: clamp(19px, 2.4vw, 25px); font-weight: 650; }
+.rm-page {
+  display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  background: #fff; border: 1px solid #d9e2ee; border-radius: 8px;
+}
+.rm-page { flex: 1; width: min(1320px, calc(100% - 28px)); margin: 14px auto; }
+.rm-preview > header {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 12px; background: #f0f5fc; border-bottom: 1px solid #dce6f1;
+}
+.rm-tools, .rm-pagination {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 9px 12px; border-bottom: 1px solid #e2e8f0;
+}
+.rm-tools input { margin-left: auto; width: min(100%, 240px); }
+#recipeManager input[type="search"] {
+  min-height: 34px; min-width: 0; padding: 5px 8px; border: 1px solid #c3cbd6;
+  border-radius: 5px; background: #fff; color: var(--text); font: inherit;
+}
+#recipeManager .tb-btn { min-height: 34px; }
+#recipeManager :focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.rm-scroll { flex: 1; min-height: 0; overflow: auto; }
+.rm-table { width: 100%; border-spacing: 0; }
+.rm-table :is(th, td) {
+  text-align: left; padding: 8px 12px; border-bottom: 1px solid #e7edf5;
+  overflow-wrap: anywhere;
+}
+.rm-table thead th { position: sticky; top: 0; z-index: 1; color: #38516d; background: #f0f5fc; }
+.rm-table tbody tr:nth-child(even) { background: #f9fbfd; }
+.rm-table tbody tr:has(input:checked) { background: #edf5ff; }
+.rm-table th[scope="row"] { font-weight: 600; }
+.rm-table input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); }
+.rm-row-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+.rm-empty { padding: 24px 12px; color: #536680; text-align: center !important; }
+.recipe-config .rm-tools { padding-inline: 0; }
+.recipe-config .rm-tools label { display: inline-flex; align-items: center; gap: 6px; }
+.recipe-config .rm-tools input[type="checkbox"] { width: 16px; }
+.recipe-config .rm-tools [role="status"] { margin-left: auto; color: var(--text-2); }
+.recipe-config .rm-scroll { max-height: min(52vh, 430px); border: 1px solid #dce6f1; border-top: 0; }
+.recipe-config .rm-table td:last-child { font-family: var(--mono); }
+.rm-preview { max-height: 33%; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid #dce6f1; }
+.rm-preview[hidden], .rm-pagination[hidden] { display: none; }
+.rm-pagination { justify-content: center; border-top: 1px solid #e2e8f0; }
+.rm-status { padding: 4px 12px; max-height: 20vh; overflow: auto; white-space: pre-line; color: #166534; }
+.rm-status.error { color: #b91c1c; }
+.rm-status:empty { display: none; }
+@media (max-width: 680px) {
+  .rm-page { width: calc(100% - 12px); margin: 6px auto; }
+  .rm-header, .rm-tools { padding: 7px 9px; gap: 5px; }
+  .rm-tools input { width: 100%; margin-left: 0; }
+  .rm-table :is(th, td) { padding: 6px; }
+  .rm-page > .rm-scroll .rm-table :is(th, td):nth-child(3) { display: none; }
+  .rm-row-actions .tb-btn { padding-inline: 7px; }
+}
+
+.w-recipe-editor {
+  display: flex; flex-direction: column; height: 100%; overflow: hidden;
+  color: #1c2d42; background: #fff; border: 1px solid #9baec5; border-radius: 5px;
+}
+.rg-toolbar, .rg-footer, .rc-toolbar, .rc-save-form {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 5px; padding: 5px 8px;
+}
+.rg-toolbar, .rg-footer { background: #eaf0f7; }
+.rg-toolbar strong, .rc-toolbar strong { flex: 1; min-width: 5em; overflow-wrap: anywhere; }
+.rg-footer { border-top: 1px solid #c9d7e6; font-size: .9em; }
+.rg-footer [data-rg-status] { flex: 1; min-width: 0; max-height: 3em; overflow: auto; color: #17683f; }
+.rg-footer [data-rg-status].error { color: #ab252b; }
+.rg-footer[hidden], .rg-footer [hidden], .rg-actions [hidden] { display: none; }
+.rg-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.rg-table { border-spacing: 0; width: 100%; font: inherit; }
+.rg-table :is(th, td) {
+  min-width: 8.7em; padding: 5px 7px; text-align: left; vertical-align: top;
+  border-right: 1px solid #dbe4ef; border-bottom: 1px solid #dbe4ef; overflow-wrap: anywhere;
+}
+.rg-table thead th { position: sticky; top: 0; background: #dce8f5; z-index: 2; }
+.rg-table :is(.rg-variable, th:first-child) { position: sticky; left: 0; min-width: 6em; max-width: 11em; }
+.rg-table thead th:first-child { z-index: 3; }
+.rg-table tbody th { background: #edf3f9; z-index: 1; }
+.rg-table tbody tr:nth-child(even) td { background: #f5f8fb; }
+.rg-table .rg-empty { padding: 12px; color: #455c77; }
+.rg-actions { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
+.rg-dirty { margin-left: 5px; color: #795113; font-size: .86em; }
+.w-recipe-editor :is(input, select, textarea, button), .rc-save-form input {
+  min-width: 0; min-height: 26px; padding: 2px 5px; font: inherit; color: inherit;
+  border: 1px solid #a9bdd2; border-radius: 3px; background: #fff;
+}
+.w-recipe-editor button { cursor: pointer; white-space: nowrap; }
+.w-recipe-editor button:disabled { cursor: default; opacity: .48; }
+.w-recipe-editor button.rg-primary { background: #244e83; border-color: #244e83; color: #fff; }
+.rg-toolbar input { width: min(11em, 100%); }
+.rg-actions button { min-height: 24px; font-size: .89em; font-weight: 500; }
+.rg-table :is(input, textarea, select, .rg-locked-cell) { display: block; width: 100%; font-variant-numeric: tabular-nums; }
+.rg-table textarea { resize: vertical; }
+.rg-table .rg-locked-cell { text-align: left; white-space: normal; overflow-wrap: anywhere; background: transparent; border-color: transparent; }
+.w-recipe-editor :focus-visible, .rc-save-form :focus-visible { outline: 2px solid #2563eb; outline-offset: -1px; }
+.rc-save-form input { flex: 1; }
+.w-recipe button { color: #1c2d42; }
+.w-recipe button[data-rcact="delete"] { color: #9c2433; }
+.rc-delete-lock { display: none; }
+.rc-delete-locked .rc-delete-lock { display: inline; }
+.rc-detail {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  container-type: inline-size;
+  color: #1c2d42; background: #fff; border-top: 1px solid #cedae8;
+}
+.rc-detail-toolbar {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(9em, 12em) auto;
+  align-items: center; gap: 6px;
+  padding: 5px 8px; color: #fff; background: #244c76;
+}
+.rc-detail-title { min-width: 0; overflow-wrap: anywhere; }
+.rc-detail-find {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+}
+.rc-detail-query {
+  flex: 1; width: 100%; min-width: 0; min-height: 26px; padding: 2px 6px;
+  color: #1c2d42; background: #fff; font: inherit;
+  border: 1px solid #a9bdd2; border-radius: 4px;
+}
+.rc-detail-query::placeholder { color: #455c77; opacity: 1; }
+.rc-detail-count { white-space: nowrap; font-size: .9em; font-variant-numeric: tabular-nums; }
+.rc-detail-count:empty { display: none; }
+.rc-detail-toolbar :focus-visible { outline: 2px solid #bad9ff; outline-offset: 1px; }
+.rc-data-list { flex: 1; min-height: 0; overflow: auto; }
+.rc-data-list table { width: 100%; border-spacing: 0; }
+.rc-data-list :is(th, td) {
+  padding: 4px 8px; text-align: left; border-bottom: 1px solid #cedae8; overflow-wrap: anywhere;
+}
+.rc-data-list thead th { position: sticky; top: 0; background: #eaf0f7; }
+.rc-data-list tbody tr:nth-child(even) { background: #f6f8fc; }
+.rc-data-list .rc-detail-empty { text-align: center; padding: 8px; color: #455c77; }
+@container (max-width: 300px) {
+  .rc-detail-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
+  .rc-detail-toolbar button { grid-column: 2; grid-row: 1; }
+  .rc-detail-find { grid-column: 1 / -1; }
+}

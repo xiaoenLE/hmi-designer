@@ -20,7 +20,7 @@ import path from 'node:path';
 import { wsConnect } from './_wsfetch.mjs';
 
 const PY = 'C:/Users/Administrator/AppData/Local/Programs/Python/Python310/python.exe';
-const ROOT = 'C:/Users/Administrator/Desktop/hmi/hmi-designer-v2';
+const ROOT = path.resolve(import.meta.dirname, '..');
 const PW = 'admin123';                     // 全新数据目录 → 后端按默认密码建口令文件
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -109,6 +109,9 @@ ok('?full=1 取回整表 vars（值/类型原样）',
   JSON.stringify(rec));
 ok('配方里三个变量都在（不多不少）', rec.vars && Object.keys(rec.vars).length === 3,
   JSON.stringify(Object.keys(rec.vars || {})));
+const single = await api('/api/recipes?name=' + encodeURIComponent(N1));
+ok('按配方名读取只返回这一套参数', single.ok && single.recipe.name === N1
+  && single.recipe.vars.rSpeed === V1.rSpeed && !single.recipes, JSON.stringify(single));
 
 /* ═══════════ 2. 同名覆盖保存 ═══════════ */
 const before = (await list()).count;
@@ -176,6 +179,26 @@ const newVars = await readVars();
 ok('（内存模式口径）未声明的变量自动建档：rBrandNew=5（与运行页写值同一条路）',
   newApply.ok === true && newApply.applied.includes('rBrandNew') && newVars.rBrandNew === 5,
   JSON.stringify({ applied: newApply.applied, rBrandNew: newVars.rBrandNew }));
+
+const boolName = '回归_BOOL配方';
+const post = (p, body) => api(p, { method: 'POST', body });
+await post('/api/vars/declare', { variables: [
+  { name: 'bRecipeState', type: 'bool', address: '', value: false },
+  { name: 'bRecipeArray', type: 'bool[]', address: '', value: [false, true] },
+] });
+const currentBool = () => post('/api/recipes/current', { names: ['bRecipeState', 'bRecipeArray'] });
+await post('/api/vars', { name: 'bRecipeState', value: 1 });
+const boolOn = await currentBool();
+await post('/api/vars', { name: 'bRecipeState', value: 0 });
+const boolOff = await currentBool();
+ok('读取配方当前值区分 BOOL 1 和 0', boolOn.values?.bRecipeState === true && boolOff.values?.bRecipeState === false,
+  JSON.stringify([boolOn.values, boolOff.values]));
+await save(boolName, { bRecipeState: '0', bRecipeArray: [1, 0] });
+await apply(boolName);
+const legacyBools = await readVars();
+ok('旧配方应用时转换字符串 0 及 BOOL 数组',
+  legacyBools.bRecipeState === false && JSON.stringify(legacyBools.bRecipeArray) === '[true,false]');
+await del(boolName);
 
 /* ═══════════ 6. 应用不存在的配方：404 + 原因（不是 500，也不是静默成功）═══════════ */
 const noSuch = await apply('回归_根本没有这个配方');

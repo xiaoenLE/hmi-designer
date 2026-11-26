@@ -8,8 +8,8 @@
 import { register, rutil } from '../registry.js';
 const { escapeHtml } = rutil;
 import { fmtTime, fmtDate, dayStart, TIME_PRESETS } from '../../core/utils.js';
-import { alarmHistory, levelOf } from '../../runtime/alarms.js';
-import { alarmRuntime, alarmTimeFmt, DEMO_HISTORY, HIST_MAX, esc, editSampleHistory } from './alarmShared.js';
+import { levelOf } from '../../runtime/alarms.js';
+import { alarmRuntime, alarmTimeFmt, alarmLevelFilterProp, filterByLevel, HIST_MAX, esc, editSampleHistory } from './alarmShared.js';
 import { tr } from '../../core/i18n.js';
 
 register({
@@ -19,6 +19,7 @@ register({
   icon: '<svg viewBox="0 0 36 36" width="30" height="30"><rect x="4" y="6" width="28" height="24" rx="2" fill="#fff" stroke="#94a3b8"/><rect x="4" y="6" width="28" height="7" fill="#e2e8f0"/><path d="M9 18h6M9 24h10M20 18h7" stroke="#c3cbd6" stroke-width="1.6"/><circle cx="29" cy="24" r="4" fill="#94a3b8"/><path d="M27.4 24H29v-2" stroke="#fff" stroke-width="1.4" fill="none"/></svg>',
   defaults: {
     w: 460, h: 190,
+    levelFilter: 'all',
     maxRows: 6, showHeader: true, dayNav: true, showTime: true,
     timeFmt: 'MM-DD hh:mm:ss', timeFmtCustom: 'hh:mm:ss.SSS',
     showEnd: true, clearable: true, clearText: '清空记录', todayText: '今天',
@@ -29,6 +30,7 @@ register({
     borderColor: '#c3cbd6', borderWidth: 1, radius: 4,
   },
   props: [
+    alarmLevelFilterProp,
     { key: 'dayNav', label: '按天翻看', type: 'check', defVal: true },
     { key: 'maxRows', label: '显示条数', type: 'number', min: 1, max: 50 },
     { key: 'showHeader', label: '显示表头', type: 'check', defVal: true },
@@ -50,7 +52,7 @@ register({
     { key: 'headerColor', label: '表头文字', type: 'color' },
     { key: 'borderColor', label: '线色', type: 'color' },
     { key: 'borderWidth', label: '边框宽', type: 'number', min: 0, max: 8 },
-    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 30 },
+    { key: 'radius', label: '圆角', type: 'number', min: 0, max: 100 },
   ],
   binding: {}, actions: [],
   render(w, mode) {
@@ -59,7 +61,9 @@ register({
     const day = rt.historyDay(w.id);                     // 运行时正在看哪一天（0 = 今天）
     const isToday = dayStart(day) === dayStart();
     const all = rt.historyOfDay(day);
-    const rows = (mode === 'edit' && !all.length ? editSampleHistory() : all).slice().reverse();   // 最新在上
+    const filtered = mode === 'edit' && !all.length
+      ? editSampleHistory(p.levelFilter) : filterByLevel(all, p.levelFilter);
+    const rows = filtered.slice().reverse();   // 最新在上
     const fmt = alarmTimeFmt(p);
     const cellH = Math.max(16, +p.rowH || 26);
     const jumpRef = String(p.jumpPage || '').trim();   // 点一行跳到哪页（留空 = 行不可点）
@@ -98,7 +102,7 @@ register({
           ${mode === 'edit' ? 'disabled' : ''}>${escapeHtml(tr(p.todayText || '今天'))}</button>
         <span class="at-count">${rows.length} 条</span>
         ${p.clearable !== false && mode !== 'edit'
-          ? `<button class="at-btn at-clear" type="button" data-alarmclear="1">${escapeHtml(tr(p.clearText || '清空记录'))}</button>` : ''}
+          ? `<button class="at-btn at-clear" type="button" data-alarmclear="1" title="${escapeHtml(tr('清空全部报警历史'))}">${escapeHtml(tr(p.clearText || '清空记录'))}</button>` : ''}
       </div>`;
     return `<div class="w-alarmtbl hist" style="--at-line:${p.borderColor};--at-head:${p.headerBg};--at-headfg:${p.headerColor};
         font-size:${p.fontSize}px;color:${p.textColor};background:${p.bgColor};
